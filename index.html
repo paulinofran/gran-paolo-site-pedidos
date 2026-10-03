@@ -435,6 +435,43 @@ function ehPizza(p){
 ====================================================================== */
 const WHATSAPP_NUMERO = "5584996718998";
 
+// Conexão com o banco de dados (Supabase) — guarda clientes e pedidos.
+// A "publishable key" é segura pra ficar aqui, exposta no site: ela só
+// consegue fazer o que as regras de segurança do banco permitem.
+const SUPABASE_URL = "https://shhdqvhjvtwoviiqtxng.supabase.co";
+const SUPABASE_KEY = "sb_publishable_qpfP7hAj0tmvwVEEqkqluA_iKzPYFUJ";
+
+// Salva/atualiza o cliente e registra o pedido no banco. Roda em segundo
+// plano: se falhar (sem internet, banco fora do ar etc.), não trava nem
+// atrasa o envio do pedido pelo WhatsApp — essa parte continua sendo
+// o caminho principal e garantido.
+async function salvarPedidoNoCRM({nome, telefone, endereco, modalidade, bairro, taxa, itens, total, pagamento, obs}){
+  const headers = {
+    "apikey": SUPABASE_KEY,
+    "Authorization": `Bearer ${SUPABASE_KEY}`,
+    "Content-Type": "application/json",
+  };
+  try{
+    // Upsert do cliente (cria se não existir, atualiza nome/endereço se já existir)
+    await fetch(`${SUPABASE_URL}/rest/v1/clientes`, {
+      method: "POST",
+      headers: {...headers, "Prefer": "resolution=merge-duplicates"},
+      body: JSON.stringify({telefone, nome, endereco}),
+    });
+  }catch(e){ /* segue mesmo se falhar */ }
+  try{
+    // Registra o pedido
+    await fetch(`${SUPABASE_URL}/rest/v1/pedidos`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        telefone, nome, modalidade, bairro: bairro || null, taxa_entrega: taxa || 0,
+        itens, total, pagamento, obs: obs || null,
+      }),
+    });
+  }catch(e){ /* segue mesmo se falhar */ }
+}
+
 /* ======================================================================
    ESTADO
 ====================================================================== */
@@ -845,6 +882,14 @@ function enviarPedidoWhatsapp(){
   if(modalidadeAtual==='Entrega' && !bairro){ alert('Por favor, selecione seu bairro.'); return; }
 
   salvarDadosCliente(nome, endereco, telefone);
+
+  // Salva no CRM em segundo plano — não atrasa nem bloqueia o WhatsApp
+  salvarPedidoNoCRM({
+    nome, telefone, endereco: modalidadeAtual==='Entrega' ? endereco : '',
+    modalidade: modalidadeAtual, bairro: bairro ? bairro.nome : null, taxa,
+    itens: carrinho.map(i=>({nome:i.nome, tamanho:i.tamanho, qtd:i.qtd, precoUnit:i.precoUnit})),
+    total: totalCarrinho()+taxa, pagamento, obs,
+  });
 
   let msg = `*Novo pedido — Gran Paolo*\n`;
   msg += `Cliente: ${nome}\n`;
