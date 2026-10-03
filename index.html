@@ -438,6 +438,7 @@ const WHATSAPP_NUMERO = "5584996718998";
 // Conexão com o banco de dados (Supabase) — guarda clientes e pedidos.
 // A "publishable key" é segura pra ficar aqui, exposta no site: ela só
 // consegue fazer o que as regras de segurança do banco permitem.
+const LOJA_ID = "gran-paolo"; // identifica esta loja — cada franquia terá o seu
 const SUPABASE_URL = "https://shhdqvhjvtwoviiqtxng.supabase.co";
 const SUPABASE_KEY = "sb_publishable_qpfP7hAj0tmvwVEEqkqluA_iKzPYFUJ";
 
@@ -456,7 +457,7 @@ async function salvarPedidoNoCRM({nome, telefone, endereco, modalidade, bairro, 
     await fetch(`${SUPABASE_URL}/rest/v1/clientes`, {
       method: "POST",
       headers: {...headers, "Prefer": "resolution=merge-duplicates"},
-      body: JSON.stringify({telefone, nome, endereco}),
+      body: JSON.stringify({loja_id: LOJA_ID, telefone, nome, endereco}),
     });
   }catch(e){ /* segue mesmo se falhar */ }
   try{
@@ -465,7 +466,7 @@ async function salvarPedidoNoCRM({nome, telefone, endereco, modalidade, bairro, 
       method: "POST",
       headers,
       body: JSON.stringify({
-        telefone, nome, modalidade, bairro: bairro || null, taxa_entrega: taxa || 0,
+        loja_id: LOJA_ID, telefone, nome, modalidade, bairro: bairro || null, taxa_entrega: taxa || 0,
         itens, total, pagamento, obs: obs || null,
       }),
     });
