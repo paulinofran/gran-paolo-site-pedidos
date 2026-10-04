@@ -162,6 +162,7 @@ header.top .sub{font-size:12px;color:rgba(255,255,255,.85);margin-top:3px;}
 .total-row{display:flex;justify-content:space-between;align-items:center;padding:14px 0;font-size:15px;font-weight:700;border-top:2px solid var(--line);margin-top:8px;}
 .empty-cart{text-align:center;padding:50px 20px;color:var(--ink-soft);font-size:13.5px;}
 
+
 /* ---------- Checkout ---------- */
 .field{margin-bottom:14px;}
 .field label{display:block;font-size:12.5px;font-weight:600;color:var(--ink-soft);margin-bottom:6px;}
@@ -183,6 +184,22 @@ nav.bottom button{
 nav.bottom button .icon{font-size:19px;}
 nav.bottom button.active{color:var(--accent);}
 
+/* ---------- Pedir de novo ---------- */
+.repetir-box{margin:14px 16px 0;background:var(--card);border:1.5px dashed var(--accent);border-radius:var(--radius);padding:12px 14px;}
+.repetir-toggle{width:100%;background:none;border:none;text-align:left;font-size:14px;font-weight:700;color:var(--accent-dark);padding:0;}
+.repetir-corpo{margin-top:8px;}
+.repetir-corpo p.repetir-ajuda{font-size:12.5px;color:var(--ink-soft);margin:0;}
+.repetir-linha{display:flex;gap:8px;margin-top:10px;}
+.repetir-linha input{flex:1;min-width:0;padding:11px 12px;border:1.5px solid var(--line);border-radius:12px;font-size:14px;font-family:inherit;}
+.repetir-linha button{flex:none;background:var(--accent);color:#fff;border:none;border-radius:12px;padding:0 18px;font-weight:700;font-size:14px;}
+.repetir-oi{font-weight:700;color:var(--accent-dark);margin:14px 0 8px;font-size:14px;}
+.repetir-card{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:10px;background:#fff;}
+.repetir-cab{font-size:12px;color:var(--ink-soft);font-weight:600;margin-bottom:6px;}
+.repetir-item{font-size:13px;margin-bottom:3px;line-height:1.35;}
+.repetir-btn{margin-top:8px;padding:11px;font-size:14px;}
+.repetir-msg{font-size:12.5px;color:var(--ink-soft);margin:10px 0 0;}
+.btn-full:disabled{opacity:.5;}
+.dica-endereco{display:block;font-size:12px;color:#B23A2F;margin-top:6px;}
 .hidden{display:none !important;}
 </style>
 </head>
@@ -253,6 +270,17 @@ nav.bottom button.active{color:var(--accent);}
 
   <!-- ===================== CARDÁPIO ===================== -->
   <section class="screen" id="screen-cardapio">
+    <div class="repetir-box" id="boxRepetir">
+      <button class="repetir-toggle" onclick="toggleRepetir()">🔁 Já pediu antes? Pedir de novo</button>
+      <div class="repetir-corpo hidden" id="repetirCorpo">
+        <p class="repetir-ajuda">Digite seu WhatsApp e mostramos seus últimos pedidos.</p>
+        <div class="repetir-linha">
+          <input type="tel" id="repetirTel" inputmode="numeric" placeholder="(84) 9 9999-9999">
+          <button onclick="buscarPedidosAnteriores()">Buscar</button>
+        </div>
+        <div id="repetirResultado"></div>
+      </div>
+    </div>
     <div class="tabs" id="tabsCategorias"></div>
     <div class="screen" style="padding:0 16px;display:block;" id="listaProdutos"></div>
   </section>
@@ -292,6 +320,7 @@ nav.bottom button.active{color:var(--accent);}
       <div class="field">
         <label>Endereço completo</label>
         <input type="text" id="campoEndereco" placeholder="Rua, número, ponto de referência">
+        <small class="dica-endereco hidden" id="dicaEndereco">Por segurança, escondemos os números do seu endereço. Complete onde aparece ___</small>
       </div>
     </div>
 
@@ -469,30 +498,32 @@ const SUPABASE_KEY = "sb_publishable_qpfP7hAj0tmvwVEEqkqluA_iKzPYFUJ";
 // atrasa o envio do pedido pelo WhatsApp — essa parte continua sendo
 // o caminho principal e garantido.
 async function salvarPedidoNoCRM({nome, telefone, endereco, modalidade, bairro, taxa, itens, total, pagamento, obs}){
-  const headers = {
-    "apikey": SUPABASE_KEY,
-    "Authorization": `Bearer ${SUPABASE_KEY}`,
-    "Content-Type": "application/json",
-  };
   try{
-    // Upsert do cliente (cria se não existir, atualiza nome/endereço se já existir)
-    await fetch(`${SUPABASE_URL}/rest/v1/clientes`, {
+    // Chama a função segura "registrar_pedido" do banco (ela cadastra/atualiza o
+    // cliente e grava o pedido). keepalive deixa o envio terminar mesmo que o
+    // navegador já esteja abrindo o WhatsApp.
+    await fetch(`${SUPABASE_URL}/rest/v1/rpc/registrar_pedido`, {
       method: "POST",
-      headers: {...headers, "Prefer": "resolution=merge-duplicates"},
-      body: JSON.stringify({loja_id: LOJA_ID, telefone, nome, endereco}),
-    });
-  }catch(e){ /* segue mesmo se falhar */ }
-  try{
-    // Registra o pedido
-    await fetch(`${SUPABASE_URL}/rest/v1/pedidos`, {
-      method: "POST",
-      headers,
+      headers: {
+        "apikey": SUPABASE_KEY,
+        "Authorization": `Bearer ${SUPABASE_KEY}`,
+        "Content-Type": "application/json",
+      },
+      keepalive: true,
       body: JSON.stringify({
-        loja_id: LOJA_ID, telefone, nome, modalidade, bairro: bairro || null, taxa_entrega: taxa || 0,
-        itens, total, pagamento, obs: obs || null,
+        p_loja: LOJA_ID, p_telefone: telefone, p_nome: nome, p_endereco: endereco || '',
+        p_modalidade: modalidade, p_bairro: bairro || null, p_taxa: taxa || 0,
+        p_itens: itens, p_total: total, p_pagamento: pagamento, p_obs: obs || null,
       }),
     });
-  }catch(e){ /* segue mesmo se falhar */ }
+  }catch(e){ /* segue mesmo se falhar — o WhatsApp é o caminho principal */ }
+}
+
+// Deixa o telefone só com números (e sem o 55 do Brasil), igual ao banco.
+function normalizaTel(t){
+  let d = String(t||'').replace(/\D/g,'');
+  if(d.length>=12 && d.startsWith('55')) d = d.slice(2);
+  return d;
 }
 
 /* ======================================================================
@@ -841,6 +872,138 @@ function renderCarrinho(){
   totalBox.classList.remove('hidden');
 }
 
+/* ---------- Pedir de novo ---------- */
+let clienteBuscadoTel = null;
+
+function toggleRepetir(){
+  document.getElementById('repetirCorpo').classList.toggle('hidden');
+}
+function achaProduto(nome){ return CATALOGO.find(p=>p.nome===nome) || null; }
+function achaSabor(nome){
+  return SABORES_MEIO.find(x=>x.nome===nome) || SABORES_MEIO_DOCE.find(x=>x.nome===nome) || null;
+}
+// Reconstrói um item de pedido antigo com os PREÇOS DE HOJE do cardápio.
+// Devolve null se o produto/sabor/borda não existir mais.
+function reconstruirItem(it){
+  if(!it || typeof it!=='object') return null;
+  const partes = String(it.tamanho||'').split(' • Borda: ');
+  const tam = partes[0];
+  let borda = BORDAS[0];
+  if(partes[1]){
+    borda = BORDAS.find(b=>b.nome===partes[1]);
+    if(!borda) return null;
+  }
+  const qtd = Math.max(1, parseInt(it.qtd)||1);
+  const nome = String(it.nome||'');
+  if(nome.startsWith('Meio a Meio: ')){
+    const nomes = nome.slice('Meio a Meio: '.length).split(' / ');
+    if(nomes.length!==2) return null;
+    const s1 = achaSabor(nomes[0]), s2 = achaSabor(nomes[1]);
+    if(!s1 || !s2) return null;
+    const p1 = precoSaborTamanho(s1, tam), p2 = precoSaborTamanho(s2, tam);
+    if(p1===null || p2===null) return null;
+    return {tipo:'meio', nome, tamanho: String(it.tamanho), precoUnit:(p1+p2)/2+borda.preco, qtd};
+  }
+  const prod = achaProduto(nome);
+  if(!prod) return null;
+  const t = prod.tamanhos.find(x=>x.tamanho===tam);
+  if(!t) return null;
+  return {tipo:'simples', nome: prod.nome, tamanho: String(it.tamanho), precoUnit: t.preco + (ehPizza(prod) ? borda.preco : 0), qtd};
+}
+
+async function buscarPedidosAnteriores(){
+  const tel = normalizaTel(document.getElementById('repetirTel').value);
+  const box = document.getElementById('repetirResultado');
+  box.innerHTML = '';
+  const msg = (t)=>{ const p=document.createElement('p'); p.className='repetir-msg'; p.textContent=t; box.appendChild(p); };
+  if(tel.length<10 || tel.length>11){ msg('Digite seu WhatsApp com DDD.'); return; }
+  msg('Buscando...');
+  try{
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/buscar_cliente`, {
+      method: "POST",
+      headers: {"apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json"},
+      body: JSON.stringify({p_loja: LOJA_ID, p_telefone: tel}),
+    });
+    if(!r.ok) throw new Error('http '+r.status);
+    renderPedidosAnteriores(tel, await r.json());
+  }catch(e){
+    box.innerHTML = '';
+    msg('Não consegui buscar agora. Você pode montar o pedido normalmente pelo cardápio. 🙂');
+  }
+}
+
+function renderPedidosAnteriores(tel, dados){
+  const box = document.getElementById('repetirResultado');
+  box.innerHTML = '';
+  if(!dados || !Array.isArray(dados.pedidos) || dados.pedidos.length===0){
+    const p=document.createElement('p'); p.className='repetir-msg';
+    p.textContent='Não encontramos pedidos nesse número. Monte seu pedido pelo cardápio, e na próxima vez fica mais rápido! 🍕';
+    box.appendChild(p); return;
+  }
+  const oi = document.createElement('p'); oi.className='repetir-oi';
+  oi.textContent = dados.primeiro_nome ? `Oi, ${dados.primeiro_nome}! Seus últimos pedidos:` : 'Seus últimos pedidos:';
+  box.appendChild(oi);
+  dados.pedidos.forEach(ped=>{
+    const itens = Array.isArray(ped.itens) ? ped.itens : [];
+    const ok = itens.map(reconstruirItem).filter(Boolean);
+    const total = ok.reduce((sum,i)=>sum+i.precoUnit*i.qtd,0);
+    const card = document.createElement('div'); card.className='repetir-card';
+    const cab = document.createElement('div'); cab.className='repetir-cab';
+    const d = new Date(ped.criado_em);
+    cab.textContent = (isNaN(d) ? '' : d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}) + ' • ')
+      + (ROTULO_MODALIDADE[ped.modalidade] || ped.modalidade || '');
+    card.appendChild(cab);
+    itens.forEach(it=>{
+      const l = document.createElement('div'); l.className='repetir-item';
+      l.textContent = `${parseInt(it && it.qtd)||1}x ${it && it.nome} (${it && it.tamanho})`;
+      card.appendChild(l);
+    });
+    const btn = document.createElement('button'); btn.className='btn-full btn-primary repetir-btn';
+    if(ok.length===0){ btn.textContent='Itens fora do cardápio'; btn.disabled=true; }
+    else{
+      btn.textContent = (ok.length<itens.length ? 'Pedir de novo (parte dos itens)' : 'Pedir de novo') + ' — ' + fmtMoeda(total);
+      btn.onclick = ()=>pedirDeNovo(tel, dados, ped);
+    }
+    card.appendChild(btn);
+    box.appendChild(card);
+  });
+}
+
+function pedirDeNovo(tel, dados, ped){
+  const itens = Array.isArray(ped.itens) ? ped.itens : [];
+  const novos = [], faltando = [];
+  itens.forEach(it=>{ const r = reconstruirItem(it); if(r) novos.push(r); else faltando.push(it && it.nome); });
+  if(novos.length===0) return;
+  carrinho.push(...novos);
+  atualizarBadgeCarrinho();
+  preencherClienteBuscado(tel, dados);
+  if(faltando.length) alert('Estes itens não estão mais no cardápio e ficaram de fora:\n• ' + faltando.join('\n• '));
+  mostrarTela('carrinho');
+}
+
+function preencherClienteBuscado(tel, dados){
+  clienteBuscadoTel = tel;
+  const cNome = document.getElementById('campoNome');
+  const cTel = document.getElementById('campoTelefone');
+  const cEnd = document.getElementById('campoEndereco');
+  const dica = document.getElementById('dicaEndereco');
+  let nomeLocal = '', endLocal = '';
+  try{
+    // Se for o mesmo celular, usa o que já está guardado nele (nome e endereço completos).
+    if(normalizaTel(localStorage.getItem('gp_cliente_telefone')||'') === tel){
+      nomeLocal = localStorage.getItem('gp_cliente_nome') || '';
+      endLocal = localStorage.getItem('gp_cliente_endereco') || '';
+    }
+  }catch(e){}
+  cTel.value = tel;
+  cNome.value = nomeLocal || dados.primeiro_nome || '';
+  if(endLocal){ cEnd.value = endLocal; dica.classList.add('hidden'); }
+  else if(dados.endereco_mascarado){ cEnd.value = dados.endereco_mascarado; dica.classList.remove('hidden'); }
+  else { cEnd.value = ''; dica.classList.add('hidden'); }
+  cEnd.oninput = ()=>{ if(!cEnd.value.includes('___')) dica.classList.add('hidden'); };
+}
+
+
 /* ---------- Checkout ---------- */
 function taxaEntregaSelecionada(){
   if(modalidadeAtual !== 'Entrega') return 0;
@@ -856,11 +1019,12 @@ function atualizarTotalCheckout(){
 function salvarDadosCliente(nome, endereco, telefone){
   try{
     localStorage.setItem('gp_cliente_nome', nome || '');
-    localStorage.setItem('gp_cliente_endereco', endereco || '');
+    if(!String(endereco||'').includes('___')) localStorage.setItem('gp_cliente_endereco', endereco || '');
     localStorage.setItem('gp_cliente_telefone', telefone || '');
   }catch(e){ /* navegador pode bloquear — segue sem salvar */ }
 }
 function carregarDadosCliente(){
+  if(clienteBuscadoTel) return; // dados já vieram do "pedir de novo"
   try{
     const nome = localStorage.getItem('gp_cliente_nome');
     const endereco = localStorage.getItem('gp_cliente_endereco');
@@ -906,6 +1070,7 @@ function enviarPedidoWhatsapp(){
   if(!telefone){ alert('Por favor, preencha seu WhatsApp.'); return; }
   if(modalidadeAtual==='Entrega' && !endereco){ alert('Por favor, preencha o endereço de entrega.'); return; }
   if(modalidadeAtual==='Entrega' && !bairro){ alert('Por favor, selecione seu bairro.'); return; }
+  if(modalidadeAtual==='Entrega' && endereco.includes('___')){ alert('Complete o número do seu endereço, onde aparece ___'); return; }
 
   salvarDadosCliente(nome, endereco, telefone);
 
