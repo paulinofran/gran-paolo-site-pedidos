@@ -320,7 +320,7 @@ nav.bottom button.active{color:var(--accent);}
       <div class="field">
         <label>Endereço completo</label>
         <input type="text" id="campoEndereco" placeholder="Rua, número, ponto de referência">
-        <small class="dica-endereco hidden" id="dicaEndereco">Por segurança, escondemos os números do seu endereço. Complete onde aparece ___</small>
+        <small class="dica-endereco hidden" id="dicaEndereco"></small>
       </div>
     </div>
 
@@ -962,7 +962,11 @@ function renderPedidosAnteriores(tel, dados){
     if(ok.length===0){ btn.textContent='Itens fora do cardápio'; btn.disabled=true; }
     else{
       btn.textContent = (ok.length<itens.length ? 'Pedir de novo (parte dos itens)' : 'Pedir de novo') + ' — ' + fmtMoeda(total);
-      btn.onclick = ()=>pedirDeNovo(tel, dados, ped);
+      btn.onclick = ()=>{
+        if(btn.disabled) return;
+        btn.disabled = true; btn.textContent = 'Adicionado ao carrinho ✓';
+        pedirDeNovo(tel, dados, ped);
+      };
     }
     card.appendChild(btn);
     box.appendChild(card);
@@ -998,9 +1002,15 @@ function preencherClienteBuscado(tel, dados){
   cTel.value = tel;
   cNome.value = nomeLocal || dados.primeiro_nome || '';
   if(endLocal){ cEnd.value = endLocal; dica.classList.add('hidden'); }
-  else if(dados.endereco_mascarado){ cEnd.value = dados.endereco_mascarado; dica.classList.remove('hidden'); }
+  else if(dados.endereco_mascarado){
+    // Outro aparelho: por segurança o banco não entrega os números. O campo fica
+    // vazio pro cliente digitar o endereço COMPLETO; o lembrete ajuda a lembrar qual era.
+    cEnd.value = '';
+    dica.textContent = 'Seu último endereço: ' + dados.endereco_mascarado + ' — por segurança escondemos os números. Digite o endereço completo.';
+    dica.classList.remove('hidden');
+  }
   else { cEnd.value = ''; dica.classList.add('hidden'); }
-  cEnd.oninput = ()=>{ if(!cEnd.value.includes('___')) dica.classList.add('hidden'); };
+  cEnd.oninput = ()=>{ if(cEnd.value.trim()) dica.classList.add('hidden'); };
 }
 
 
