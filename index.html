@@ -876,7 +876,18 @@ function renderCarrinho(){
 let clienteBuscadoTel = null;
 
 function toggleRepetir(){
-  document.getElementById('repetirCorpo').classList.toggle('hidden');
+  const corpo = document.getElementById('repetirCorpo');
+  corpo.classList.toggle('hidden');
+  if(corpo.classList.contains('hidden')) return;
+  // Neste mesmo celular já sabemos o WhatsApp: preenche e busca sozinho.
+  const campo = document.getElementById('repetirTel');
+  if(campo.value) return;
+  let salvo = '';
+  try{ salvo = normalizaTel(localStorage.getItem('gp_cliente_telefone') || ''); }catch(e){}
+  if(salvo.length>=10 && salvo.length<=11){
+    campo.value = salvo;
+    buscarPedidosAnteriores();
+  }
 }
 function achaProduto(nome){ return CATALOGO.find(p=>p.nome===nome) || null; }
 function achaSabor(nome){
