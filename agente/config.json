@@ -1,0 +1,13 @@
+{
+  "supabaseUrl": "https://shhdqvhjvtwoviiqtxng.supabase.co",
+  "chavePublica": "sb_publishable_qpfP7hAj0tmvwVEEqkqluA_iKzPYFUJ",
+  "loja": "gran-paolo",
+  "email": "impressao@granpaolopizzaria.com.br",
+  "colunas": 48,
+  "paginaCodigo": 3,
+  "codificacao": 860,
+  "semAcentos": false,
+  "minutosParaTras": 180,
+  "cozinha": { "tipo": "rede", "ip": "192.168.0.10", "porta": 9100 },
+  "caixa":   { "tipo": "windows", "nome": "CAIXA" }
+}

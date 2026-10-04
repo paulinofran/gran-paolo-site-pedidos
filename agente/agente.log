@@ -1,0 +1,39 @@
+04/10 22:58:59  Agente de impressao Gran Paolo iniciado. Deixe esta janela aberta (pode minimizar).
+04/10 22:58:59  Cozinha: 127.0.0.1   Caixa: arquivo
+04/10 22:58:59  Login feito.
+04/10 22:59:00  Impresso: #1 Fran Paulino (cozinha)
+04/10 22:59:00  Impresso: #1 Fran Paulino (caixa)
+04/10 22:59:01  Impresso: #2 Carlos (cozinha)
+04/10 22:59:01  Impresso: #2 Carlos (caixa)
+04/10 22:59:01  Impresso: #3 João Conceição (cozinha)
+04/10 22:59:01  Impresso: #3 João Conceição (caixa)
+04/10 22:59:45  Agente de impressao Gran Paolo iniciado. Deixe esta janela aberta (pode minimizar).
+04/10 22:59:45  Cozinha: 127.0.0.1   Caixa: arquivo
+04/10 22:59:45  Login feito.
+04/10 22:59:45  ERRO ao imprimir #1 (cozinha): Exception calling "EndConnect" with "1" argument(s): "Connection refused"
+04/10 22:59:45  Impresso: #1 Fran Paulino (caixa)
+04/10 22:59:45  ERRO ao imprimir #2 (cozinha): Exception calling "EndConnect" with "1" argument(s): "Connection refused"
+04/10 22:59:45  Impresso: #2 Carlos (caixa)
+04/10 22:59:45  ERRO ao imprimir #3 (cozinha): Exception calling "EndConnect" with "1" argument(s): "Connection refused"
+04/10 22:59:45  Impresso: #3 João Conceição (caixa)
+04/10 22:59:47  Agente de impressao Gran Paolo iniciado. Deixe esta janela aberta (pode minimizar).
+04/10 22:59:47  Cozinha: 127.0.0.1   Caixa: arquivo
+04/10 22:59:47  Login feito.
+04/10 22:59:47  Impresso: #1 Fran Paulino (cozinha)
+04/10 22:59:48  Impresso: #2 Carlos (cozinha)
+04/10 22:59:48  Impresso: #3 João Conceição (cozinha)
+04/10 22:59:49  Agente de impressao Gran Paolo iniciado. Deixe esta janela aberta (pode minimizar).
+04/10 22:59:49  Cozinha: 127.0.0.1   Caixa: arquivo
+04/10 22:59:49  Login feito.
+04/10 23:00:06  Agente de impressao Gran Paolo iniciado. Deixe esta janela aberta (pode minimizar).
+04/10 23:00:06  Cozinha: 127.0.0.1   Caixa: arquivo
+04/10 23:00:06  Login feito.
+04/10 23:00:07  ERRO ao imprimir #1 (cozinha): A impressora da cozinha nao respondeu (127.0.0.1). Veja se esta ligada e com o cabo de rede.
+04/10 23:00:07  Impresso: #1 Fran Paulino (caixa)
+04/10 23:00:07  ERRO ao imprimir #2 (cozinha): A impressora da cozinha nao respondeu (127.0.0.1). Veja se esta ligada e com o cabo de rede.
+04/10 23:00:07  Impresso: #2 Carlos (caixa)
+04/10 23:00:07  ERRO ao imprimir #3 (cozinha): A impressora da cozinha nao respondeu (127.0.0.1). Veja se esta ligada e com o cabo de rede.
+04/10 23:00:07  Impresso: #3 João Conceição (caixa)
+04/10 23:00:07  TESTE: vou imprimir uma folha de teste em cada impressora.
+04/10 23:00:08  Teste enviado: cozinha
+04/10 23:00:08  Teste enviado: caixa
