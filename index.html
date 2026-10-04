@@ -214,17 +214,39 @@ nav.bottom button.active{color:var(--accent);}
       <p>Monte seu pedido e envie direto pro nosso WhatsApp.</p>
     </div>
     <div class="modalidades">
+      <button class="modalidade-card" onclick="escolherModalidade('Drive-thru')">
+        <span class="icon">🚗</span>
+        <span class="txt"><strong>Drive-thru</strong><span>Sem sair do carro</span></span>
+      </button>
       <button class="modalidade-card" onclick="escolherModalidade('Entrega')">
         <span class="icon">🛵</span>
         <span class="txt"><strong>Entrega</strong><span>Receba no seu endereço</span></span>
       </button>
-      <button class="modalidade-card" onclick="escolherModalidade('Retirada')">
-        <span class="icon">🏪</span>
-        <span class="txt"><strong>Retirar na loja</strong><span>Busque sem taxa de entrega</span></span>
+      <button class="modalidade-card" onclick="mostrarTela('local')">
+        <span class="icon">🍕</span>
+        <span class="txt"><strong>Vem comer ou retirar</strong><span>Coma no salão ou leve pra casa</span></span>
       </button>
-      <button class="modalidade-card" onclick="escolherModalidade('Drive-thru')">
-        <span class="icon">🚗</span>
-        <span class="txt"><strong>Drive-thru</strong><span>Sem sair do carro</span></span>
+    </div>
+  </section>
+
+  <!-- ===================== VEM COMER OU RETIRAR ===================== -->
+  <section class="screen" id="screen-local">
+    <div class="hero">
+      <h2>Como você prefere?</h2>
+      <p>Escolha onde vai aproveitar sua pizza.</p>
+    </div>
+    <div class="modalidades">
+      <button class="modalidade-card" onclick="escolherModalidade('Vem comer')">
+        <span class="icon">🍽️</span>
+        <span class="txt"><strong>Vem comer aqui</strong><span>Peça pelo celular e sua pizza chega quentinha na sua mesa</span></span>
+      </button>
+      <button class="modalidade-card" onclick="escolherModalidade('Retirada')">
+        <span class="icon">🛍️</span>
+        <span class="txt"><strong>Retirar no caixa</strong><span>Passe no caixa e leve pra casa, sem taxa</span></span>
+      </button>
+      <button class="modalidade-card" style="background:transparent;box-shadow:none;" onclick="mostrarTela('home')">
+        <span class="icon">←</span>
+        <span class="txt"><strong>Voltar</strong></span>
       </button>
     </div>
   </section>
@@ -525,10 +547,13 @@ function mostrarTela(nome){
   window.scrollTo(0,0);
 }
 
+const ROTULO_MODALIDADE = {'Vem comer':'Vem comer aqui','Retirada':'Retirar no caixa'};
+const ROTULO_PEDIDO = {'Vem comer':'Vem comer (levar na mesa)','Retirada':'Retirada (no caixa)'};
+
 function escolherModalidade(m){
   modalidadeAtual = m;
   document.getElementById('modalidadePillRow').classList.remove('hidden');
-  document.getElementById('modalidadePill').textContent = '📍 ' + m;
+  document.getElementById('modalidadePill').textContent = '📍 ' + (ROTULO_MODALIDADE[m] || m);
   document.getElementById('headerSub').textContent = 'Monte seu pedido';
   document.getElementById('campoEnderecoWrap').classList.toggle('hidden', m!=='Entrega');
   mostrarTela('cardapio');
@@ -895,7 +920,7 @@ function enviarPedidoWhatsapp(){
   let msg = `*Novo pedido — Gran Paolo*\n`;
   msg += `Cliente: ${nome}\n`;
   msg += `WhatsApp: ${telefone}\n`;
-  msg += `Modalidade: ${modalidadeAtual}\n`;
+  msg += `Modalidade: ${ROTULO_PEDIDO[modalidadeAtual] || modalidadeAtual}\n`;
   if(modalidadeAtual==='Entrega'){
     msg += `Bairro: ${bairro.nome}\n`;
     msg += `Endereço: ${endereco}\n`;
