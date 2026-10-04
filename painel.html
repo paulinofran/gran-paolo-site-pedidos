@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Painel de pedidos — Gran Paolo</title>
+<style>
+:root{--bg:#FAF4EC;--card:#fff;--ink:#2A1D15;--soft:#7A6A5C;--line:#EADFD0;--verde:#02341b;--vermelho:#ee4152;
+  --ok:#1f7a45;--okbg:#DFF0E4;--am:#8a5a00;--ambg:#FFF1CC;--rd:#b3261e;--rdbg:#FCE0DD;--azul:#1b5fa8;--azulbg:#DDEBFA;}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink)}
+button{font-family:inherit;cursor:pointer}
+.oculto{display:none !important}
+#login{max-width:380px;margin:12vh auto;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:24px}
+#login h1{margin:0 0 4px;font-size:22px;color:var(--verde)}
+#login p{margin:0 0 16px;color:var(--soft);font-size:14px}
+#login label{display:block;font-size:13px;color:var(--soft);margin:12px 0 4px}
+#login input{width:100%;padding:12px;border:1.5px solid var(--line);border-radius:10px;font-size:16px}
+#login button{width:100%;margin-top:18px;padding:14px;border:0;border-radius:10px;background:var(--vermelho);color:#fff;font-size:16px;font-weight:700}
+#erroLogin{color:var(--rd);font-size:14px;margin-top:10px;min-height:18px}
+header{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--verde);color:#fff}
+header h1{margin:0;font-size:18px}
+.barra{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.pilula{padding:6px 12px;border-radius:20px;font-size:13px;font-weight:700}
+.pilula.aberta{background:var(--okbg);color:var(--ok)}
+.pilula.fechada{background:var(--rdbg);color:var(--rd)}
+.btn{border:0;border-radius:10px;padding:10px 14px;font-size:14px;font-weight:700}
+.btn.claro{background:#fff;color:var(--verde)}
+.btn.vermelho{background:var(--vermelho);color:#fff}
+.faixa{margin:12px 16px 0;padding:12px 14px;border-radius:12px;font-size:15px;font-weight:600}
+.faixa.erro{background:var(--rdbg);color:var(--rd);border:1px solid #f3b6b0}
+.faixa.aviso{background:var(--ambg);color:var(--am);border:1px solid #f1d58a}
+.faixa button{margin-left:10px}
+main{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;padding:14px 16px}
+@media (max-width:900px){main{grid-template-columns:1fr}}
+.coluna h2{margin:0 0 8px;font-size:15px;color:var(--soft);font-weight:700}
+.vazio{padding:18px;border:1.5px dashed var(--line);border-radius:12px;color:var(--soft);font-size:14px;text-align:center}
+.cartao{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px}
+.topo{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.nome{font-size:18px;font-weight:800}
+.tempo{padding:4px 10px;border-radius:8px;font-size:13px;font-weight:800;white-space:nowrap}
+.tempo.verde{background:var(--okbg);color:var(--ok)}
+.tempo.amarelo{background:var(--ambg);color:var(--am)}
+.tempo.vermelho{background:var(--rdbg);color:var(--rd)}
+.meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0;font-size:13px;color:var(--soft)}
+.tipo{padding:3px 9px;border-radius:8px;font-weight:800;font-size:12px}
+.tipo.t-drive{background:var(--azulbg);color:var(--azul)}
+.tipo.t-comer{background:var(--okbg);color:var(--ok)}
+.tipo.t-retirada{background:#EBDDF7;color:#5a2d86}
+.tipo.t-entrega{background:var(--ambg);color:var(--am)}
+.itens{font-size:15px;margin:6px 0;line-height:1.4}
+.extra{font-size:13px;color:var(--soft);margin:2px 0}
+.imp{font-size:12px;font-weight:700;margin:6px 0}
+.imp.ok{color:var(--ok)}.imp.espera{color:var(--am)}.imp.falha{color:var(--rd)}
+.acao{width:100%;height:50px;border:0;border-radius:12px;font-size:17px;font-weight:800;margin-top:6px}
+.acao.principal{background:var(--vermelho);color:#fff}
+.acao.final{background:var(--verde);color:#fff}
+.mini{display:flex;gap:12px;margin-top:8px}
+.mini button{background:none;border:0;color:var(--soft);font-size:12px;text-decoration:underline;padding:0}
+#feitos{margin:0 16px 24px}
+#feitos h2{font-size:15px;color:var(--soft)}
+.linha{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--line);font-size:14px;background:var(--card)}
+.linha button{border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 10px}
+</style>
+</head>
+<body>
+
+<div id="login">
+  <h1>Gran Paolo</h1>
+  <p>Painel de pedidos. Entre com o usuário do painel.</p>
+  <form id="formLogin">
+    <label for="email">E-mail</label>
+    <input id="email" type="email" value="painel@granpaolopizzaria.com.br" autocomplete="username">
+    <label for="senha">Senha</label>
+    <input id="senha" type="password" autocomplete="current-password">
+    <div id="erroLogin"></div>
+    <button type="submit">Entrar</button>
+  </form>
+</div>
+
+<div id="app" class="oculto">
+  <header>
+    <h1>Gran Paolo · Pedidos</h1>
+    <div class="barra">
+      <span id="statusLoja" class="pilula fechada">...</span>
+      <button id="btnLoja" class="btn vermelho">Abrir loja</button>
+      <button id="btnSom" class="btn claro">Ativar som</button>
+      <button id="btnFeitos" class="btn claro">Concluídos hoje</button>
+      <button id="btnSair" class="btn claro">Sair</button>
+    </div>
+  </header>
+  <div id="faixas"></div>
+  <main>
+    <section class="coluna"><h2 id="tNovos">Novos</h2><div id="cNovos"></div></section>
+    <section class="coluna"><h2 id="tCozinha">Na cozinha</h2><div id="cCozinha"></div></section>
+    <section class="coluna"><h2 id="tProntos">Prontos</h2><div id="cProntos"></div></section>
+  </main>
+  <section id="feitos" class="oculto"><h2>Concluídos hoje</h2><div id="listaFeitos"></div></section>
+</div>
+
+<script>
+const SUPABASE_URL = "https://shhdqvhjvtwoviiqtxng.supabase.co";
+const SUPABASE_KEY = "sb_publishable_qpfP7hAj0tmvwVEEqkqluA_iKzPYFUJ";
+const LOJA = "gran-paolo";
+const CHAVE_SESSAO = "gp_painel_sessao";
+
+let sessao = null, loja = null, statusLoja = null;
+let ativos = [], feitos = [], vistos = new Set(), primeiraCarga = true;
+let ctxAudio = null, somAtivo = false, falhasSeguidas = 0, mostrarFeitos = false;
+
+const $ = (id) => document.getElementById(id);
+const money = (v) => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt !== undefined) e.textContent = txt; return e; };
+
+/* ---------- acesso (login) ---------- */
+function salvarSessao(j){
+  sessao = {access_token: j.access_token, refresh_token: j.refresh_token, expira: Date.now() + (j.expires_in || 3600) * 1000};
+  try{ localStorage.setItem(CHAVE_SESSAO, JSON.stringify(sessao)); }catch(e){}
+}
+async function entrar(email, senha){
+  const r = await fetch(SUPABASE_URL + '/auth/v1/token?grant_type=password', {
+    method: 'POST', headers: {apikey: SUPABASE_KEY, 'Content-Type': 'application/json'},
+    body: JSON.stringify({email, password: senha})});
+  if(!r.ok) return false;
+  salvarSessao(await r.json());
+  return true;
+}
+async function renovar(){
+  if(!sessao || !sessao.refresh_token) return false;
+  try{
+    const r = await fetch(SUPABASE_URL + '/auth/v1/token?grant_type=refresh_token', {
+      method: 'POST', headers: {apikey: SUPABASE_KEY, 'Content-Type': 'application/json'},
+      body: JSON.stringify({refresh_token: sessao.refresh_token})});
+    if(!r.ok) return false;
+    salvarSessao(await r.json());
+    return true;
+  }catch(e){ return null; }   // sem internet agora: não é motivo pra deslogar
+}
+function sair(){
+  sessao = null;
+  try{ localStorage.removeItem(CHAVE_SESSAO); }catch(e){}
+  $('app').classList.add('oculto'); $('login').classList.remove('oculto');
+}
+async function api(caminho, opcoes = {}, jaRenovou = false){
+  if(sessao && sessao.expira - Date.now() < 120000 && !jaRenovou) await renovar();
+  const headers = Object.assign({apikey: SUPABASE_KEY, 'Content-Type': 'application/json',
+    Authorization: 'Bearer ' + (sessao ? sessao.access_token : SUPABASE_KEY)}, opcoes.headers || {});
+  const r = await fetch(SUPABASE_URL + caminho, Object.assign({}, opcoes, {headers}));
+  if(r.status === 401 && sessao && !jaRenovou){
+    if(await renovar()) return api(caminho, opcoes, true);
+    sair(); throw new Error('sessao expirada');
+  }
+  if(!r.ok) throw new Error(await r.text() || ('erro ' + r.status));
+  const t = await r.text();
+  return t ? JSON.parse(t) : null;
+}
+const rpc = (nome, corpo) => api('/rest/v1/rpc/' + nome, {method: 'POST', body: JSON.stringify(corpo || {})});
+
+/* ---------- som ---------- */
+function prepararSom(){
+  try{
+    if(!ctxAudio){ const C = window.AudioContext || window.webkitAudioContext; if(C) ctxAudio = new C(); }
+    if(ctxAudio && ctxAudio.state === 'suspended') ctxAudio.resume();
+    somAtivo = !!ctxAudio;
+  }catch(e){ somAtivo = false; }
+  atualizarBotaoSom();
+}
+function tom(freq, inicio, dur, vol){
+  const o = ctxAudio.createOscillator(), g = ctxAudio.createGain();
+  o.type = 'sine'; o.frequency.value = freq; o.connect(g); g.connect(ctxAudio.destination);
+  const t0 = ctxAudio.currentTime + inicio;
+  g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(vol, t0 + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  o.start(t0); o.stop(t0 + dur + 0.05);
+}
+function tocarPedido(){            // campainha: 3 notas
+  if(!somAtivo || !ctxAudio) return;
+  try{ tom(880, 0, 0.5, 0.5); tom(1175, 0.35, 0.5, 0.5); tom(1568, 0.7, 0.8, 0.5); }catch(e){}
+}
+function tocarAlerta(){            // aviso grave, diferente da campainha
+  if(!somAtivo || !ctxAudio) return;
+  try{ tom(300, 0, 0.35, 0.6); tom(300, 0.45, 0.35, 0.6); tom(300, 0.9, 0.35, 0.6); }catch(e){}
+}
+function atualizarBotaoSom(){
+  $('btnSom').textContent = somAtivo ? 'Som ligado' : 'Ativar som';
+  $('btnSom').className = 'btn ' + (somAtivo ? 'claro' : 'vermelho');
+}
+
+/* ---------- regras de tempo ---------- */
+function prazoDe(p){ const pr = (loja && loja.prazos && loja.prazos[p.modalidade]) || [15, 29]; return pr; }
+function minutosDesde(iso){ return (Date.now() - new Date(iso).getTime()) / 60000; }
+function infoTempo(p){
+  const m = minutosDesde(p.criado_em), [a, b] = prazoDe(p);
+  const cor = m < a ? 'verde' : (m <= b ? 'amarelo' : 'vermelho');
+  const texto = m <= b ? ('faltam ' + Math.max(1, Math.ceil(b - m)) + ' min') : ('atrasado ' + Math.floor(m - b) + ' min');
+  return {cor, texto, m};
+}
+function ordemPrioridade(p){
+  const lista = (loja && loja.prioridade) || ['Drive-thru', 'Vem comer', 'Retirada', 'Entrega'];
+  const i = lista.indexOf(p.modalidade); return i < 0 ? 99 : i;
+}
+function ordenar(a, b){
+  return ordemPrioridade(a) - ordemPrioridade(b) || new Date(a.criado_em) - new Date(b.criado_em);
+}
+function semImpressao(p){
+  return (!p.impresso_cozinha_em || !p.impresso_caixa_em) && minutosDesde(p.criado_em) > 2;
+}
+
+/* ---------- ações ---------- */
+async function mudar(p, status){
+  try{ await rpc('painel_mudar_status', {p_pedido: p.id, p_status: status}); await carregar(); }
+  catch(e){ avisoErro('Não consegui atualizar o pedido #' + p.numero + '. Tente de novo.'); }
+}
+async function reimprimir(p){
+  try{ await rpc('painel_reimprimir', {p_pedido: p.id}); await carregar(); }
+  catch(e){ avisoErro('Não consegui pedir a reimpressão do #' + p.numero + '.'); }
+}
+function rotuloFinal(p){
+  if(p.modalidade === 'Entrega') return 'Saiu para entrega';
+  if(p.modalidade === 'Vem comer') return 'Levei na mesa';
+  return 'Entreguei';
+}
+async function alternarLoja(){
+  const abrir = !(loja && loja.aberta);
+  if(!abrir && ativos.length && !confirm('Ainda há ' + ativos.length + ' pedido(s) na tela. Fechar a loja mesmo assim? Pedidos novos deixam de entrar.')) return;
+  try{ statusLoja = await rpc('painel_definir_loja', {p_loja: LOJA, p_aberta: abrir}); await carregar(); }
+  catch(e){ avisoErro('Não consegui ' + (abrir ? 'abrir' : 'fechar') + ' a loja. Tente de novo.'); }
+}
+let timerAviso = null;
+function avisoErro(txt){
+  const f = el('div', 'faixa erro', txt); $('faixas').appendChild(f);
+  clearTimeout(timerAviso); timerAviso = setTimeout(() => { if(f.parentNode) f.parentNode.removeChild(f); }, 6000);
+}
+
+/* ---------- desenho ---------- */
+function classeTipo(m){ return m === 'Drive-thru' ? 't-drive' : m === 'Vem comer' ? 't-comer' : m === 'Retirada' ? 't-retirada' : 't-entrega'; }
+function cartao(p){
+  const t = infoTempo(p), c = el('div', 'cartao');
+  const topo = el('div', 'topo');
+  topo.appendChild(el('div', 'nome', '#' + p.numero + ' ' + (p.nome || '')));
+  topo.appendChild(el('span', 'tempo ' + t.cor, t.texto));
+  c.appendChild(topo);
+  const meta = el('div', 'meta');
+  meta.appendChild(el('span', 'tipo ' + classeTipo(p.modalidade), p.modalidade || ''));
+  meta.appendChild(el('span', '', money(p.total)));
+  meta.appendChild(el('span', '', 'cobrar: ' + (p.pagamento || '—')));
+  meta.appendChild(el('span', '', 'há ' + Math.floor(t.m) + ' min'));
+  c.appendChild(meta);
+  const itens = el('div', 'itens');
+  (Array.isArray(p.itens) ? p.itens : []).forEach(i => itens.appendChild(el('div', '', (i.qtd || 1) + 'x ' + i.nome + ' (' + i.tamanho + ')')));
+  c.appendChild(itens);
+  if(p.modalidade === 'Entrega'){
+    c.appendChild(el('div', 'extra', 'Bairro: ' + (p.bairro || '—') + ' · ' + (p.endereco || 'sem endereço')));
+  }
+  if(p.telefone) c.appendChild(el('div', 'extra', 'WhatsApp: ' + p.telefone));
+  if(p.obs) c.appendChild(el('div', 'extra', 'Obs: ' + p.obs));
+  if(p.impresso_cozinha_em && p.impresso_caixa_em) c.appendChild(el('div', 'imp ok', 'Impresso'));
+  else if(semImpressao(p)) c.appendChild(el('div', 'imp falha', 'NÃO IMPRIMIU' + (p.impressao_erro ? ' — ' + p.impressao_erro : '')));
+  else c.appendChild(el('div', 'imp espera', 'Imprimindo...'));
+  const b = el('button', 'acao ' + (p.status === 'pronto' ? 'final' : 'principal'),
+    p.status === 'novo' ? 'Recebi' : p.status === 'cozinha' ? 'Pronto' : rotuloFinal(p));
+  b.onclick = () => mudar(p, p.status === 'novo' ? 'cozinha' : p.status === 'cozinha' ? 'pronto' : 'concluido');
+  c.appendChild(b);
+  const mini = el('div', 'mini');
+  const voltar = el('button', '', 'Voltar etapa');
+  if(p.status === 'novo') voltar.className = 'oculto';
+  voltar.onclick = () => mudar(p, p.status === 'cozinha' ? 'novo' : 'cozinha');
+  const re = el('button', '', 'Reimprimir'); re.onclick = () => reimprimir(p);
+  const canc = el('button', '', 'Cancelar pedido');
+  canc.onclick = () => { if(confirm('Cancelar o pedido #' + p.numero + '?')) mudar(p, 'cancelado'); };
+  mini.appendChild(voltar); mini.appendChild(re); mini.appendChild(canc);
+  c.appendChild(mini);
+  return c;
+}
+function desenhar(){
+  const cols = {novo: $('cNovos'), cozinha: $('cCozinha'), pronto: $('cProntos')};
+  const titulos = {novo: ['tNovos', 'Novos'], cozinha: ['tCozinha', 'Na cozinha'], pronto: ['tProntos', 'Prontos']};
+  Object.keys(cols).forEach(s => {
+    const lista = ativos.filter(p => p.status === s).sort(ordenar);
+    cols[s].textContent = '';
+    $(titulos[s][0]).textContent = titulos[s][1] + ' (' + lista.length + ')';
+    if(!lista.length) cols[s].appendChild(el('div', 'vazio', s === 'novo' ? 'Nenhum pedido novo' : 'Nada por aqui'));
+    lista.forEach(p => cols[s].appendChild(cartao(p)));
+  });
+  // status da loja
+  const aberta = !!(loja && loja.aberta);
+  const pil = $('statusLoja');
+  if(statusLoja && statusLoja.motivo === 'fora_horario'){ pil.textContent = 'Fora do horário · abre ' + (statusLoja.proxima || ''); pil.className = 'pilula fechada'; }
+  else if(aberta){ pil.textContent = 'Loja aberta'; pil.className = 'pilula aberta'; }
+  else { pil.textContent = 'Loja fechada'; pil.className = 'pilula fechada'; }
+  $('btnLoja').textContent = aberta ? 'Fechar loja' : 'Abrir loja';
+  $('btnLoja').className = 'btn ' + (aberta ? 'claro' : 'vermelho');
+  // faixas
+  const f = $('faixas'); f.textContent = '';
+  if(falhasSeguidas >= 3) f.appendChild(el('div', 'faixa erro', 'Sem conexão com o sistema. Verifique a internet. Os pedidos podem não estar chegando.'));
+  if(!somAtivo) f.appendChild(el('div', 'faixa aviso', 'O som está desligado. Toque em "Ativar som" para ouvir os pedidos novos.'));
+  const sem = ativos.filter(semImpressao);
+  if(sem.length) f.appendChild(el('div', 'faixa erro', 'ATENÇÃO: ' + sem.length + ' pedido(s) sem imprimir (' + sem.map(p => '#' + p.numero).join(', ') + '). Veja papel, cabo e impressora, ou toque em Reimprimir.'));
+  // concluídos
+  $('feitos').classList.toggle('oculto', !mostrarFeitos);
+  const lf = $('listaFeitos'); lf.textContent = '';
+  feitos.forEach(p => {
+    const l = el('div', 'linha');
+    const hora = p.concluido_em ? new Date(p.concluido_em).toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'}) : '';
+    l.appendChild(el('span', '', '#' + p.numero + ' ' + (p.nome || '') + ' · ' + p.modalidade + ' · ' + money(p.total) + ' · ' + p.status + ' ' + hora));
+    const d = el('button', '', 'Desfazer'); d.onclick = () => mudar(p, 'pronto'); l.appendChild(d);
+    lf.appendChild(l);
+  });
+}
+
+/* ---------- carregar ---------- */
+function inicioDoDia(){ const d = new Date(); d.setHours(0, 0, 0, 0); return d.toISOString(); }
+async function carregar(){
+  try{
+    const [a, f, l, st] = await Promise.all([
+      api('/rest/v1/pedidos?select=*&loja_id=eq.' + LOJA + '&status=in.(novo,cozinha,pronto)&order=criado_em.asc'),
+      api('/rest/v1/pedidos?select=*&loja_id=eq.' + LOJA + '&status=in.(concluido,cancelado)&criado_em=gte.' + encodeURIComponent(inicioDoDia()) + '&order=criado_em.desc'),
+      api('/rest/v1/lojas?select=*&id=eq.' + LOJA),
+      api('/rest/v1/rpc/loja_status', {method: 'POST', body: JSON.stringify({p_loja: LOJA})}),
+    ]);
+    ativos = a || []; feitos = f || []; loja = (l && l[0]) || loja; statusLoja = st; falhasSeguidas = 0;
+    const novosAgora = ativos.filter(p => p.status === 'novo' && !vistos.has(p.id));
+    ativos.forEach(p => vistos.add(p.id));
+    if(novosAgora.length && !primeiraCarga) tocarPedido();
+    primeiraCarga = false;
+  }catch(e){ falhasSeguidas++; }
+  desenhar();
+}
+
+/* ---------- ciclo de vida ---------- */
+function iniciarPainel(){
+  $('login').classList.add('oculto'); $('app').classList.remove('oculto');
+  atualizarBotaoSom();
+  carregar();
+}
+let timers = [];
+function ligarTimers(){
+  timers.forEach(clearInterval); timers = [];
+  timers.push(setInterval(() => { if(sessao) carregar(); }, 3000));                       // atualiza a tela
+  timers.push(setInterval(() => { if(sessao && loja && loja.aberta) rpc('painel_sinal', {p_loja: LOJA}).catch(() => {}); }, 60000)); // sinal de vida
+  timers.push(setInterval(() => { if(sessao && ativos.some(p => p.status === 'novo')) tocarPedido(); }, 7000));   // repete até tocar em Recebi
+  timers.push(setInterval(() => { if(sessao && ativos.some(semImpressao)) tocarAlerta(); }, 20000));              // aviso de impressão
+}
+
+$('formLogin').addEventListener('submit', async (ev) => {
+  ev.preventDefault(); prepararSom();
+  $('erroLogin').textContent = '';
+  const ok = await entrar($('email').value.trim(), $('senha').value);
+  if(!ok){ $('erroLogin').textContent = 'E-mail ou senha incorretos.'; return; }
+  $('senha').value = ''; iniciarPainel(); ligarTimers();
+});
+$('btnLoja').addEventListener('click', alternarLoja);
+$('btnSom').addEventListener('click', () => { prepararSom(); tocarPedido(); });
+$('btnFeitos').addEventListener('click', () => { mostrarFeitos = !mostrarFeitos; desenhar(); });
+$('btnSair').addEventListener('click', () => { timers.forEach(clearInterval); sair(); });
+document.addEventListener('click', () => { if(ctxAudio && ctxAudio.state === 'suspended') ctxAudio.resume(); });
+
+(function retomar(){
+  try{
+    const s = JSON.parse(localStorage.getItem(CHAVE_SESSAO) || 'null');
+    if(s && s.refresh_token){ sessao = s; iniciarPainel(); ligarTimers(); renovar().then(ok => { if(ok === false) sair(); }); }
+  }catch(e){}
+})();
+</script>
+</body>
+</html>
