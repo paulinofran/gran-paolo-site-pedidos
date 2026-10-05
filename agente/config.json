@@ -8,6 +8,6 @@
   "codificacao": 860,
   "semAcentos": false,
   "minutosParaTras": 180,
-  "cozinha": { "tipo": "rede", "ip": "192.168.0.10", "porta": 9100 },
+  "cozinha": { "tipo": "rede", "ip": "192.168.0.10", "porta": 9100, "tamanhoEsc": true },
   "caixa":   { "tipo": "windows", "nome": "CAIXA" }
 }

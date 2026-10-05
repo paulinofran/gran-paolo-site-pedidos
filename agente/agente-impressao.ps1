@@ -120,9 +120,10 @@ function Linha([string]$t) {
 }
 function Centro { Raw 0x1B,0x61,1 }
 function Esq { Raw 0x1B,0x61,0 }
-function Grande { Raw 0x1D,0x21,0x11 }
-function AltaX2 { Raw 0x1D,0x21,0x01 }
-function Normal { Raw 0x1D,0x21,0x00 }
+$script:tamEsc = $false   # true = impressora que nao entende GS ! (usa ESC ! no lugar)
+function Grande { if ($script:tamEsc) { Raw 0x1B,0x21,0x30 } else { Raw 0x1D,0x21,0x11 } }
+function AltaX2 { if ($script:tamEsc) { Raw 0x1B,0x21,0x10 } else { Raw 0x1D,0x21,0x01 } }
+function Normal { if ($script:tamEsc) { Raw 0x1B,0x21,0x00 } else { Raw 0x1D,0x21,0x00 } }
 function Negrito([bool]$on) { if ($on) { Raw 0x1B,0x45,1 } else { Raw 0x1B,0x45,0 } }
 function Traco { Linha ('-' * $L) }
 function Cortar { Raw 0x0A,0x0A,0x0A; Raw 0x1D,0x56,0x42,0x00 }
@@ -289,7 +290,7 @@ function Marcar([int64]$id, [string]$via, [string]$erro = $null) {
 if ($Teste) {
   Log 'TESTE: vou imprimir uma folha de teste em cada impressora.' 'Cyan'
   foreach ($par in @(@('cozinha', $cfg.cozinha), @('caixa', $cfg.caixa))) {
-    try { Enviar-Impressora $par[1] (Ticket-Teste $par[0]) $par[0]; Log ('Teste enviado: ' + $par[0]) 'Green' }
+    try { $script:tamEsc = [bool]$par[1].tamanhoEsc; Enviar-Impressora $par[1] (Ticket-Teste $par[0]) $par[0]; Log ('Teste enviado: ' + $par[0]) 'Green' }
     catch { Log ('FALHOU (' + $par[0] + '): ' + $_.Exception.Message) 'Red' }
   }
   if (-not $UmaVez) { Write-Host ''; Read-Host 'Confira os papeis e aperte Enter para fechar' | Out-Null }
@@ -315,8 +316,8 @@ while ($true) {
         $chave = [string]$p.id + $via
         if ($proxima.ContainsKey($chave) -and (Get-Date) -lt $proxima[$chave]) { continue }
         try {
-          if ($via -eq 'cozinha') { Enviar-Impressora $cfg.cozinha (Ticket-Cozinha $p) 'cozinha' }
-          else { Enviar-Impressora $cfg.caixa (Ticket-Caixa $p) 'caixa' }
+          if ($via -eq 'cozinha') { $script:tamEsc = [bool]$cfg.cozinha.tamanhoEsc; Enviar-Impressora $cfg.cozinha (Ticket-Cozinha $p) 'cozinha' }
+          else { $script:tamEsc = [bool]$cfg.caixa.tamanhoEsc; Enviar-Impressora $cfg.caixa (Ticket-Caixa $p) 'caixa' }
           Marcar $p.id $via
           $proxima.Remove($chave); $ultimoErro.Remove($chave)
           Log ('Impresso: #' + $p.numero + ' ' + $p.nome + ' (' + $via + ')') 'Green'
