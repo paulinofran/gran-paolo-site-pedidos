@@ -212,6 +212,8 @@ nav.bottom button.active{color:var(--accent);}
 .aviso-loja{margin:12px 16px 0;padding:12px 14px;background:#FFF4D6;border:1px solid #E8C979;border-radius:12px;color:#5A4308;font-size:13.5px;line-height:1.4;}
 .aviso-loja strong{display:block;font-size:14.5px;margin-bottom:2px;color:#3F2E04;}
 .aviso-checkout{margin:0 0 10px;padding:11px 13px;background:#FFF4D6;border:1px solid #E8C979;border-radius:12px;color:#5A4308;font-size:13px;line-height:1.4;}
+.ajuda-link{text-align:center;font-size:12.5px;color:var(--ink-soft);margin:16px 0 8px;line-height:1.5;}
+.ajuda-link a{color:var(--accent-dark);font-weight:700;text-decoration:underline;}
 .sug-add{background:var(--accent);color:#fff;border:none;border-radius:10px;padding:8px 12px;font-size:12.5px;font-weight:700;white-space:nowrap;}
 </style>
 </head>
@@ -296,6 +298,7 @@ nav.bottom button.active{color:var(--accent);}
     </div>
     <div class="tabs" id="tabsCategorias"></div>
     <div class="screen" style="padding:0 16px;display:block;" id="listaProdutos"></div>
+    <p class="ajuda-link">Precisa de ajuda para pedir? <a href="#" onclick="abrirAjuda(event)">Fale com a gente no WhatsApp</a></p>
   </section>
 
   <!-- ===================== CARRINHO (tela cheia) ===================== -->
@@ -303,6 +306,7 @@ nav.bottom button.active{color:var(--accent);}
     <h2 style="font-size:19px;color:var(--accent-dark);margin-bottom:14px;">Seu carrinho</h2>
     <div id="cartList"></div>
     <div id="cartSugestoes" class="hidden"></div>
+    <p class="ajuda-link">Precisa de ajuda para pedir? <a href="#" onclick="abrirAjuda(event)">Fale com a gente no WhatsApp</a></p>
     <div id="cartTotalBox" class="hidden cart-total-fixo">
       <div class="total-row"><span>Total</span><span id="cartTotalValor">R$ 0,00</span></div>
       <button class="btn-full btn-primary" style="margin-top:10px;" onclick="irParaCheckout()">Continuar</button>
@@ -361,6 +365,7 @@ nav.bottom button.active{color:var(--accent);}
     </div>
 
     <div id="avisoCheckoutLoja" class="aviso-checkout hidden"></div>
+    <p class="ajuda-link">Precisa de ajuda para pedir? <a href="#" onclick="abrirAjuda(event)">Fale com a gente no WhatsApp</a></p>
     <button class="btn-full btn-primary" id="btnEnviarPedido" onclick="enviarPedidoWhatsapp()">Enviar pedido pelo WhatsApp</button>
     <a id="fallbackWhatsapp" href="#" target="_blank" rel="noopener" class="btn-full btn-ghost hidden"
        style="display:block;text-align:center;text-decoration:none;margin-top:10px;">
@@ -738,6 +743,27 @@ async function atualizarStatusLoja(){
 }
 setInterval(atualizarStatusLoja, 60000);
 document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) atualizarStatusLoja(); });
+
+/* ---------- Ajuda: o cliente fala com uma pessoa no WhatsApp ---------- */
+function abrirAjuda(ev){
+  if(ev && ev.preventDefault) ev.preventDefault();
+  try{
+    const nomeEl = document.getElementById('campoNome');
+    const nome = nomeEl && nomeEl.value ? nomeEl.value.trim() : '';
+    let msg = 'Olá! Preciso de ajuda para fazer meu pedido.';
+    if(nome) msg += `\nMeu nome: ${nome}`;
+    if(typeof modalidadeAtual !== 'undefined' && modalidadeAtual) msg += `\nComo quero receber: ${ROTULO_MODALIDADE[modalidadeAtual] || modalidadeAtual}`;
+    if(carrinho.length){
+      msg += '\n\nEstou tentando pedir:';
+      carrinho.forEach(i=>{ msg += `\n• ${i.qtd}x ${i.nome} (${i.tamanho})`; });
+      msg += `\nTotal: ${fmtMoeda(totalCarrinho())}`;
+    }
+    window.open(`https://wa.me/${WHATSAPP_NUMERO}?text=${encodeURIComponent(msg)}`, '_blank');
+  }catch(e){
+    window.open(`https://wa.me/${WHATSAPP_NUMERO}`, '_blank');
+  }
+  return false;
+}
 
 function init(){
   const params = new URLSearchParams(window.location.search);
