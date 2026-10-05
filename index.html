@@ -207,6 +207,8 @@ nav.bottom button.active{color:var(--accent);}
 .sug-linha:first-of-type{border-top:none;}
 .sug-txt{flex:1;font-size:13px;font-weight:600;}
 .sug-txt small{display:block;font-weight:500;color:var(--ink-soft);font-size:11.5px;margin-top:1px;}
+.cart-total-fixo{position:sticky;bottom:var(--nav-h,66px);z-index:15;background:var(--bg);padding:0 0 10px;margin-top:6px;box-shadow:0 -10px 14px -4px rgba(250,244,236,.97);}
+.cart-total-fixo .total-row{margin-top:0;padding:10px 0 6px;}
 .sug-add{background:var(--accent);color:#fff;border:none;border-radius:10px;padding:8px 12px;font-size:12.5px;font-weight:700;white-space:nowrap;}
 </style>
 </head>
@@ -297,7 +299,7 @@ nav.bottom button.active{color:var(--accent);}
     <h2 style="font-size:19px;color:var(--accent-dark);margin-bottom:14px;">Seu carrinho</h2>
     <div id="cartList"></div>
     <div id="cartSugestoes" class="hidden"></div>
-    <div id="cartTotalBox" class="hidden">
+    <div id="cartTotalBox" class="hidden cart-total-fixo">
       <div class="total-row"><span>Total</span><span id="cartTotalValor">R$ 0,00</span></div>
       <button class="btn-full btn-primary" style="margin-top:10px;" onclick="irParaCheckout()">Continuar</button>
     </div>
@@ -949,7 +951,17 @@ function linhaSugestao(titulo, detalhe, onAdd){
   l.appendChild(txt); l.appendChild(b);
   return l;
 }
+function ajustarAlturaNav(){
+  try{
+    const nav = document.getElementById('navBottom');
+    if(nav && nav.offsetHeight) document.documentElement.style.setProperty('--nav-h', nav.offsetHeight + 'px');
+  }catch(e){}
+}
+window.addEventListener('resize', ajustarAlturaNav);
+window.addEventListener('load', ajustarAlturaNav);
+
 function renderSugestoes(){
+  ajustarAlturaNav();
   const box = document.getElementById('cartSugestoes');
   if(!box) return;
   box.innerHTML = '';
