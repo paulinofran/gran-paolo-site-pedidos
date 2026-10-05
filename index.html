@@ -508,6 +508,7 @@ const SUPABASE_KEY = "sb_publishable_qpfP7hAj0tmvwVEEqkqluA_iKzPYFUJ";
 // atrasa o envio do pedido pelo WhatsApp — essa parte continua sendo
 // o caminho principal e garantido.
 async function salvarPedidoNoCRM({nome, telefone, endereco, modalidade, bairro, taxa, itens, total, pagamento, obs}){
+  enviarOrigemDoPedido(telefone);
   try{
     // Chama a função segura "registrar_pedido" do banco (ela cadastra/atualiza o
     // cliente e grava o pedido). keepalive deixa o envio terminar mesmo que o
@@ -560,14 +561,133 @@ function pixel(evento, dados){
 }
 let ultimaCompraPixel = {assinatura:'', quando:0};
 
+/* ---------- Links de campanha: produto, meio a meio e origem (UTM) ---------- */
+let origemAtual = null;          // {primeira:{...}, ultima:{...}} guardada por 7 dias
+let irCheckoutAposModalidade = false;
+const VALIDADE_ORIGEM_MS = 7*24*60*60*1000;
+const CHAVES_ORIGEM = ['utm_source','utm_medium','utm_campaign','utm_content','utm_term','fbclid','ttclid','origem'];
+
+// "Pizza Camarão Com Catupiry" -> "camarao-com-catupiry" (sem acento, minusculo, com hifen)
+function slugLink(t){
+  return String(t||'').replace(/\bC\/\s*/gi,'com ').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+}
+function slugSabor(nome){ return slugLink(nome).replace(/^pizza-/,''); }
+function slugProduto(p){ return slugSabor(p.nome) + (p.categoria==='Promoção' ? '-promocao' : ''); }
+function acharProdutoPorSlug(sl){
+  const alvo = slugSabor(sl);
+  return CATALOGO.find(p=>slugProduto(p)===alvo) || null;
+}
+function acharSaborPorSlug(sl){
+  const alvo = slugSabor(sl);
+  let i = SABORES_MEIO.findIndex(x=>slugSabor(x.nome)===alvo);
+  if(i>=0) return {doce:false, idx:i};
+  i = SABORES_MEIO_DOCE.findIndex(x=>slugSabor(x.nome)===alvo);
+  if(i>=0) return {doce:true, idx:i};
+  return null;
+}
+function limpaValor(v, max){ return String(v||'').trim().slice(0, max||80); }
+
+function lerOrigemDaUrl(params){
+  const o = {};
+  CHAVES_ORIGEM.forEach(k=>{
+    const v = params.get(k);
+    if(v) o[k] = limpaValor(v, (k==='fbclid'||k==='ttclid') ? 200 : 80);
+  });
+  if(!Object.keys(o).length) return null;   // so conta como origem se tiver UTM / clique de anuncio
+  ['produto','meio1','meio2'].forEach(k=>{
+    const v = params.get(k);
+    if(v){ o.entrada = o.entrada || {}; o.entrada[k] = limpaValor(v, 60); }
+  });
+  return o;
+}
+// Guarda a PRIMEIRA origem por 7 dias (o pedido continua contando pro anuncio se o cliente
+// voltar direto no dia seguinte) e tambem a ultima origem.
+function atualizarOrigemGuardada(params){
+  let guardado = null;
+  try{ guardado = JSON.parse(localStorage.getItem('gp_origem') || 'null'); }catch(e){ guardado = null; }
+  const agora = Date.now();
+  if(guardado && guardado.primeira && (agora - guardado.primeira.t) > VALIDADE_ORIGEM_MS) guardado = null;
+  const nova = lerOrigemDaUrl(params);
+  if(nova){
+    const reg = Object.assign({}, nova, {t: agora});
+    guardado = guardado || {};
+    if(!guardado.primeira) guardado.primeira = reg;
+    guardado.ultima = reg;
+  }
+  try{ if(guardado) localStorage.setItem('gp_origem', JSON.stringify(guardado)); }catch(e){}
+  origemAtual = guardado;
+}
+function origemParaPedido(){
+  if(!origemAtual) return null;
+  const limpa = r => { if(!r) return null; const c = Object.assign({}, r); c.quando = new Date(c.t).toISOString(); delete c.t; return c; };
+  return {primeira: limpa(origemAtual.primeira), ultima: limpa(origemAtual.ultima)};
+}
+function textoOrigem(){
+  const o = origemAtual && (origemAtual.primeira || origemAtual.ultima);
+  if(!o) return '';
+  return [o.utm_source || o.origem, o.utm_medium, o.utm_campaign, o.utm_content].filter(Boolean).join(' / ');
+}
+// Manda a origem pro banco numa funcao separada: se falhar, o pedido nao e afetado.
+function enviarOrigemDoPedido(telefone){
+  try{
+    const origem = origemParaPedido();
+    if(!origem) return;
+    fetch(`${SUPABASE_URL}/rest/v1/rpc/registrar_origem`, {
+      method: "POST",
+      headers: {"apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json"},
+      keepalive: true,
+      body: JSON.stringify({p_loja: LOJA_ID, p_telefone: telefone, p_origem: origem}),
+    }).catch(()=>{});
+  }catch(e){}
+}
+
+// Link direto: ?produto=camarao  |  ?meio1=camarao&meio2=carne-de-sol  (&tamanho=pequena)
+function abrirPeloLink(params){
+  const tamanhoPedido = slugSabor(params.get('tamanho') || 'grande');
+  const querPequena = tamanhoPedido.startsWith('pequen');
+  const produto = params.get('produto');
+  const m1 = params.get('meio1'), m2 = params.get('meio2');
+
+  if(produto){
+    const p = acharProdutoPorSlug(produto);
+    if(!p) return false;
+    mostrarTela('cardapio');
+    document.getElementById('headerSub').textContent = 'Monte seu pedido';
+    abrirModalProduto(p);
+    const alvo = (querPequena && p.tamanhos.find(t=>/pequen/i.test(t.tamanho)))
+              || p.tamanhos.find(t=>/grande|^g\./i.test(t.tamanho)) || p.tamanhos[0];
+    modalTamanhoSelecionado = alvo;
+    atualizarModalProduto();
+    return true;
+  }
+  if(m1 && m2){
+    let a = acharSaborPorSlug(m1), b = acharSaborPorSlug(m2);
+    if(!a || !b) return false;
+    if(a.doce && !b.doce){ const t = a; a = b; b = t; }   // "mista": salgado primeiro, doce depois
+    const tipo = (!a.doce && !b.doce) ? 'salgada' : (a.doce && b.doce) ? 'doce' : 'mista';
+    mostrarTela('cardapio');
+    document.getElementById('headerSub').textContent = 'Monte seu pedido';
+    abrirModalMeio();
+    selecionarTipoMeio(tipo);
+    document.getElementById('meioSabor1').value = String(a.idx);
+    document.getElementById('meioSabor2').value = String(b.idx);
+    selecionarTamanhoMeio(querPequena ? 'Pequena' : 'Grande');
+    return true;
+  }
+  return false;
+}
+
 function init(){
   const params = new URLSearchParams(window.location.search);
   origemCampanha = params.get('origem');
+  try{ atualizarOrigemGuardada(params); }catch(e){}
   montarTabs();
   mostrarCategoria(CATEGORIAS_ORDEM[0]);
   popularSelectsMeio();
   popularBordasMeio();
   atualizarBadgeCarrinho();
+  try{ abrirPeloLink(params); }catch(e){ /* link invalido: segue o fluxo normal */ }
 }
 function popularBordasMeio(){
   const wrap = document.getElementById('meioBordas');
@@ -603,7 +723,13 @@ function escolherModalidade(m){
   document.getElementById('modalidadePill').textContent = '📍 ' + (ROTULO_MODALIDADE[m] || m);
   document.getElementById('headerSub').textContent = 'Monte seu pedido';
   document.getElementById('campoEnderecoWrap').classList.toggle('hidden', m!=='Entrega');
-  mostrarTela('cardapio');
+  if(irCheckoutAposModalidade && carrinho.length>0){
+    irCheckoutAposModalidade = false;
+    irParaCheckout();
+  } else {
+    irCheckoutAposModalidade = false;
+    mostrarTela('cardapio');
+  }
 }
 
 /* ---------- Cardápio ---------- */
@@ -1191,7 +1317,13 @@ function carregarDadosCliente(){
 }
 function irParaCheckout(){
   if(carrinho.length===0) return;
-  if(!modalidadeAtual){ mostrarTela('home'); return; }
+  if(!modalidadeAtual){
+    // Veio de campanha direto no produto: so agora perguntamos como quer receber
+    irCheckoutAposModalidade = true;
+    document.getElementById('headerSub').textContent = 'Como você quer receber seu pedido?';
+    mostrarTela('home');
+    return;
+  }
   carregarDadosCliente();
   const resumo = document.getElementById('resumoCheckout');
   resumo.innerHTML = carrinho.map(i=>`${i.qtd}x ${i.nome} (${i.tamanho}) — ${fmtMoeda(i.precoUnit*i.qtd)}`).join('<br>');
@@ -1258,7 +1390,8 @@ function enviarPedidoWhatsapp(){
   msg += `\n*Total: ${fmtMoeda(totalCarrinho()+taxa)}*\n`;
   msg += `Pagamento: ${pagamento}\n`;
   if(obs) msg += `Obs: ${obs}\n`;
-  if(origemCampanha) msg += `\n(Pedido via campanha: ${origemCampanha})`;
+  const txtOrigem = textoOrigem();
+  if(txtOrigem) msg += `\n(Campanha: ${txtOrigem})`;
 
   const url = `https://wa.me/${WHATSAPP_NUMERO}?text=${encodeURIComponent(msg)}`;
 
