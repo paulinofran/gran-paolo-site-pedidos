@@ -209,6 +209,9 @@ nav.bottom button.active{color:var(--accent);}
 .sug-txt small{display:block;font-weight:500;color:var(--ink-soft);font-size:11.5px;margin-top:1px;}
 .cart-total-fixo{position:sticky;bottom:var(--nav-h,66px);z-index:15;background:var(--bg);padding:0 0 10px;margin-top:6px;box-shadow:0 -10px 14px -4px rgba(250,244,236,.97);}
 .cart-total-fixo .total-row{margin-top:0;padding:10px 0 6px;}
+.aviso-loja{margin:12px 16px 0;padding:12px 14px;background:#FFF4D6;border:1px solid #E8C979;border-radius:12px;color:#5A4308;font-size:13.5px;line-height:1.4;}
+.aviso-loja strong{display:block;font-size:14.5px;margin-bottom:2px;color:#3F2E04;}
+.aviso-checkout{margin:0 0 10px;padding:11px 13px;background:#FFF4D6;border:1px solid #E8C979;border-radius:12px;color:#5A4308;font-size:13px;line-height:1.4;}
 .sug-add{background:var(--accent);color:#fff;border:none;border-radius:10px;padding:8px 12px;font-size:12.5px;font-weight:700;white-space:nowrap;}
 </style>
 </head>
@@ -232,6 +235,7 @@ nav.bottom button.active{color:var(--accent);}
       <button class="modalidade-pill" style="background:transparent;border-color:rgba(255,255,255,.5);" onclick="mostrarTela('home')">trocar</button>
     </div>
   </header>
+  <div id="avisoLoja" class="aviso-loja hidden" role="status"></div>
 
   <!-- ===================== HOME: escolher modalidade ===================== -->
   <section class="screen active" id="screen-home">
@@ -356,7 +360,8 @@ nav.bottom button.active{color:var(--accent);}
       </div>
     </div>
 
-    <button class="btn-full btn-primary" onclick="enviarPedidoWhatsapp()">Enviar pedido pelo WhatsApp</button>
+    <div id="avisoCheckoutLoja" class="aviso-checkout hidden"></div>
+    <button class="btn-full btn-primary" id="btnEnviarPedido" onclick="enviarPedidoWhatsapp()">Enviar pedido pelo WhatsApp</button>
     <a id="fallbackWhatsapp" href="#" target="_blank" rel="noopener" class="btn-full btn-ghost hidden"
        style="display:block;text-align:center;text-decoration:none;margin-top:10px;">
        Não abriu? Toque aqui para abrir o WhatsApp
@@ -678,6 +683,62 @@ function abrirPeloLink(params){
   return false;
 }
 
+/* ---------- Loja aberta ou fechada (aviso para quem vem de campanha) ---------- */
+let lojaStatus = null;   // resposta de loja_status: {exigir, aberta, motivo, fechado_hoje, proxima}
+function lojaFechada(){ return !!(lojaStatus && lojaStatus.aberta === false); }
+function lojaBloqueando(){ return lojaFechada() && lojaStatus.exigir === true; }
+function textoAvisoLoja(st){
+  const prox = st.proxima ? ` Abrimos ${st.proxima}.` : '';
+  if(st.motivo === 'sem_painel') return ['Ainda não estamos recebendo pedidos', 'Estamos nos preparando para abrir. Tente de novo em alguns minutos. Enquanto isso, você pode ver o cardápio.'];
+  if(st.fechado_hoje) return ['Hoje estamos fechados', `Você pode ver o cardápio à vontade.${prox}`];
+  if(st.proxima && /^hoje/.test(st.proxima)) return ['Ainda não abrimos', `Você pode ver o cardápio à vontade.${prox}`];
+  return ['Encerramos por hoje', `Você pode ver o cardápio à vontade.${prox}`];
+}
+function mostrarAvisoLoja(){
+  try{
+    const box = document.getElementById('avisoLoja');
+    const chk = document.getElementById('avisoCheckoutLoja');
+    const btn = document.getElementById('btnEnviarPedido');
+    if(!box) return;
+    if(!lojaFechada()){
+      box.classList.add('hidden'); box.innerHTML = '';
+      if(chk){ chk.classList.add('hidden'); chk.textContent = ''; }
+      if(btn){ btn.disabled = false; btn.textContent = 'Enviar pedido pelo WhatsApp'; }
+      return;
+    }
+    const [titulo, texto] = textoAvisoLoja(lojaStatus);
+    box.innerHTML = '';
+    const st = document.createElement('strong'); st.textContent = titulo;
+    box.appendChild(st); box.appendChild(document.createTextNode(texto));
+    box.classList.remove('hidden');
+    if(chk){
+      chk.textContent = lojaBloqueando()
+        ? 'No momento não estamos recebendo pedidos. ' + texto
+        : 'Estamos fechados agora. Se você enviar, seu pedido só será visto quando abrirmos.';
+      chk.classList.remove('hidden');
+    }
+    if(btn){
+      btn.disabled = lojaBloqueando();
+      btn.textContent = lojaBloqueando() ? 'Fechado no momento' : 'Enviar pedido pelo WhatsApp';
+    }
+  }catch(e){}
+}
+async function atualizarStatusLoja(){
+  try{
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/loja_status`, {
+      method: "POST",
+      headers: {"apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json"},
+      body: JSON.stringify({p_loja: LOJA_ID}),
+    });
+    if(!r.ok) return;                 // se nao deu pra saber, nao atrapalha o cliente
+    const st = await r.json();
+    if(st && typeof st === 'object') lojaStatus = st;
+  }catch(e){ return; }
+  mostrarAvisoLoja();
+}
+setInterval(atualizarStatusLoja, 60000);
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) atualizarStatusLoja(); });
+
 function init(){
   const params = new URLSearchParams(window.location.search);
   origemCampanha = params.get('origem');
@@ -688,6 +749,7 @@ function init(){
   popularBordasMeio();
   atualizarBadgeCarrinho();
   try{ abrirPeloLink(params); }catch(e){ /* link invalido: segue o fluxo normal */ }
+  atualizarStatusLoja();
 }
 function popularBordasMeio(){
   const wrap = document.getElementById('meioBordas');
@@ -1334,6 +1396,7 @@ function irParaCheckout(){
         BAIRROS_TAXA.map((b,i)=>`<option value="${i}">${b.nome} — ${fmtMoeda(b.taxa)}</option>`).join('');
     }
   }
+  atualizarStatusLoja();
   atualizarTotalCheckout();
   pixel('InitiateCheckout', {value: totalCarrinho(), currency: 'BRL', num_items: carrinho.reduce((a,i)=>a+i.qtd,0)});
   mostrarTela('checkout');
@@ -1341,6 +1404,7 @@ function irParaCheckout(){
 
 function enviarPedidoWhatsapp(){
   if(carrinho.length===0) return;
+  if(lojaBloqueando()){ mostrarAvisoLoja(); alert('No momento não estamos recebendo pedidos. Veja o aviso no topo da tela.'); return; }
   const nome = document.getElementById('campoNome').value.trim();
   const telefone = document.getElementById('campoTelefone').value.trim();
   const endereco = document.getElementById('campoEndereco').value.trim();
