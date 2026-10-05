@@ -7,17 +7,17 @@
 
 <!-- ======================================================================
   RASTREAMENTO DE CAMPANHA (Meta / TikTok)
-  Quando tiver os Pixel IDs, cole-os nos lugares marcados abaixo.
+  Meta: pixel ATIVO (eventos: PageView, ViewContent, AddToCart, InitiateCheckout, Purchase). TikTok: cole o ID abaixo quando tiver.
   O site já identifica a origem pelo link (?origem=meta / ?origem=tiktok)
   e inclui isso na mensagem do WhatsApp, independente do pixel.
 ======================================================================= -->
-<!--
+<!-- Pixel Meta: "Pixel Gran Paolo" (ID 1045633143844120) - ATIVO -->
 <script>
-  !function(f,b,e,v,n,t,s){...}(window, document,'script','https://connect.facebook.net/en_US/fbevents.js');
-  fbq('init', 'SEU_PIXEL_ID_META');
+  !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');
+  fbq('init', '1045633143844120');
   fbq('track', 'PageView');
 </script>
--->
+<noscript><img height="1" width="1" style="display:none" src="https://www.facebook.com/tr?id=1045633143844120&ev=PageView&noscript=1"/></noscript>
 <!--
 <script>
   !function (w, d, t) { ... }(window, document, 'ttq');
@@ -201,6 +201,13 @@ nav.bottom button.active{color:var(--accent);}
 .btn-full:disabled{opacity:.5;}
 .dica-endereco{display:block;font-size:12px;color:#B23A2F;margin-top:6px;}
 .hidden{display:none !important;}
+.sugestao{margin-top:16px;padding:12px 14px;background:var(--gold-soft);border:1px solid var(--line);border-radius:12px;}
+.sugestao h4{font-size:13.5px;font-weight:700;margin:0 0 4px;color:var(--accent-dark);}
+.sug-linha{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line);}
+.sug-linha:first-of-type{border-top:none;}
+.sug-txt{flex:1;font-size:13px;font-weight:600;}
+.sug-txt small{display:block;font-weight:500;color:var(--ink-soft);font-size:11.5px;margin-top:1px;}
+.sug-add{background:var(--accent);color:#fff;border:none;border-radius:10px;padding:8px 12px;font-size:12.5px;font-weight:700;white-space:nowrap;}
 </style>
 </head>
 <body>
@@ -289,6 +296,7 @@ nav.bottom button.active{color:var(--accent);}
   <section class="screen" id="screen-carrinho">
     <h2 style="font-size:19px;color:var(--accent-dark);margin-bottom:14px;">Seu carrinho</h2>
     <div id="cartList"></div>
+    <div id="cartSugestoes" class="hidden"></div>
     <div id="cartTotalBox" class="hidden">
       <div class="total-row"><span>Total</span><span id="cartTotalValor">R$ 0,00</span></div>
       <button class="btn-full btn-primary" style="margin-top:10px;" onclick="irParaCheckout()">Continuar</button>
@@ -544,6 +552,12 @@ let meioTamanhoSel = null;
 let meioQtdAtual = 1;
 let meioBordaSelecionada = BORDAS[0];
 
+/* Dispara evento no pixel da Meta (e do TikTok quando ativado) sem nunca travar o site */
+function pixel(evento, dados){
+  try{ if(window.fbq) fbq('track', evento, dados || {}); }catch(e){}
+}
+let ultimaCompraPixel = {assinatura:'', quando:0};
+
 function init(){
   const params = new URLSearchParams(window.location.search);
   origemCampanha = params.get('origem');
@@ -670,6 +684,7 @@ function criarCardProduto(p){
 /* ---------- Modal produto simples ---------- */
 function abrirModalProduto(p){
   modalProdutoAtual = p;
+  pixel('ViewContent', {content_name: p.nome, content_type: 'product', currency: 'BRL'});
   modalTamanhoSelecionado = p.tamanhos.length===1 ? p.tamanhos[0] : null;
   modalQtdAtual = 1;
   document.getElementById('modalProdutoNome').textContent = p.nome;
@@ -739,6 +754,7 @@ function confirmarAddProduto(){
     tipo:'simples', nome: modalProdutoAtual.nome, tamanho: tamanhoTxt,
     precoUnit: modalTamanhoSelecionado.preco + (modalBordaSelecionada ? modalBordaSelecionada.preco : 0), qtd: modalQtdAtual
   });
+  pixel('AddToCart', {content_name: modalProdutoAtual.nome, content_type: 'product', value: (modalTamanhoSelecionado.preco + (modalBordaSelecionada ? modalBordaSelecionada.preco : 0)) * modalQtdAtual, currency: 'BRL'});
   atualizarBadgeCarrinho();
   fecharOverlay('overlayProduto');
 }
@@ -822,6 +838,7 @@ function confirmarAddMeio(){
     tipo:'meio', nome:`Meio a Meio: ${s1.nome} / ${s2.nome}`, tamanho: tamanhoTxt,
     precoUnit: media, qtd: meioQtdAtual
   });
+  pixel('AddToCart', {content_name: `Meio a Meio: ${s1.nome} / ${s2.nome}`, content_type: 'product', value: media * meioQtdAtual, currency: 'BRL'});
   atualizarBadgeCarrinho();
   fecharOverlay('overlayMeio');
 }
@@ -851,6 +868,7 @@ function renderCarrinho(){
   if(carrinho.length===0){
     lista.innerHTML = '<div class="empty-cart">Seu carrinho está vazio.<br>Vá no cardápio e escolha algo gostoso 🍕</div>';
     totalBox.classList.add('hidden');
+    renderSugestoes();
     return;
   }
   carrinho.forEach((item, idx)=>{
@@ -870,6 +888,107 @@ function renderCarrinho(){
   });
   document.getElementById('cartTotalValor').textContent = fmtMoeda(totalCarrinho());
   totalBox.classList.remove('hidden');
+  renderSugestoes();
+}
+
+/* ---------- Sugestoes no carrinho (venda extra: borda e bebida) ---------- */
+const SUGESTOES_BEBIDA = ['Coca-Cola 1 Litro', 'Guaraná 1 Litro', 'Coca-Cola Lata 350ml', 'Suco De Laranja 300ml'];
+const BORDA_SUGERIDA_SALGADA = BORDAS.find(b=>b.id==='borda-catupiry');
+const BORDA_SUGERIDA_DOCE = BORDAS.find(b=>b.id==='borda-chocolate');
+
+function bordaSugeridaPara(item){
+  if(!item || String(item.tamanho).includes('Borda:')) return null;
+  if(item.tipo==='simples'){
+    const prod = achaProduto(item.nome);
+    if(!prod || !ehPizza(prod)) return null;
+    return prod.categoria==='Doce' ? BORDA_SUGERIDA_DOCE : BORDA_SUGERIDA_SALGADA;
+  }
+  if(item.tipo==='meio'){
+    const nomes = String(item.nome).replace('Meio a Meio: ','').split(' / ');
+    if(nomes.length!==2) return null;
+    const salgada = n => SABORES_MEIO.some(x=>x.nome===n);
+    const doce = n => SABORES_MEIO_DOCE.some(x=>x.nome===n);
+    if(salgada(nomes[0]) && salgada(nomes[1])) return BORDA_SUGERIDA_SALGADA;
+    if(doce(nomes[0]) && doce(nomes[1])) return BORDA_SUGERIDA_DOCE;
+  }
+  return null;
+}
+function carrinhoTemBebida(){
+  return carrinho.some(i=>{ const p = achaProduto(i.nome); return p && p.categoria==='Bebida'; });
+}
+function adicionarBordaSugerida(idx){
+  const item = carrinho[idx];
+  const b = bordaSugeridaPara(item);
+  if(!item || !b) return;
+  item.tamanho = `${item.tamanho} • Borda: ${b.nome}`;
+  item.precoUnit += b.preco;
+  pixel('AddToCart', {content_name: `Borda ${b.nome}`, content_type: 'product', value: b.preco * item.qtd, currency: 'BRL'});
+  atualizarBadgeCarrinho();
+  renderCarrinho();
+}
+function adicionarBebidaSugerida(nome){
+  const p = achaProduto(nome);
+  if(!p) return;
+  const t = p.tamanhos[0];
+  carrinho.push({tipo:'simples', nome:p.nome, tamanho:t.tamanho, precoUnit:t.preco, qtd:1});
+  pixel('AddToCart', {content_name: p.nome, content_type: 'product', value: t.preco, currency: 'BRL'});
+  atualizarBadgeCarrinho();
+  renderCarrinho();
+}
+function linhaSugestao(titulo, detalhe, onAdd){
+  const l = document.createElement('div');
+  l.className = 'sug-linha';
+  const txt = document.createElement('div');
+  txt.className = 'sug-txt';
+  txt.textContent = titulo;
+  if(detalhe){ const sm = document.createElement('small'); sm.textContent = detalhe; txt.appendChild(sm); }
+  const b = document.createElement('button');
+  b.className = 'sug-add';
+  b.textContent = '+ Adicionar';
+  b.onclick = onAdd;
+  l.appendChild(txt); l.appendChild(b);
+  return l;
+}
+function renderSugestoes(){
+  const box = document.getElementById('cartSugestoes');
+  if(!box) return;
+  box.innerHTML = '';
+  if(carrinho.length===0){ box.classList.add('hidden'); return; }
+  let algo = false;
+
+  // Borda: pizzas que ainda estao sem borda (no maximo 3 linhas)
+  const sugBorda = [];
+  carrinho.forEach((item, idx)=>{ const b = bordaSugeridaPara(item); if(b) sugBorda.push({item, idx, b}); });
+  if(sugBorda.length){
+    const sec = document.createElement('div');
+    sec.className = 'sugestao';
+    const h = document.createElement('h4');
+    h.textContent = 'Que tal uma borda recheada?';
+    sec.appendChild(h);
+    sugBorda.slice(0,3).forEach(({item, idx, b})=>{
+      sec.appendChild(linhaSugestao(`Borda ${b.nome} (+${fmtMoeda(b.preco)})`, item.nome, ()=>adicionarBordaSugerida(idx)));
+    });
+    box.appendChild(sec);
+    algo = true;
+  }
+
+  // Bebida: so aparece se o carrinho ainda nao tem nenhuma
+  if(!carrinhoTemBebida()){
+    const prods = SUGESTOES_BEBIDA.map(achaProduto).filter(Boolean);
+    if(prods.length){
+      const sec = document.createElement('div');
+      sec.className = 'sugestao';
+      const h = document.createElement('h4');
+      h.textContent = 'Vai uma bebida?';
+      sec.appendChild(h);
+      prods.forEach(p=>{
+        sec.appendChild(linhaSugestao(p.nome, fmtMoeda(p.tamanhos[0].preco), ()=>adicionarBebidaSugerida(p.nome)));
+      });
+      box.appendChild(sec);
+      algo = true;
+    }
+  }
+  box.classList.toggle('hidden', !algo);
 }
 
 /* ---------- Pedir de novo ---------- */
@@ -1072,6 +1191,7 @@ function irParaCheckout(){
     }
   }
   atualizarTotalCheckout();
+  pixel('InitiateCheckout', {value: totalCarrinho(), currency: 'BRL', num_items: carrinho.reduce((a,i)=>a+i.qtd,0)});
   mostrarTela('checkout');
 }
 
@@ -1102,6 +1222,13 @@ function enviarPedidoWhatsapp(){
     itens: carrinho.map(i=>({nome:i.nome, tamanho:i.tamanho, qtd:i.qtd, precoUnit:i.precoUnit})),
     total: totalCarrinho()+taxa, pagamento, obs,
   });
+
+  // Pixel: "Purchase" = pedido enviado (o pagamento e na entrega/maquininha). Nao repete em 60s.
+  const assinaturaPedido = telefone + '|' + (totalCarrinho()+taxa) + '|' + carrinho.map(i=>i.nome+i.qtd).join(',');
+  if(assinaturaPedido !== ultimaCompraPixel.assinatura || Date.now() - ultimaCompraPixel.quando > 60000){
+    ultimaCompraPixel = {assinatura: assinaturaPedido, quando: Date.now()};
+    pixel('Purchase', {value: totalCarrinho()+taxa, currency: 'BRL', content_type: 'product', num_items: carrinho.reduce((a,i)=>a+i.qtd,0), contents: carrinho.map(i=>({id: i.nome, quantity: i.qtd, item_price: i.precoUnit}))});
+  }
 
   let msg = `*Novo pedido — Gran Paolo*\n`;
   msg += `Cliente: ${nome}\n`;
