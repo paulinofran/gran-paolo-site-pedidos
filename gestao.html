@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Gestão — Gran Paolo</title>
+<style>
+:root{--bg:#FAF4EC;--card:#fff;--ink:#2A1D15;--soft:#7A6A5C;--line:#EADFD0;--verde:#02341b;--vermelho:#ee4152;
+  --ok:#1f7a45;--okbg:#DFF0E4;--am:#8a5a00;--ambg:#FFF1CC;--rd:#b3261e;--rdbg:#FCE0DD;--azul:#1b5fa8;--azulbg:#DDEBFA;}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink);font-size:15px}
+button,input,select,textarea{font-family:inherit;font-size:inherit}
+button{cursor:pointer}
+.oculto{display:none !important}
+#login{max-width:380px;margin:12vh auto;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:24px}
+#login h1{margin:0 0 4px;font-size:22px;color:var(--verde)}
+#login p{margin:0 0 16px;color:var(--soft);font-size:14px}
+#login label{display:block;font-size:13px;color:var(--soft);margin:12px 0 4px}
+#login input{width:100%;padding:12px;border:1.5px solid var(--line);border-radius:10px;font-size:16px}
+#login button{width:100%;margin-top:18px;padding:14px;border:0;border-radius:10px;background:var(--vermelho);color:#fff;font-size:16px;font-weight:700}
+#erroLogin{color:var(--rd);font-size:14px;margin-top:10px;min-height:18px}
+header{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--verde);color:#fff}
+header h1{margin:0;font-size:18px}
+.barra{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.btn{border:0;border-radius:10px;padding:10px 14px;font-weight:700;text-decoration:none;display:inline-block}
+.btn.claro{background:#fff;color:var(--verde)}
+.btn.vermelho{background:var(--vermelho);color:#fff}
+.btn.verde{background:var(--verde);color:#fff}
+.btn.cinza{background:#EFE6DA;color:var(--ink)}
+.btn.peq{padding:7px 11px;font-size:13px}
+.btn:disabled{opacity:.5}
+#abas{display:flex;gap:6px;overflow-x:auto;padding:10px 12px;background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+#abas button{border:1.5px solid var(--line);background:#fff;border-radius:20px;padding:8px 14px;font-weight:700;color:var(--soft);white-space:nowrap}
+#abas button.ativa{background:var(--vermelho);border-color:var(--vermelho);color:#fff}
+#aviso{position:fixed;left:12px;right:12px;bottom:14px;z-index:20;max-width:520px;margin:0 auto}
+.toast{padding:12px 14px;border-radius:12px;font-weight:700;margin-top:8px;box-shadow:0 6px 18px rgba(0,0,0,.18)}
+.toast.ok{background:var(--ok);color:#fff}.toast.erro{background:var(--rd);color:#fff}
+main{padding:14px 12px 90px;max-width:760px;margin:0 auto}
+h2{font-size:16px;margin:18px 0 8px;color:var(--verde)}
+h2:first-child{margin-top:4px}
+.dica{font-size:13px;color:var(--soft);margin:2px 0 10px;line-height:1.4}
+.cartao{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px}
+.topo{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.nome{font-weight:800;font-size:16px}
+.chip{display:inline-block;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:800;white-space:nowrap}
+.chip.ok{background:var(--okbg);color:var(--ok)}.chip.nao{background:var(--rdbg);color:var(--rd)}.chip.am{background:var(--ambg);color:var(--am)}.chip.az{background:var(--azulbg);color:var(--azul)}
+.linha{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
+.campo{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--soft);font-weight:600}
+.campo input,.campo select,.campo textarea{padding:9px 10px;border:1.5px solid var(--line);border-radius:9px;color:var(--ink);font-size:15px;min-width:0}
+.campo input.num{width:96px}
+.campo textarea{width:100%;min-height:62px}
+.cheios{display:flex;gap:6px;flex-wrap:wrap}
+.marca{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink);background:#F7F1E8;border-radius:9px;padding:6px 9px}
+.marca input{width:17px;height:17px}
+.dia{border:1.5px solid var(--line);background:#fff;border-radius:50%;width:34px;height:34px;font-weight:800;color:var(--soft)}
+.dia.sel{background:var(--verde);border-color:var(--verde);color:#fff}
+.busca{width:100%;padding:12px;border:1.5px solid var(--line);border-radius:12px;font-size:16px;margin-bottom:8px;background:#fff}
+.vazio{padding:18px;border:1.5px dashed var(--line);border-radius:12px;color:var(--soft);text-align:center}
+details>summary{cursor:pointer;color:var(--azul);font-weight:700;font-size:13px;margin-top:8px}
+.extrato td,.extrato th{padding:6px 4px;border-bottom:1px solid var(--line);font-size:13px;text-align:left}
+.extrato{width:100%;border-collapse:collapse}
+.saldo{display:flex;gap:10px;flex-wrap:wrap;margin:8px 0}
+.saldo div{flex:1;min-width:130px;background:#F1FAF3;border:1px solid #BFE3C8;border-radius:12px;padding:10px;font-weight:800;font-size:18px;color:#14502B}
+.saldo small{display:block;font-weight:600;font-size:12px;color:#3B6B4B}
+.pos{color:var(--ok);font-weight:700}.neg{color:var(--rd);font-weight:700}
+</style>
+</head>
+<body>
+
+<div id="login">
+  <h1>Gran Paolo</h1>
+  <p>Gestão do cardápio. Entre com o usuário do painel.</p>
+  <form id="formLogin">
+    <label for="email">E-mail</label>
+    <input id="email" type="email" value="painel@granpaolopizzaria.com.br" autocomplete="username">
+    <label for="senha">Senha</label>
+    <input id="senha" type="password" autocomplete="current-password">
+    <div id="erroLogin"></div>
+    <button type="submit">Entrar</button>
+  </form>
+</div>
+
+<div id="app" class="oculto">
+  <header>
+    <h1>Gran Paolo · Gestão</h1>
+    <div class="barra">
+      <a class="btn claro peq" href="painel.html">Pedidos</a>
+      <a class="btn claro peq" href="./" target="_blank" rel="noopener">Ver o site</a>
+      <button id="btnSair" class="btn claro peq">Sair</button>
+    </div>
+  </header>
+  <div id="abas"></div>
+  <main id="conteudo"><div class="vazio">Carregando...</div></main>
+</div>
+<div id="aviso"></div>
+
+<script>
+const SUPABASE_URL = "https://shhdqvhjvtwoviiqtxng.supabase.co";
+const SUPABASE_KEY = "sb_publishable_qpfP7hAj0tmvwVEEqkqluA_iKzPYFUJ";
+const LOJA = "gran-paolo";
+const CHAVE_SESSAO = "gp_painel_sessao";          // a mesma do painel de pedidos: entra uma vez so
+const CANAIS = ['Entrega','Retirada','Vem comer','Drive-thru','Balcão'];
+const DIAS = ['D','S','T','Q','Q','S','S'];
+const NOME_DIA = ['domingo','segunda','terça','quarta','quinta','sexta','sábado'];
+const ABAS = [['hoje','Hoje'],['cardapio','Cardápio'],['promos','Promoções'],['taxas','Taxas'],['regras','Regras'],['clientes','Clientes']];
+
+let sessao = null, aba = 'hoje';
+let D = {categorias:[], produtos:[], promocoes:[], bairros:[], regras:null};
+let clienteBusca = null;
+
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt !== undefined) e.textContent = txt; return e; };
+const money = (v) => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const num = (v) => { const n = parseFloat(String(v).replace(',', '.')); return isNaN(n) ? null : n; };
+const slug = (t) => String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+
+/* ---------- acesso ---------- */
+function salvarSessao(j){
+  sessao = {access_token: j.access_token, refresh_token: j.refresh_token, expira: Date.now() + (j.expires_in || 3600) * 1000};
+  try{ localStorage.setItem(CHAVE_SESSAO, JSON.stringify(sessao)); }catch(e){}
+}
+async function entrar(email, senha){
+  const r = await fetch(SUPABASE_URL + '/auth/v1/token?grant_type=password', {method:'POST', headers:{apikey:SUPABASE_KEY,'Content-Type':'application/json'}, body:JSON.stringify({email, password:senha})});
+  if(!r.ok) return false;
+  salvarSessao(await r.json()); return true;
+}
+async function renovar(){
+  if(!sessao || !sessao.refresh_token) return false;
+  try{
+    const r = await fetch(SUPABASE_URL + '/auth/v1/token?grant_type=refresh_token', {method:'POST', headers:{apikey:SUPABASE_KEY,'Content-Type':'application/json'}, body:JSON.stringify({refresh_token:sessao.refresh_token})});
+    if(!r.ok) return false;
+    salvarSessao(await r.json()); return true;
+  }catch(e){ return null; }
+}
+function sair(){ sessao = null; try{ localStorage.removeItem(CHAVE_SESSAO); }catch(e){} $('app').classList.add('oculto'); $('login').classList.remove('oculto'); }
+async function api(caminho, opcoes = {}, jaRenovou = false){
+  if(sessao && sessao.expira - Date.now() < 120000 && !jaRenovou) await renovar();
+  const headers = Object.assign({apikey:SUPABASE_KEY, 'Content-Type':'application/json', Authorization:'Bearer ' + (sessao ? sessao.access_token : SUPABASE_KEY)}, opcoes.headers || {});
+  const r = await fetch(SUPABASE_URL + caminho, Object.assign({}, opcoes, {headers}));
+  if(r.status === 401 && sessao && !jaRenovou){ if(await renovar()) return api(caminho, opcoes, true); sair(); throw new Error('sessão expirada'); }
+  if(!r.ok) throw new Error((await r.text()) || ('erro ' + r.status));
+  const t = await r.text(); return t ? JSON.parse(t) : null;
+}
+const rpc = (nome, corpo) => api('/rest/v1/rpc/' + nome, {method:'POST', body:JSON.stringify(corpo || {})});
+async function atualizar(tabela, filtro, corpo){
+  const r = await api(`/rest/v1/${tabela}?${filtro}`, {method:'PATCH', headers:{Prefer:'return=representation'}, body:JSON.stringify(corpo)});
+  if(!r || !r.length) throw new Error('Nada foi alterado (sem permissão ou item não encontrado).');
+  return r;
+}
+async function inserir(tabela, corpo){
+  const r = await api(`/rest/v1/${tabela}`, {method:'POST', headers:{Prefer:'return=representation'}, body:JSON.stringify(corpo)});
+  return r && r[0];
+}
+
+/* ---------- avisos ---------- */
+function aviso(msg, tipo){
+  const t = el('div', 'toast ' + (tipo || 'ok'), msg); $('aviso').appendChild(t);
+  setTimeout(()=>t.remove(), tipo === 'erro' ? 6000 : 2500);
+}
+async function tentar(fn, okMsg){
+  try{ const r = await fn(); if(okMsg) aviso(okMsg, 'ok'); return r; }
+  catch(e){ aviso('Não deu certo: ' + String(e.message || e).slice(0,160), 'erro'); return undefined; }
+}
+
+/* ---------- datas (horario de Natal) ---------- */
+function agoraLocal(){
+  const p = {}; new Intl.DateTimeFormat('en-CA', {timeZone:'America/Fortaleza', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false, weekday:'short'})
+    .formatToParts(new Date()).forEach(x=>{ p[x.type] = x.value; });
+  const dow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].indexOf(p.weekday);
+  return {data:`${p.year}-${p.month}-${p.day}`, dow, hora:`${p.hour === '24' ? '00' : p.hour}:${p.minute}`};
+}
+function fimDoDia(){ return agoraLocal().data + 'T23:59:59-03:00'; }
+function promoVale(pm){
+  const h = agoraLocal();
+  if(!pm.ativa) return false;
+  if(pm.desligada_em === h.data) return false;
+  if(pm.ligada_em === h.data) return true;
+  const dia = !pm.dias || pm.dias.indexOf(h.dow) >= 0;
+  const hora = !pm.hora_ini || !pm.hora_fim || (h.hora >= pm.hora_ini.slice(0,5) && h.hora <= pm.hora_fim.slice(0,5));
+  return dia && hora;
+}
+function esgotadoAgora(p){ return !!p.esgotado_ate && new Date(p.esgotado_ate) > new Date(); }
+
+/* ---------- carregar ---------- */
+async function carregarTudo(){
+  const f = 'loja_id=eq.' + LOJA;
+  const [categorias, produtos, promocoes, bairros, regras] = await Promise.all([
+    api(`/rest/v1/categorias?${f}&order=ordem.asc`),
+    api(`/rest/v1/produtos?select=*,produto_tamanhos(*)&${f}&order=ordem.asc,id.asc`),
+    api(`/rest/v1/promocoes?select=*,promocao_etapas(*,promocao_opcoes(*))&${f}&order=ordem.asc`),
+    api(`/rest/v1/bairros?${f}&order=ordem.asc,id.asc`),
+    api(`/rest/v1/loja_regras?${f}`),
+  ]);
+  const ORDEM_TAM = ['Grande','Pequena'];        // a Grande vem primeiro, como no site
+  produtos.forEach(p=>p.produto_tamanhos.sort((a,b)=>(((ORDEM_TAM.indexOf(a.nome)+1)||99)-((ORDEM_TAM.indexOf(b.nome)+1)||99))||a.id-b.id));
+  promocoes.forEach(pm=>pm.promocao_etapas.sort((a,b)=>a.ordem-b.ordem||a.id-b.id));
+  D = {categorias, produtos, promocoes, bairros, regras: regras[0] || null};
+}
+async function recarregar(){ await tentar(async()=>{ await carregarTudo(); desenhar(); }); }
+
+/* ---------- abas ---------- */
+function desenharAbas(){
+  const box = $('abas'); box.innerHTML = '';
+  ABAS.forEach(([id, rot])=>{ const b = el('button', id === aba ? 'ativa' : '', rot); b.dataset.aba = id; b.onclick = ()=>{ aba = id; desenhar(); window.scrollTo(0,0); }; box.appendChild(b); });
+}
+function desenhar(){
+  desenharAbas();
+  const c = $('conteudo'); c.innerHTML = '';
+  ({hoje:telaHoje, cardapio:telaCardapio, promos:telaPromos, taxas:telaTaxas, regras:telaRegras, clientes:telaClientes})[aba](c);
+}
+function campo(rotulo, input){ const w = el('label', 'campo'); w.appendChild(el('span', '', rotulo)); w.appendChild(input); return w; }
+function inputNum(v, passo){ const i = el('input', 'num'); i.type = 'text'; i.inputMode = (passo === '1') ? 'numeric' : 'decimal'; i.autocomplete = 'off'; i.value = v === null || v === undefined ? '' : String(v).replace('.', ','); return i; }
+function marca(rotulo, marcado){ const l = el('label', 'marca'); const i = el('input'); i.type = 'checkbox'; i.checked = !!marcado; l.appendChild(i); l.appendChild(el('span', '', rotulo)); l.input = i; return l; }
+function catNome(p){ const c = D.categorias.find(x=>x.id === p.categoria_id); return c ? c.nome : ''; }
+const nomeProd = (p) => (D.categorias.find(c=>c.id===p.categoria_id)||{}).tipo === 'pizza' ? 'Pizza ' + p.nome : p.nome;
+
+/* ============================ HOJE ============================ */
+function telaHoje(c){
+  const h = agoraLocal();
+  c.appendChild(el('h2', '', 'Promoções de hoje (' + NOME_DIA[h.dow] + ')'));
+  c.appendChild(el('p', 'dica', 'Ligue uma promoção só por hoje, ou desligue uma que sairia hoje. No dia seguinte tudo volta ao normal sozinho.'));
+  D.promocoes.forEach(pm=>{
+    const vale = promoVale(pm);
+    const card = el('div', 'cartao'); const topo = el('div', 'topo');
+    topo.appendChild(el('span', 'nome', pm.nome));
+    topo.appendChild(el('span', 'chip ' + (vale ? 'ok' : 'nao'), vale ? 'Vale hoje' : 'Não vale hoje'));
+    card.appendChild(topo);
+    const quando = pm.dias && pm.dias.length ? 'Normalmente: ' + pm.dias.map(d=>NOME_DIA[d]).join(', ') : 'Normalmente: todos os dias';
+    const extra = pm.ligada_em === h.data ? ' · ligada só hoje' : pm.desligada_em === h.data ? ' · desligada hoje' : '';
+    card.appendChild(el('div', 'dica', quando + extra + (pm.ativa ? '' : ' · PAUSADA (aba Promoções)')));
+    const lin = el('div', 'linha');
+    const mk = (txt, cls, corpo, ok)=>{ const b = el('button', 'btn peq ' + cls, txt); b.onclick = ()=>tentar(async()=>{ await atualizar('promocoes', 'id=eq.' + pm.id, corpo); await carregarTudo(); desenhar(); }, ok); lin.appendChild(b); };
+    mk('Ligar hoje', 'verde', {ligada_em:h.data, desligada_em:null}, pm.nome + ' ligada hoje');
+    mk('Desligar hoje', 'vermelho', {desligada_em:h.data, ligada_em:null}, pm.nome + ' desligada hoje');
+    mk('Voltar ao normal', 'cinza', {ligada_em:null, desligada_em:null}, pm.nome + ' voltou ao normal');
+    card.appendChild(lin); c.appendChild(card);
+  });
+
+  c.appendChild(el('h2', '', 'Acabou um sabor?'));
+  c.appendChild(el('p', 'dica', 'Procure o produto e toque em "Esgotado hoje". Ele some do site até o fim do dia (ou até você tocar em "Voltar a vender").'));
+  const esg = D.produtos.filter(esgotadoAgora);
+  if(esg.length){
+    const bx = el('div', 'cartao'); bx.appendChild(el('div', 'nome', 'Esgotados agora'));
+    esg.forEach(p=>{ const l = el('div', 'linha'); l.appendChild(el('span', '', nomeProd(p)));
+      const b = el('button', 'btn peq verde', 'Voltar a vender'); b.onclick = ()=>tentar(async()=>{ await atualizar('produtos', 'id=eq.' + p.id, {esgotado_ate:null}); await carregarTudo(); desenhar(); }, nomeProd(p) + ' voltou a ser vendido'); l.appendChild(b); bx.appendChild(l); });
+    c.appendChild(bx);
+  }
+  const busca = el('input', 'busca'); busca.placeholder = 'Buscar produto (ex: camarão)'; c.appendChild(busca);
+  const lista = el('div'); c.appendChild(lista);
+  const mostrar = ()=>{
+    lista.innerHTML = ''; const t = slug(busca.value);
+    const ach = D.produtos.filter(p=>p.ativo && !esgotadoAgora(p) && (!t || slug(nomeProd(p)).indexOf(t) >= 0)).slice(0, 12);
+    if(!ach.length){ lista.appendChild(el('div', 'vazio', 'Nenhum produto encontrado.')); return; }
+    ach.forEach(p=>{ const l = el('div', 'cartao'); const tp = el('div', 'topo'); tp.appendChild(el('span', 'nome', nomeProd(p)));
+      const b = el('button', 'btn peq vermelho', 'Esgotado hoje'); b.onclick = ()=>tentar(async()=>{ await atualizar('produtos', 'id=eq.' + p.id, {esgotado_ate:fimDoDia()}); await carregarTudo(); desenhar(); }, nomeProd(p) + ' esgotado até o fim do dia');
+      tp.appendChild(b); l.appendChild(tp); lista.appendChild(l); });
+  };
+  busca.oninput = mostrar; mostrar();
+}
+
+/* ============================ CARDAPIO ============================ */
+function telaCardapio(c){
+  c.appendChild(el('p', 'dica', 'Mude preços, textos e onde cada item é vendido. As mudanças aparecem no site em até 5 minutos (ou na hora, se o cliente abrir de novo).'));
+  const busca = el('input', 'busca'); busca.placeholder = 'Buscar produto'; c.appendChild(busca);
+  const lista = el('div'); c.appendChild(lista);
+  const nova = el('details'); nova.appendChild(el('summary', '', '+ Novo produto')); nova.appendChild(formNovoProduto()); c.appendChild(nova);
+  const mostrar = ()=>{
+    lista.innerHTML = ''; const t = slug(busca.value);
+    D.categorias.forEach(cat=>{
+      const itens = D.produtos.filter(p=>p.categoria_id === cat.id && (!t || slug(nomeProd(p)).indexOf(t) >= 0));
+      if(!itens.length) return;
+      lista.appendChild(el('h2', '', cat.nome + ' (' + itens.length + ')'));
+      itens.forEach(p=>lista.appendChild(cartaoProduto(p)));
+    });
+    if(!lista.children.length) lista.appendChild(el('div', 'vazio', 'Nenhum produto encontrado.'));
+  };
+  busca.oninput = mostrar; mostrar();
+}
+function cartaoProduto(p){
+  const card = el('div', 'cartao'); const topo = el('div', 'topo');
+  topo.appendChild(el('span', 'nome', nomeProd(p)));
+  const st = esgotadoAgora(p) ? ['am', 'Esgotado hoje'] : (p.ativo ? ['ok', 'Vendendo'] : ['nao', 'Pausado']);
+  topo.appendChild(el('span', 'chip ' + st[0], st[1])); card.appendChild(topo);
+  const lin = el('div', 'linha'); const campos = {};
+  p.produto_tamanhos.forEach(t=>{ const i = inputNum(t.preco); campos[t.id] = i; lin.appendChild(campo(t.nome + ' (R$)', i)); });
+  card.appendChild(lin);
+  const mais = el('details'); mais.appendChild(el('summary', '', 'Descrição, canais e pausa'));
+  const desc = el('textarea'); desc.value = p.descricao || ''; mais.appendChild(campo('Ingredientes / descrição', desc));
+  const cn = el('div', 'cheios'); cn.style.marginTop = '8px'; const marcas = CANAIS.map(x=>{ const m = marca(x, (p.canais||[]).indexOf(x) >= 0); cn.appendChild(m); return [x, m]; });
+  mais.appendChild(el('div', 'dica', 'Onde este item é vendido:')); mais.appendChild(cn);
+  const ativo = marca('Vendendo (desmarque para pausar o item)', p.ativo); ativo.style.marginTop = '8px'; mais.appendChild(ativo);
+  card.appendChild(mais);
+  const lin2 = el('div', 'linha');
+  const salvar = el('button', 'btn verde', 'Salvar');
+  salvar.onclick = ()=>tentar(async()=>{
+    const canais = marcas.filter(([, m])=>m.input.checked).map(([x])=>x);
+    if(!canais.length) throw new Error('Marque pelo menos um canal.');
+    for(const t of p.produto_tamanhos){ const v = num(campos[t.id].value); if(v === null || v < 0) throw new Error('Preço inválido em ' + t.nome + '.'); }
+    await atualizar('produtos', 'id=eq.' + p.id, {descricao:desc.value.trim() || null, canais, ativo:ativo.input.checked});
+    for(const t of p.produto_tamanhos){ const v = num(campos[t.id].value); if(v !== Number(t.preco)) await atualizar('produto_tamanhos', 'id=eq.' + t.id, {preco:v}); }
+    await carregarTudo(); desenhar();
+  }, nomeProd(p) + ' salvo');
+  lin2.appendChild(salvar);
+  const esg = el('button', 'btn cinza', esgotadoAgora(p) ? 'Voltar a vender' : 'Esgotado hoje');
+  esg.onclick = ()=>tentar(async()=>{ await atualizar('produtos', 'id=eq.' + p.id, {esgotado_ate: esgotadoAgora(p) ? null : fimDoDia()}); await carregarTudo(); desenhar(); });
+  lin2.appendChild(esg); card.appendChild(lin2);
+  return card;
+}
+function formNovoProduto(){
+  const f = el('div', 'cartao'); f.style.marginTop = '8px';
+  const nome = el('input'); nome.placeholder = 'Nome (sem a palavra Pizza)';
+  const cat = el('select'); D.categorias.forEach(x=>{ const o = el('option', '', x.nome); o.value = x.id; cat.appendChild(o); });
+  const pg = inputNum(''); const pp = inputNum(''); const pu = inputNum('');
+  const lin = el('div', 'linha');
+  lin.appendChild(campo('Nome', nome)); lin.appendChild(campo('Categoria', cat)); f.appendChild(lin);
+  const lin2 = el('div', 'linha'); lin2.appendChild(campo('Grande (R$)', pg)); lin2.appendChild(campo('Pequena (R$)', pp)); lin2.appendChild(campo('Único (R$)', pu)); f.appendChild(lin2);
+  f.appendChild(el('div', 'dica', 'Pizza: preencha Grande e Pequena. Bebida ou outro item: preencha só o Único.'));
+  const b = el('button', 'btn verde', 'Criar produto'); b.style.marginTop = '8px';
+  b.onclick = ()=>tentar(async()=>{
+    const n = nome.value.trim(); if(!n) throw new Error('Falta o nome.');
+    const tams = []; if(num(pg.value) !== null) tams.push(['Grande', num(pg.value), 8, 2]); if(num(pp.value) !== null) tams.push(['Pequena', num(pp.value), null, 2]); if(num(pu.value) !== null) tams.push(['Única', num(pu.value), null, 1]);
+    if(!tams.length) throw new Error('Informe pelo menos um preço.');
+    const ordem = Math.max(0, ...D.produtos.map(p=>p.ordem)) + 1;
+    const novo = await inserir('produtos', {loja_id:LOJA, categoria_id:Number(cat.value), slug:slug(n), nome:n, ordem});
+    for(let i=0;i<tams.length;i++) await inserir('produto_tamanhos', {produto_id:novo.id, nome:tams[i][0], preco:tams[i][1], pedacos:tams[i][2], max_sabores:tams[i][3], ordem:i+1});
+    await carregarTudo(); desenhar();
+  }, 'Produto criado');
+  f.appendChild(b); return f;
+}
+
+/* ============================ PROMOCOES ============================ */
+function telaPromos(c){
+  c.appendChild(el('p', 'dica', 'Dias em que vale, desconto de cada etapa (100 = grátis, 50 = metade do preço) e onde vale. Para ligar ou desligar só por hoje, use a aba Hoje.'));
+  D.promocoes.forEach(pm=>c.appendChild(cartaoPromo(pm)));
+}
+function cartaoPromo(pm){
+  const card = el('div', 'cartao'); const topo = el('div', 'topo');
+  topo.appendChild(el('span', 'nome', pm.nome));
+  topo.appendChild(el('span', 'chip ' + (pm.ativa ? 'az' : 'nao'), pm.ativa ? 'Ativa' : 'Pausada')); card.appendChild(topo);
+  const nome = el('input'); nome.value = pm.nome; const desc = el('textarea'); desc.value = pm.descricao || '';
+  card.appendChild(campo('Nome', nome)); card.appendChild(campo('Descrição (aparece no site)', desc));
+  card.appendChild(el('div', 'dica', 'Dias em que vale (nenhum marcado = todos os dias):'));
+  const dias = new Set(pm.dias || []); const dl = el('div', 'cheios');
+  DIAS.forEach((l, i)=>{ const b = el('button', 'dia' + (dias.has(i) ? ' sel' : ''), l); b.type = 'button'; b.title = NOME_DIA[i]; b.onclick = ()=>{ if(dias.has(i)) dias.delete(i); else dias.add(i); b.classList.toggle('sel'); }; dl.appendChild(b); });
+  card.appendChild(dl);
+  const descontos = {};
+  pm.promocao_etapas.forEach(et=>{
+    const l = el('div', 'linha'); const i = inputNum(et.desconto_pct, '0.01'); descontos[et.id] = i;
+    const ops = et.promocao_opcoes.length;
+    const quais = et.qualquer_pizza ? 'qualquer pizza ' + (et.tamanho || '').toLowerCase() : et.promocao_opcoes.map(o=>{ const pr = D.produtos.find(x=>x.id === o.produto_id); return pr ? pr.nome : ''; }).filter(Boolean).slice(0, 8).join(', ') + (ops > 8 ? '…' : '');
+    l.appendChild(campo(et.ordem + '. ' + et.titulo + ' (% de desconto)', i));
+    card.appendChild(l); card.appendChild(el('div', 'dica', 'Sabores: ' + quais));
+  });
+  const cn = el('div', 'cheios'); const marcas = CANAIS.map(x=>{ const m = marca(x, (pm.canais||[]).indexOf(x) >= 0); cn.appendChild(m); return [x, m]; });
+  card.appendChild(el('div', 'dica', 'Onde vale:')); card.appendChild(cn);
+  const ativa = marca('Promoção ativa (desmarque para pausar de vez)', pm.ativa); ativa.style.marginTop = '8px'; card.appendChild(ativa);
+  const b = el('button', 'btn verde', 'Salvar'); b.style.marginTop = '10px';
+  b.onclick = ()=>tentar(async()=>{
+    const canais = marcas.filter(([, m])=>m.input.checked).map(([x])=>x); if(!canais.length) throw new Error('Marque pelo menos um canal.');
+    for(const et of pm.promocao_etapas){ const v = num(descontos[et.id].value); if(v === null || v < 0 || v > 100) throw new Error('Desconto deve ficar entre 0 e 100.'); }
+    await atualizar('promocoes', 'id=eq.' + pm.id, {nome:nome.value.trim() || pm.nome, descricao:desc.value.trim() || null, dias:dias.size ? [...dias].sort() : null, canais, ativa:ativa.input.checked});
+    for(const et of pm.promocao_etapas){ const v = num(descontos[et.id].value); if(v !== Number(et.desconto_pct)) await atualizar('promocao_etapas', 'id=eq.' + et.id, {desconto_pct:v}); }
+    await carregarTudo(); desenhar();
+  }, pm.nome + ' salva');
+  card.appendChild(b); return card;
+}
+
+/* ============================ TAXAS ============================ */
+function telaTaxas(c){
+  c.appendChild(el('p', 'dica', 'Taxa de entrega de cada bairro. Pausar um bairro tira ele da lista do site.'));
+  D.bairros.forEach(z=>{
+    const card = el('div', 'cartao'); const l = el('div', 'topo');
+    l.appendChild(el('span', 'nome', z.nome)); const i = inputNum(z.taxa); l.appendChild(i); card.appendChild(l);
+    const lin = el('div', 'linha'); const at = marca('Atende este bairro', z.ativo); lin.appendChild(at);
+    const b = el('button', 'btn verde peq', 'Salvar'); b.onclick = ()=>tentar(async()=>{ const v = num(i.value); if(v === null || v < 0) throw new Error('Taxa inválida.'); await atualizar('bairros', 'id=eq.' + z.id, {taxa:v, ativo:at.input.checked}); await carregarTudo(); desenhar(); }, z.nome + ' salvo');
+    lin.appendChild(b); card.appendChild(lin); c.appendChild(card);
+  });
+  const nv = el('details'); nv.appendChild(el('summary', '', '+ Novo bairro'));
+  const f = el('div', 'cartao'); const nome = el('input'); nome.placeholder = 'Nome do bairro'; const tx = inputNum('');
+  const lin = el('div', 'linha'); lin.appendChild(campo('Bairro', nome)); lin.appendChild(campo('Taxa (R$)', tx)); f.appendChild(lin);
+  const b = el('button', 'btn verde', 'Adicionar'); b.style.marginTop = '8px';
+  b.onclick = ()=>tentar(async()=>{ const n = nome.value.trim(), v = num(tx.value); if(!n || v === null) throw new Error('Informe o bairro e a taxa.'); await inserir('bairros', {loja_id:LOJA, nome:n, taxa:v, ordem:Math.max(0, ...D.bairros.map(z=>z.ordem)) + 1}); await carregarTudo(); desenhar(); }, 'Bairro adicionado');
+  f.appendChild(b); nv.appendChild(f); c.appendChild(nv);
+}
+
+/* ============================ REGRAS ============================ */
+function telaRegras(c){
+  const r = D.regras; if(!r){ c.appendChild(el('div', 'vazio', 'Regras não encontradas.')); return; }
+  c.appendChild(el('p', 'dica', 'Regras do cashback e da fidelidade. Valem para os próximos pedidos; o que o cliente já ganhou não muda.'));
+  const card = el('div', 'cartao'); card.appendChild(el('div', 'nome', 'Cashback'));
+  const cbAt = marca('Cashback ligado', r.cashback_ativo); card.appendChild(cbAt);
+  const pct = inputNum(r.cashback_pct); const val = inputNum(r.cashback_validade_dias, '1');
+  const l1 = el('div', 'linha'); l1.appendChild(campo('% do pedido', pct)); l1.appendChild(campo('Validade (dias)', val)); card.appendChild(l1);
+  const exP = marca('Não pagar cashback em promoções e combos', r.cashback_exclui_promocoes); exP.style.marginTop = '8px'; card.appendChild(exP);
+  card.appendChild(el('div', 'dica', 'Canais em que vale:')); const cb = el('div', 'cheios'); const mCb = CANAIS.map(x=>{ const m = marca(x, (r.canais_cashback||[]).indexOf(x) >= 0); cb.appendChild(m); return [x, m]; }); card.appendChild(cb);
+  c.appendChild(card);
+  const f = el('div', 'cartao'); f.appendChild(el('div', 'nome', 'Fidelidade (pontos)'));
+  const fAt = marca('Fidelidade ligada', r.fidelidade_ativa); f.appendChild(fAt);
+  const rp = inputNum(r.fid_reais_por_ponto); const pr = inputNum(r.fid_pontos_resgate, '1'); const vr = inputNum(r.fid_valor_resgate); const fv = inputNum(r.fid_validade_dias, '1');
+  const l2 = el('div', 'linha'); l2.appendChild(campo('R$ para ganhar 1 ponto', rp)); l2.appendChild(campo('Pontos por desconto', pr)); l2.appendChild(campo('Valor do desconto (R$)', vr)); l2.appendChild(campo('Pontos vencem em (dias; vazio = nunca)', fv)); f.appendChild(l2);
+  const frete = marca('O frete conta para os pontos', r.fid_conta_frete); frete.style.marginTop = '8px'; f.appendChild(frete);
+  const exF = marca('Não pontuar em promoções e combos', r.fid_exclui_promocoes); f.appendChild(exF);
+  const resto = marca('Guardar o resto (os reais que sobram viram ponto no próximo pedido)', r.fid_guardar_resto); f.appendChild(resto);
+  f.appendChild(el('div', 'dica', 'Canais em que vale:')); const cf = el('div', 'cheios'); const mF = CANAIS.map(x=>{ const m = marca(x, (r.canais_fidelidade||[]).indexOf(x) >= 0); cf.appendChild(m); return [x, m]; }); f.appendChild(cf);
+  c.appendChild(f);
+  const b = el('button', 'btn verde', 'Salvar regras');
+  b.onclick = ()=>tentar(async()=>{
+    const corpo = {cashback_ativo:cbAt.input.checked, cashback_pct:num(pct.value), cashback_validade_dias:num(val.value), cashback_exclui_promocoes:exP.input.checked,
+      canais_cashback:mCb.filter(([, m])=>m.input.checked).map(([x])=>x), fidelidade_ativa:fAt.input.checked, fid_reais_por_ponto:num(rp.value), fid_pontos_resgate:num(pr.value),
+      fid_valor_resgate:num(vr.value), fid_validade_dias:fv.value.trim() === '' ? null : num(fv.value), fid_conta_frete:frete.input.checked, fid_exclui_promocoes:exF.input.checked,
+      fid_guardar_resto:resto.input.checked, canais_fidelidade:mF.filter(([, m])=>m.input.checked).map(([x])=>x), atualizado_em:new Date().toISOString()};
+    if(corpo.cashback_pct === null || corpo.cashback_pct < 0 || corpo.cashback_pct > 100) throw new Error('Cashback: a porcentagem deve ficar entre 0 e 100.');
+    if(!corpo.cashback_validade_dias || corpo.cashback_validade_dias < 1) throw new Error('Cashback: informe a validade em dias.');
+    if(!corpo.fid_reais_por_ponto || corpo.fid_reais_por_ponto <= 0) throw new Error('Fidelidade: informe quantos reais valem 1 ponto.');
+    if(!corpo.fid_pontos_resgate || corpo.fid_pontos_resgate < 1) throw new Error('Fidelidade: informe quantos pontos dão um desconto.');
+    if(corpo.fid_valor_resgate === null || corpo.fid_valor_resgate < 0) throw new Error('Fidelidade: informe o valor do desconto.');
+    await atualizar('loja_regras', 'loja_id=eq.' + LOJA, corpo); await carregarTudo(); desenhar();
+  }, 'Regras salvas');
+  b.style.marginTop = '4px'; c.appendChild(b);
+}
+
+/* ============================ CLIENTES ============================ */
+function telaClientes(c){
+  c.appendChild(el('p', 'dica', 'Veja o saldo de um cliente, o extrato e faça ajustes (cortesia, correção, saldo importado).'));
+  const tel = el('input', 'busca'); tel.type = 'tel'; tel.placeholder = 'WhatsApp do cliente (84 99999-0000)'; c.appendChild(tel);
+  const btn = el('button', 'btn verde', 'Buscar'); c.appendChild(btn);
+  const res = el('div'); res.style.marginTop = '12px'; c.appendChild(res);
+  const buscar = ()=>tentar(async()=>{
+    const t = tel.value.replace(/\D/g, ''); if(t.length < 10) throw new Error('Digite o telefone com DDD.');
+    const s = await rpc('saldo_cliente', {p_loja:LOJA, p_telefone:t});
+    const norm = t.length >= 12 && t.indexOf('55') === 0 ? t.slice(2) : t;
+    const ext = await api(`/rest/v1/carteira_mov?loja_id=eq.${LOJA}&telefone=eq.${norm}&order=criado_em.desc&limit=25`);
+    clienteBusca = {tel:t, s, ext}; desenharCliente(res);
+  });
+  btn.onclick = buscar; tel.onkeydown = (e)=>{ if(e.key === 'Enter') buscar(); };
+  if(clienteBusca){ tel.value = clienteBusca.tel; desenharCliente(res); }
+}
+function desenharCliente(res){
+  res.innerHTML = ''; const {tel, s, ext} = clienteBusca;
+  const sd = el('div', 'saldo');
+  const a = el('div'); a.appendChild(document.createTextNode(money(s.cashback))); a.appendChild(el('small', '', 'cashback')); sd.appendChild(a);
+  const b = el('div'); b.appendChild(document.createTextNode(String(s.pontos))); b.appendChild(el('small', '', 'pontos')); sd.appendChild(b); res.appendChild(sd);
+  const aj = el('div', 'cartao'); aj.appendChild(el('div', 'nome', 'Ajustar saldo'));
+  const car = el('select'); [['cashback', 'Cashback (R$)'], ['pontos', 'Pontos']].forEach(([v, t])=>{ const o = el('option', '', t); o.value = v; car.appendChild(o); });
+  const v = inputNum(''); v.placeholder = '+10 ou -5'; const mo = el('input'); mo.placeholder = 'Motivo (ex: cortesia)';
+  const l = el('div', 'linha'); l.appendChild(campo('Carteira', car)); l.appendChild(campo('Valor (use − para tirar)', v)); l.appendChild(campo('Motivo', mo)); aj.appendChild(l);
+  const bt = el('button', 'btn verde', 'Aplicar ajuste'); bt.style.marginTop = '8px';
+  bt.onclick = ()=>tentar(async()=>{ const n = num(v.value); if(n === null || n === 0) throw new Error('Informe um valor diferente de zero.');
+    await rpc('painel_ajustar_carteira', {p_loja:LOJA, p_telefone:tel, p_carteira:car.value, p_valor:n, p_motivo:mo.value.trim() || null});
+    const s2 = await rpc('saldo_cliente', {p_loja:LOJA, p_telefone:tel}); const norm = tel.length >= 12 && tel.indexOf('55') === 0 ? tel.slice(2) : tel;
+    const e2 = await api(`/rest/v1/carteira_mov?loja_id=eq.${LOJA}&telefone=eq.${norm}&order=criado_em.desc&limit=25`); clienteBusca = {tel, s:s2, ext:e2}; desenharCliente(res); }, 'Ajuste aplicado');
+  aj.appendChild(bt); res.appendChild(aj);
+  res.appendChild(el('h2', '', 'Extrato (últimos 25)'));
+  if(!ext.length){ res.appendChild(el('div', 'vazio', 'Nenhuma movimentação.')); return; }
+  const t = el('table', 'extrato'); const th = el('tr'); ['Data', 'Tipo', 'Valor', 'Detalhe'].forEach(x=>th.appendChild(el('th', '', x))); t.appendChild(th);
+  ext.forEach(m=>{ const tr = el('tr'); const d = new Date(m.criado_em);
+    tr.appendChild(el('td', '', d.toLocaleDateString('pt-BR', {timeZone:'America/Fortaleza'})));
+    tr.appendChild(el('td', '', m.carteira + ' · ' + m.tipo));
+    tr.appendChild(el('td', Number(m.valor) >= 0 ? 'pos' : 'neg', (Number(m.valor) >= 0 ? '+' : '') + (m.carteira === 'cashback' ? money(m.valor) : Number(m.valor))));
+    tr.appendChild(el('td', '', m.descricao || '')); t.appendChild(tr); });
+  res.appendChild(t);
+}
+
+/* ---------- inicio ---------- */
+async function iniciar(){
+  $('login').classList.add('oculto'); $('app').classList.remove('oculto');
+  await tentar(async()=>{ await carregarTudo(); desenhar(); });
+}
+$('formLogin').addEventListener('submit', async (e)=>{
+  e.preventDefault(); $('erroLogin').textContent = '';
+  const ok = await entrar($('email').value.trim(), $('senha').value);
+  if(ok) iniciar(); else $('erroLogin').textContent = 'E-mail ou senha incorretos.';
+});
+$('btnSair').onclick = sair;
+(function(){
+  try{ const s = JSON.parse(localStorage.getItem(CHAVE_SESSAO) || 'null'); if(s && s.refresh_token){ sessao = s; iniciar(); renovar().then(ok=>{ if(ok === false) sair(); }); } }catch(e){}
+})();
+</script>
+</body>
+</html>
