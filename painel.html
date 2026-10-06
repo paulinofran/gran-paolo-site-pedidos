@@ -62,6 +62,22 @@ main{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;padding:14px 16px
 #feitos h2{font-size:15px;color:var(--soft)}
 .linha{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--line);font-size:14px;background:var(--card)}
 .linha button{border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 10px}
+
+.modal-fundo{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:60;padding:12px;}
+.modal-pag{background:#fff;border-radius:18px;padding:20px;width:100%;max-width:440px;color:#2A1D15;}
+.modal-pag h3{margin:0 0 4px;font-size:20px;}
+.modal-pag p{margin:0 0 14px;color:#7A6A5C;font-size:14px;}
+.modal-pag .opcoes{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;}
+.modal-pag .opcao{padding:16px 8px;border:2.5px solid #E5DCCD;border-radius:14px;background:#fff;font-size:18px;font-weight:800;cursor:pointer;color:#2A1D15;}
+.modal-pag .opcao.sel{border-color:#02341b;background:#DFF0E4;color:#02341b;}
+.modal-pag .bandeiras{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;}
+.modal-pag .bandeiras .opcao{padding:11px 4px;font-size:15px;}
+.modal-pag .rotulo{font-size:13px;font-weight:700;color:#7A6A5C;margin:4px 0 6px;}
+.modal-pag .rodape{display:flex;gap:10px;margin-top:6px;}
+.modal-pag .rodape button{flex:1;padding:15px;border:0;border-radius:14px;font-size:17px;font-weight:800;cursor:pointer;}
+.modal-pag .confirmar{background:#02341b;color:#fff;}
+.modal-pag .confirmar:disabled{opacity:.35;cursor:default;}
+.modal-pag .cancelar{background:#EFE6DA;color:#2A1D15;}
 </style>
 </head>
 <body>
@@ -108,6 +124,7 @@ const CHAVE_SESSAO = "gp_painel_sessao";
 
 let sessao = null, loja = null, statusLoja = null;
 let ativos = [], feitos = [], vistos = new Set(), primeiraCarga = true;
+let fiscal = {ativo:false, etapa:'concluido'};      // nota fiscal: so pede o pagamento quando estiver ligada
 let atendimentos = [], atendVistos = new Set(), atendSilenciados = new Set(), primeiraAtend = true;
 let INTERVALO_ATEND = 15000;      // de quanto em quanto tempo repete os bips enquanto alguem espera   // clientes pedindo atendente no WhatsApp
 let ctxAudio = null, somAtivo = false, falhasSeguidas = 0, mostrarFeitos = false;
@@ -219,6 +236,53 @@ async function mudar(p, status){
   try{ await rpc('painel_mudar_status', {p_pedido: p.id, p_status: status}); await carregar(); }
   catch(e){ avisoErro('Não consegui atualizar o pedido #' + p.numero + '. Tente de novo.'); }
 }
+const FORMAS_PAG = ['Pix', 'Dinheiro', 'Débito', 'Crédito'];
+const BANDEIRAS = [['01', 'Visa'], ['02', 'Master'], ['06', 'Elo'], ['07', 'Hiper'], ['03', 'Amex'], ['99', 'Outras']];
+function formaDeclarada(p){
+  const t = String(p.pagamento || '');
+  if(/débito/i.test(t)) return 'Débito';
+  if(/crédito/i.test(t)) return 'Crédito';
+  if(/pix/i.test(t)) return 'Pix';
+  if(/dinheiro/i.test(t)) return 'Dinheiro';
+  return null;
+}
+// Pergunta como o cliente pagou (a nota fiscal precisa). Devolve true se confirmou e gravou.
+function pedirPagamento(p){
+  return new Promise(resolve => {
+    let forma = p.pagamento_final || formaDeclarada(p), bandeira = p.bandeira || null;
+    const fundo = el('div', 'modal-fundo'); fundo.id = 'modalPag';
+    const m = el('div', 'modal-pag'); fundo.appendChild(m);
+    m.appendChild(el('h3', '', 'Como o cliente pagou?'));
+    m.appendChild(el('p', '', 'Pedido #' + p.numero + ' · ' + (p.nome || '') + ' · R$ ' + Number(p.total).toFixed(2).replace('.', ',')));
+    const op = el('div', 'opcoes'); m.appendChild(op);
+    const rotBand = el('div', 'rotulo', 'Bandeira do cartão'); const band = el('div', 'bandeiras');
+    const conf = el('button', 'confirmar', 'Confirmar'); conf.id = 'btnConfirmarPag';
+    const atualizar = () => {
+      [...op.children].forEach(b => b.classList.toggle('sel', b.dataset.forma === forma));
+      const cartao = forma === 'Débito' || forma === 'Crédito';
+      rotBand.style.display = band.style.display = cartao ? '' : 'none';
+      [...band.children].forEach(b => b.classList.toggle('sel', b.dataset.band === bandeira));
+      conf.disabled = !forma || (cartao && !bandeira);
+    };
+    FORMAS_PAG.forEach(f => { const b = el('button', 'opcao', f); b.dataset.forma = f; b.onclick = () => { forma = f; if(f !== 'Débito' && f !== 'Crédito') bandeira = null; atualizar(); }; op.appendChild(b); });
+    m.appendChild(rotBand); m.appendChild(band);
+    BANDEIRAS.forEach(([cod, nome]) => { const b = el('button', 'opcao', nome); b.dataset.band = cod; b.onclick = () => { bandeira = cod; atualizar(); }; band.appendChild(b); });
+    const rod = el('div', 'rodape'); const volta = el('button', 'cancelar', 'Voltar'); volta.id = 'btnVoltarPag';
+    volta.onclick = () => { fundo.remove(); resolve(false); };
+    conf.onclick = async () => {
+      conf.disabled = true;
+      try{ await rpc('painel_definir_pagamento', {p_pedido: p.id, p_forma: forma, p_bandeira: bandeira}); fundo.remove(); resolve(true); }
+      catch(e){ avisoErro('Não consegui gravar o pagamento do #' + p.numero + '. Tente de novo.'); atualizar(); }
+    };
+    rod.appendChild(volta); rod.appendChild(conf); m.appendChild(rod);
+    document.body.appendChild(fundo); atualizar();
+  });
+}
+async function avancar(p){
+  const proximo = p.status === 'novo' ? 'cozinha' : p.status === 'cozinha' ? 'pronto' : 'concluido';
+  if(fiscal.ativo && proximo === fiscal.etapa && !p.pagamento_final){ if(!(await pedirPagamento(p))) return; }
+  mudar(p, proximo);
+}
 async function reimprimir(p){
   try{ await rpc('painel_reimprimir', {p_pedido: p.id}); await carregar(); }
   catch(e){ avisoErro('Não consegui pedir a reimpressão do #' + p.numero + '.'); }
@@ -267,7 +331,7 @@ function cartao(p){
   else c.appendChild(el('div', 'imp espera', 'Imprimindo...'));
   const b = el('button', 'acao ' + (p.status === 'pronto' ? 'final' : 'principal'),
     p.status === 'novo' ? 'Recebi' : p.status === 'cozinha' ? 'Pronto' : rotuloFinal(p));
-  b.onclick = () => mudar(p, p.status === 'novo' ? 'cozinha' : p.status === 'cozinha' ? 'pronto' : 'concluido');
+  b.onclick = () => avancar(p);
   c.appendChild(b);
   const mini = el('div', 'mini');
   const voltar = el('button', '', 'Voltar etapa');
@@ -333,19 +397,21 @@ function desenhar(){
 function inicioDoDia(){ const d = new Date(); d.setHours(0, 0, 0, 0); return d.toISOString(); }
 async function carregar(){
   try{
-    const [a, f, l, st, at] = await Promise.all([
+    const [a, f, l, st, at, fc] = await Promise.all([
       api('/rest/v1/pedidos?select=*&loja_id=eq.' + LOJA + '&status=in.(novo,cozinha,pronto)&order=criado_em.asc'),
       api('/rest/v1/pedidos?select=*&loja_id=eq.' + LOJA + '&status=in.(concluido,cancelado)&criado_em=gte.' + encodeURIComponent(inicioDoDia()) + '&order=criado_em.desc'),
       api('/rest/v1/lojas?select=*&id=eq.' + LOJA),
       api('/rest/v1/rpc/loja_status', {method: 'POST', body: JSON.stringify({p_loja: LOJA})}),
       // isolado de proposito: se o robo ainda nao foi instalado no banco, o painel segue normal
       api('/rest/v1/bot_conversas?select=id,nome,telefone,motivo&loja_id=eq.' + LOJA + '&precisa_humano=eq.true&order=ultima_entrada_em.desc').catch(() => []),
+      api('/rest/v1/fiscal_config?select=ativo,emitir_em&loja_id=eq.' + LOJA).catch(() => []),     // idem: sem a Parte G, nada muda
     ]);
     ativos = a || []; feitos = f || []; loja = (l && l[0]) || loja; statusLoja = st; falhasSeguidas = 0;
     const novosAgora = ativos.filter(p => p.status === 'novo' && !vistos.has(p.id));
     ativos.forEach(p => vistos.add(p.id));
     if(novosAgora.length && !primeiraCarga) tocarPedido();
     primeiraCarga = false;
+    fiscal = (fc && fc[0]) ? {ativo: fc[0].ativo === true, etapa: fc[0].emitir_em || 'concluido'} : {ativo:false, etapa:'concluido'};
     atendimentos = at || [];
     const novosAtend = atendimentos.filter(c => !atendVistos.has(c.id));
     atendimentos.forEach(c => atendVistos.add(c.id));

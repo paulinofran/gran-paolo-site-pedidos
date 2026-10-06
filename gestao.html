@@ -103,11 +103,11 @@ const CHAVE_SESSAO = "gp_painel_sessao";          // a mesma do painel de pedido
 const CANAIS = ['Entrega','Retirada','Vem comer','Drive-thru','Balcão'];
 const DIAS = ['D','S','T','Q','Q','S','S'];
 const NOME_DIA = ['domingo','segunda','terça','quarta','quinta','sexta','sábado'];
-const ABAS = [['hoje','Hoje'],['cardapio','Cardápio'],['promos','Promoções'],['taxas','Taxas'],['regras','Regras'],['clientes','Clientes'],['robo','Robô']];
+const ABAS = [['hoje','Hoje'],['cardapio','Cardápio'],['promos','Promoções'],['taxas','Taxas'],['regras','Regras'],['clientes','Clientes'],['notas','Notas'],['robo','Robô']];
 
 let sessao = null, aba = (location.hash === '#robo') ? 'robo' : 'hoje';
 let timerRobo = null;
-let D = {categorias:[], produtos:[], promocoes:[], bairros:[], regras:null};
+let D = {categorias:[], produtos:[], promocoes:[], bairros:[], regras:null, perfis:[]};
 let clienteBusca = null;
 
 const $ = (id) => document.getElementById(id);
@@ -196,7 +196,8 @@ async function carregarTudo(){
   const ORDEM_TAM = ['Grande','Pequena'];        // a Grande vem primeiro, como no site
   produtos.forEach(p=>p.produto_tamanhos.sort((a,b)=>(((ORDEM_TAM.indexOf(a.nome)+1)||99)-((ORDEM_TAM.indexOf(b.nome)+1)||99))||a.id-b.id));
   promocoes.forEach(pm=>pm.promocao_etapas.sort((a,b)=>a.ordem-b.ordem||a.id-b.id));
-  D = {categorias, produtos, promocoes, bairros, regras: regras[0] || null};
+  let perfis = []; try{ perfis = await api('/rest/v1/fiscal_perfis?order=ordem.asc'); }catch(e){ perfis = []; }   // sem a Parte G, o campo some
+  D = {categorias, produtos, promocoes, bairros, regras: regras[0] || null, perfis};
 }
 async function recarregar(){ await tentar(async()=>{ await carregarTudo(); desenhar(); }); }
 
@@ -208,7 +209,7 @@ function desenharAbas(){
 function desenhar(){
   desenharAbas();
   const c = $('conteudo'); c.innerHTML = '';
-  ({hoje:telaHoje, cardapio:telaCardapio, promos:telaPromos, taxas:telaTaxas, regras:telaRegras, clientes:telaClientes, robo:telaRobo})[aba](c);
+  ({hoje:telaHoje, cardapio:telaCardapio, promos:telaPromos, taxas:telaTaxas, regras:telaRegras, clientes:telaClientes, notas:telaNotas, robo:telaRobo})[aba](c);
 }
 function campo(rotulo, input){ const w = el('label', 'campo'); w.appendChild(el('span', '', rotulo)); w.appendChild(input); return w; }
 function inputNum(v, passo){ const i = el('input', 'num'); i.type = 'text'; i.inputMode = (passo === '1') ? 'numeric' : 'decimal'; i.autocomplete = 'off'; i.value = v === null || v === undefined ? '' : String(v).replace('.', ','); return i; }
@@ -291,6 +292,9 @@ function cartaoProduto(p){
   const cn = el('div', 'cheios'); cn.style.marginTop = '8px'; const marcas = CANAIS.map(x=>{ const m = marca(x, (p.canais||[]).indexOf(x) >= 0); cn.appendChild(m); return [x, m]; });
   mais.appendChild(el('div', 'dica', 'Onde este item é vendido:')); mais.appendChild(cn);
   const ativo = marca('Vendendo (desmarque para pausar o item)', p.ativo); ativo.style.marginTop = '8px'; mais.appendChild(ativo);
+  let perfilSel = null;
+  if(D.perfis.length){ perfilSel = el('select'); D.perfis.forEach(f=>{ const o = el('option', '', f.nome); o.value = f.chave; perfilSel.appendChild(o); }); perfilSel.value = p.fiscal_perfil || 'refeicoes';
+    const w = campo('Perfil fiscal (códigos da nota)', perfilSel); w.style.marginTop = '8px'; mais.appendChild(w); }
   card.appendChild(mais);
   const lin2 = el('div', 'linha');
   const salvar = el('button', 'btn verde', 'Salvar');
@@ -298,7 +302,8 @@ function cartaoProduto(p){
     const canais = marcas.filter(([, m])=>m.input.checked).map(([x])=>x);
     if(!canais.length) throw new Error('Marque pelo menos um canal.');
     for(const t of p.produto_tamanhos){ const v = num(campos[t.id].value); if(v === null || v < 0) throw new Error('Preço inválido em ' + t.nome + '.'); }
-    await atualizar('produtos', 'id=eq.' + p.id, {descricao:desc.value.trim() || null, canais, ativo:ativo.input.checked});
+    const corpoProd = {descricao:desc.value.trim() || null, canais, ativo:ativo.input.checked}; if(perfilSel) corpoProd.fiscal_perfil = perfilSel.value;
+    await atualizar('produtos', 'id=eq.' + p.id, corpoProd);
     for(const t of p.produto_tamanhos){ const v = num(campos[t.id].value); if(v !== Number(t.preco)) await atualizar('produto_tamanhos', 'id=eq.' + t.id, {preco:v}); }
     await carregarTudo(); desenhar();
   }, nomeProd(p) + ' salvo');
@@ -464,6 +469,101 @@ function desenharCliente(res){
 }
 
 
+/* ============================ NOTAS FISCAIS ============================ */
+const ROT_NOTA = {aguardando:['am','Falta o pagamento'], pendente:['az','Na fila'], enviando:['az','Enviando'], autorizada:['ok','Autorizada'], erro:['nao','Erro'], cancelada:['nao','Cancelada']};
+const BANDS = [['01','Visa'],['02','Master'],['06','Elo'],['07','Hiper'],['03','Amex'],['99','Outras']];
+let notasDados = null;
+async function carregarNotas(){
+  try{
+    const f = 'loja_id=eq.' + LOJA;
+    const [cfg, perfis, notas] = await Promise.all([api(`/rest/v1/fiscal_config?${f}`), api('/rest/v1/fiscal_perfis?order=ordem.asc'), api(`/rest/v1/notas_fiscais?${f}&order=criado_em.desc&limit=40`)]);
+    const peds = notas.length ? await api(`/rest/v1/pedidos?select=id,numero,nome,total&id=in.(${notas.map(n=>n.pedido_id).join(',')})`) : [];
+    notasDados = {instalado:true, cfg:cfg[0] || null, perfis, notas, peds};
+  }catch(e){ notasDados = {instalado:false}; }
+}
+async function telaNotas(c){
+  c.appendChild(el('div', 'vazio', 'Carregando as notas...'));
+  await carregarNotas(); if(aba !== 'notas') return;
+  c.innerHTML = '';
+  if(!notasDados.instalado){ c.appendChild(el('div', 'vazio', 'A nota fiscal ainda não foi instalada no banco de dados (falta rodar a Parte G no Supabase).')); return; }
+  const cfg = notasDados.cfg; if(!cfg){ c.appendChild(el('div', 'vazio', 'Configuração fiscal não encontrada para esta loja.')); return; }
+
+  const topo = el('div', 'cartao'); const t1 = el('div', 'topo');
+  t1.appendChild(el('span', 'nome', 'Nota fiscal (NFC-e)'));
+  t1.appendChild(el('span', 'chip ' + (!cfg.ativo ? 'nao' : cfg.ambiente === 'producao' ? 'ok' : 'am'), !cfg.ativo ? 'Desligada' : cfg.ambiente === 'producao' ? 'Produção' : 'Teste'));
+  topo.appendChild(t1);
+  topo.appendChild(el('div', 'dica', !cfg.ativo ? 'Desligada: nenhuma nota é emitida e o painel e o site ficam como sempre foram.' : cfg.ambiente === 'producao' ? 'PRODUÇÃO: as notas têm valor fiscal de verdade.' : 'TESTE: as notas não têm valor fiscal e não mexem na numeração da Suitable.'));
+  const n = (s)=>notasDados.notas.filter(x=>x.status === s).length;
+  topo.appendChild(el('div', 'dica', 'Últimas 40: ' + n('autorizada') + ' autorizadas · ' + n('pendente') + ' na fila · ' + n('aguardando') + ' aguardando pagamento · ' + n('erro') + ' com erro.'));
+  const bt = el('button', 'btn ' + (cfg.ativo ? 'cinza' : 'verde'), cfg.ativo ? 'Desligar nota fiscal' : 'Ligar nota fiscal'); bt.id = 'btnFiscalLiga'; bt.style.marginTop = '8px';
+  bt.onclick = ()=>{
+    if(!cfg.ativo && cfg.ambiente === 'producao' && !confirm('Ligar em PRODUÇÃO? As notas passam a valer de verdade. Só faça isso na virada, com a emissão da Suitable desligada.')) return;
+    tentar(async()=>{ await atualizar('fiscal_config', 'loja_id=eq.' + LOJA, {ativo:!cfg.ativo, atualizado_em:new Date().toISOString()}); desenhar(); }, cfg.ativo ? 'Nota fiscal desligada' : 'Nota fiscal ligada');
+  };
+  topo.appendChild(bt); c.appendChild(topo);
+
+  c.appendChild(el('h2', '', 'Configuração'));
+  const cf = el('div', 'cartao');
+  const cnpj = el('input'); cnpj.value = cfg.cnpj || ''; cnpj.placeholder = '00.000.000/0000-00'; cnpj.inputMode = 'numeric';
+  const serie = inputNum(cfg.serie, '1');
+  const amb = el('select'); [['homologacao', 'Teste (sem valor fiscal)'], ['producao', 'Produção (vale de verdade)']].forEach(([v, t])=>{ const o = el('option', '', t); o.value = v; amb.appendChild(o); }); amb.value = cfg.ambiente;
+  const etapa = el('select'); [['concluido', 'Quando o pedido é entregue/finalizado'], ['pronto', 'Quando fica pronto'], ['cozinha', 'Quando você toca em Recebi']].forEach(([v, t])=>{ const o = el('option', '', t); o.value = v; etapa.appendChild(o); }); etapa.value = cfg.emitir_em;
+  cf.appendChild(campo('CNPJ da empresa', cnpj));
+  const l1 = el('div', 'linha'); l1.appendChild(campo('Série da nota', serie)); cf.appendChild(l1);
+  cf.appendChild(campo('Ambiente', amb)); cf.appendChild(campo('Emitir a nota', etapa));
+  cf.appendChild(el('div', 'dica', 'Série 2 não se encontra com a numeração da Suitable (série 1). Confirme com o contador antes da virada.'));
+  const sv = el('button', 'btn verde', 'Salvar configuração'); sv.style.marginTop = '8px';
+  sv.onclick = ()=>tentar(async()=>{
+    const d = cnpj.value.replace(/\D/g, ''); if(d && d.length !== 14) throw new Error('O CNPJ precisa ter 14 números.');
+    const sr = num(serie.value); if(sr === null || sr < 1 || sr > 999) throw new Error('A série deve ficar entre 1 e 999.');
+    if(amb.value === 'producao' && cfg.ambiente !== 'producao' && !confirm('Mudar para PRODUÇÃO? As notas passam a valer de verdade.')) return;
+    await atualizar('fiscal_config', 'loja_id=eq.' + LOJA, {cnpj:d || null, serie:Math.round(sr), ambiente:amb.value, emitir_em:etapa.value, atualizado_em:new Date().toISOString()}); desenhar();
+  }, 'Configuração salva');
+  cf.appendChild(sv); c.appendChild(cf);
+
+  c.appendChild(el('h2', '', 'Notas recentes'));
+  if(!notasDados.notas.length) c.appendChild(el('div', 'vazio', 'Nenhuma nota ainda. Com a nota ligada, ela aparece aqui assim que o pedido é finalizado.'));
+  notasDados.notas.forEach(nt=>{
+    const ped = notasDados.peds.find(x=>x.id === nt.pedido_id) || {};
+    const card = el('div', 'cartao'); card.dataset.nota = nt.id; const tp = el('div', 'topo');
+    tp.appendChild(el('span', 'nome', 'Pedido #' + (ped.numero || nt.pedido_id) + (ped.total ? ' · ' + money(ped.total) : '')));
+    const rot = ROT_NOTA[nt.status] || ['am', nt.status]; tp.appendChild(el('span', 'chip ' + rot[0], rot[1])); card.appendChild(tp);
+    card.appendChild(el('div', 'dica', (nt.ambiente === 'homologacao' ? 'TESTE · ' : '') + (nt.numero ? 'Nota ' + nt.numero + ' série ' + nt.serie + ' · ' : '') + hora(nt.criado_em)));
+    if(nt.mensagem && nt.status !== 'autorizada') { const m = el('div', 'dica', nt.mensagem); m.style.color = 'var(--rd)'; card.appendChild(m); }
+    const lin = el('div', 'linha');
+    if(nt.url_danfe){ const a = el('a', 'btn verde peq', 'Abrir nota'); a.href = nt.url_danfe; a.target = '_blank'; a.rel = 'noopener'; lin.appendChild(a); }
+    if(nt.url_xml){ const a = el('a', 'btn cinza peq', 'XML'); a.href = nt.url_xml; a.target = '_blank'; a.rel = 'noopener'; lin.appendChild(a); }
+    if(nt.status === 'erro' || nt.status === 'pendente'){ const b = el('button', 'btn vermelho peq', 'Reenviar'); b.onclick = ()=>tentar(async()=>{ await rpc('fiscal_reenviar', {p_nota:nt.id}); desenhar(); }, 'Nota na fila de novo'); lin.appendChild(b); }
+    card.appendChild(lin);
+    if(nt.status === 'aguardando'){
+      const fs_ = el('select'); ['Pix', 'Dinheiro', 'Débito', 'Crédito'].forEach(f=>{ const o = el('option', '', f); o.value = f; fs_.appendChild(o); });
+      const bs = el('select'); BANDS.forEach(([v, t])=>{ const o = el('option', '', t); o.value = v; bs.appendChild(o); });
+      const l2 = el('div', 'linha'); l2.appendChild(campo('Como pagou', fs_)); l2.appendChild(campo('Bandeira (cartão)', bs)); card.appendChild(l2);
+      const sp = el('button', 'btn verde peq', 'Salvar pagamento'); sp.style.marginTop = '8px';
+      sp.onclick = ()=>tentar(async()=>{ const cartao = fs_.value === 'Débito' || fs_.value === 'Crédito'; await rpc('painel_definir_pagamento', {p_pedido:nt.pedido_id, p_forma:fs_.value, p_bandeira:cartao ? bs.value : null}); desenhar(); }, 'Pagamento salvo');
+      card.appendChild(sp);
+    }
+    c.appendChild(card);
+  });
+
+  c.appendChild(el('h2', '', 'Códigos fiscais (copiados da Suitable)'));
+  const falta = notasDados.perfis.filter(f=>!f.pis_cofins_confirmado).length;
+  c.appendChild(el('p', 'dica', falta ? 'O PIS e o COFINS ainda NÃO foram confirmados pelo contador em ' + falta + ' perfil(is). Enquanto isso, a Produção fica bloqueada de propósito. Preencha com o que o contador disser e marque "Confirmado".' : 'Todos os perfis confirmados pelo contador.'));
+  notasDados.perfis.forEach(f=>{
+    const d = el('details'); d.appendChild(el('summary', '', f.nome + (f.pis_cofins_confirmado ? ' ✓' : '')));
+    d.appendChild(el('div', 'dica', 'NCM ' + f.ncm + ' · CFOP ' + f.cfop + ' · CSOSN ' + f.csosn + ' · CEST ' + (f.cest || '—')));
+    const pis = el('input', 'num'); pis.value = f.pis_cst; const cof = el('input', 'num'); cof.value = f.cofins_cst;
+    const l = el('div', 'linha'); l.appendChild(campo('CST do PIS', pis)); l.appendChild(campo('CST do COFINS', cof)); d.appendChild(l);
+    const ok = marca('Confirmado pelo contador', f.pis_cofins_confirmado); ok.style.marginTop = '8px'; d.appendChild(ok);
+    const b = el('button', 'btn verde peq', 'Salvar este perfil'); b.style.marginTop = '8px';
+    b.onclick = ()=>tentar(async()=>{
+      if(!/^\d{2}$/.test(pis.value.trim()) || !/^\d{2}$/.test(cof.value.trim())) throw new Error('O CST tem 2 números (ex.: 49).');
+      await atualizar('fiscal_perfis', 'chave=eq.' + f.chave, {pis_cst:pis.value.trim(), cofins_cst:cof.value.trim(), pis_cofins_confirmado:ok.input.checked}); desenhar();
+    }, f.nome + ' salvo');
+    d.appendChild(b); c.appendChild(d);
+  });
+}
+
 /* ============================ ROBO (WhatsApp) ============================ */
 const TEXTOS_ROBO = [
   ['saudacao', 'Quando o cliente diz "oi" (loja aberta)'], ['fechado', 'Quando o cliente diz "oi" (loja fechada)'],
@@ -473,7 +573,7 @@ const TEXTOS_ROBO = [
   ['humano', 'Cliente pede atendente'], ['humano_fechado', 'Cliente pede atendente, loja fechada'],
   ['pedido_recebido', 'Pedido do site chegou pelo WhatsApp'], ['confirmado', 'Pedido confirmado (quando você toca em Recebi)'],
   ['pronto_retirar', 'Pedido pronto: Retirada'], ['pronto_drive', 'Pedido pronto: Drive-thru'], ['pronto_comer', 'Pedido pronto: Vem comer'],
-  ['saiu_entrega', 'Pedido saiu para entrega'], ['entregue', 'Pedido entregue (com cashback e pontos)'], ['cancelado', 'Pedido cancelado'],
+  ['saiu_entrega', 'Pedido saiu para entrega'], ['nota', 'Nota fiscal enviada ao cliente (só nota real)'], ['entregue', 'Pedido entregue (com cashback e pontos)'], ['cancelado', 'Pedido cancelado'],
   ['status', 'Cliente pergunta do pedido'], ['sem_pedido', 'Pergunta do pedido, mas não achou pedido'],
   ['pergunta_bairro', 'Cliente pergunta a taxa sem dizer o bairro'], ['taxa', 'Taxa de entrega do bairro'], ['taxa_nao_achei', 'Bairro não encontrado'],
   ['horario_aberto', 'Pergunta de horário (loja aberta)'], ['horario_fechado', 'Pergunta de horário (loja fechada)'], ['nao_entendi', 'Robô não entendeu a mensagem'],
