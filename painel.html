@@ -108,7 +108,8 @@ const CHAVE_SESSAO = "gp_painel_sessao";
 
 let sessao = null, loja = null, statusLoja = null;
 let ativos = [], feitos = [], vistos = new Set(), primeiraCarga = true;
-let atendimentos = [], atendVistos = new Set(), primeiraAtend = true;   // clientes pedindo atendente no WhatsApp
+let atendimentos = [], atendVistos = new Set(), atendSilenciados = new Set(), primeiraAtend = true;
+let INTERVALO_ATEND = 15000;      // de quanto em quanto tempo repete os bips enquanto alguem espera   // clientes pedindo atendente no WhatsApp
 let ctxAudio = null, somAtivo = false, falhasSeguidas = 0, mostrarFeitos = false;
 
 const $ = (id) => document.getElementById(id);
@@ -183,6 +184,10 @@ function tocarPedido(){            // campainha: 3 notas
 function tocarAlerta(){            // aviso grave, diferente da campainha
   if(!somAtivo || !ctxAudio) return;
   try{ tom(300, 0, 0.35, 0.6); tom(300, 0.45, 0.35, 0.6); tom(300, 0.9, 0.35, 0.6); }catch(e){}
+}
+function tocarAtendimento(){       // bips agudos e rapidos: cliente esperando no WhatsApp
+  if(!somAtivo || !ctxAudio) return;
+  try{ for(let i = 0; i < 5; i++) tom(1500, i * 0.22, 0.12, 0.55); }catch(e){}
 }
 function atualizarBotaoSom(){
   $('btnSom').textContent = somAtivo ? 'Som ligado' : 'Ativar som';
@@ -298,7 +303,16 @@ function desenhar(){
   if(falhasSeguidas >= 3) f.appendChild(el('div', 'faixa erro', 'Sem conexão com o sistema. Verifique a internet. Os pedidos podem não estar chegando.'));
   if(atendimentos.length){
     const fa = el('div', 'faixa aviso', '💬 ' + atendimentos.length + (atendimentos.length === 1 ? ' cliente pede' : ' clientes pedem') + ' atendimento no WhatsApp: ' + atendimentos.slice(0, 3).map(c => (c.nome || c.telefone)).join(', ') + '. ');
-    const la = el('a', '', 'Ver e marcar como atendido'); la.href = 'gestao.html#robo'; la.style.color = 'inherit'; la.style.fontWeight = '800'; fa.appendChild(la); f.appendChild(fa);
+    const la = el('a', '', 'Ver e marcar como atendido'); la.href = 'gestao.html#robo'; la.style.color = 'inherit'; la.style.fontWeight = '800'; fa.appendChild(la);
+    if(atendimentos.some(c => !atendSilenciados.has(c.id))){
+      const bv = el('button', 'btn claro', 'Já vi (parar o som)'); bv.id = 'btnJaVi';
+      bv.onclick = () => { atendimentos.forEach(c => atendSilenciados.add(c.id)); desenhar(); }; fa.appendChild(bv);
+    }
+    const bo = el('button', 'btn claro', 'Atendido'); bo.id = 'btnAtendido';
+    bo.onclick = async () => {
+      try{ for(const c of atendimentos) await rpc('bot_marcar_atendido', {p_loja: LOJA, p_telefone: c.telefone}); await carregar(); }
+      catch(e){ avisoErro('Não consegui marcar como atendido. Tente de novo.'); }
+    }; fa.appendChild(bo); f.appendChild(fa);
   }
   if(!somAtivo) f.appendChild(el('div', 'faixa aviso', 'O som está desligado. Toque em "Ativar som" para ouvir os pedidos novos.'));
   const sem = ativos.filter(semImpressao);
@@ -335,7 +349,7 @@ async function carregar(){
     atendimentos = at || [];
     const novosAtend = atendimentos.filter(c => !atendVistos.has(c.id));
     atendimentos.forEach(c => atendVistos.add(c.id));
-    if(novosAtend.length && !primeiraAtend) tocarAlerta();
+    if(novosAtend.length) tocarAtendimento();      // ja toca na hora (tambem na primeira carga)
     primeiraAtend = false;
   }catch(e){ falhasSeguidas++; }
   desenhar();
@@ -354,6 +368,7 @@ function ligarTimers(){
   timers.push(setInterval(() => { if(sessao && loja && loja.aberta) rpc('painel_sinal', {p_loja: LOJA}).catch(() => {}); }, 60000)); // sinal de vida
   timers.push(setInterval(() => { if(sessao && ativos.some(p => p.status === 'novo')) tocarPedido(); }, 7000));   // repete até tocar em Recebi
   timers.push(setInterval(() => { if(sessao && ativos.some(semImpressao)) tocarAlerta(); }, 20000));              // aviso de impressão
+  timers.push(setInterval(() => { if(sessao && atendimentos.some(c => !atendSilenciados.has(c.id))) tocarAtendimento(); }, INTERVALO_ATEND));   // bips ate alguem ver
 }
 
 $('formLogin').addEventListener('submit', async (ev) => {

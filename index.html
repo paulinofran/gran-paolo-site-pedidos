@@ -252,6 +252,12 @@ body.com-barra #app{padding-bottom:150px;}
 .produto-card .add-btn:disabled{background:#B9B2AC;cursor:not-allowed;}
 .ajuda-link{text-align:center;font-size:12.5px;color:var(--ink-soft);margin:16px 0 8px;line-height:1.5;}
 .ajuda-link a{color:var(--accent-dark);font-weight:700;text-decoration:underline;}
+.wa-ico{width:22px;height:22px;flex:none;}
+.wa-ajuda{display:flex;align-items:center;justify-content:center;gap:9px;margin:16px auto 8px;padding:10px 16px;border-radius:26px;border:1.5px solid #25D366;background:#fff;color:#128C4A;font-weight:700;font-size:14px;line-height:1.25;text-align:left;cursor:pointer;max-width:100%;}
+.wa-ajuda .wa-ico{color:#25D366;width:26px;height:26px;}
+.wa-ajuda small{display:block;font-weight:500;font-size:12px;color:var(--ink-soft);}
+.wa-duvida{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;margin-top:10px;padding:11px 14px;border:0;border-radius:12px;background:#25D366;color:#fff;font-weight:800;font-size:15px;cursor:pointer;}
+.wa-duvida .wa-ico{color:#fff;}
 .sug-add{background:var(--accent);color:#fff;border:none;border-radius:10px;padding:8px 12px;font-size:12.5px;font-weight:700;white-space:nowrap;}
 </style>
 </head>
@@ -336,7 +342,7 @@ body.com-barra #app{padding-bottom:150px;}
     </div>
     <div class="tabs" id="tabsCategorias"></div>
     <div class="screen" style="padding:0 16px;display:block;" id="listaProdutos"></div>
-    <p class="ajuda-link">Precisa de ajuda para pedir? <a href="#" onclick="abrirAjuda(event)">Fale com a gente no WhatsApp</a></p>
+    <button type="button" class="wa-ajuda" onclick="abrirAjuda(event)" aria-label="Ajuda no WhatsApp"><svg class="wa-ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg><span>Precisa de ajuda para pedir?<small>Fale com a gente no WhatsApp</small></span></button>
   </section>
 
   <!-- ===================== CARRINHO (tela cheia) ===================== -->
@@ -345,7 +351,7 @@ body.com-barra #app{padding-bottom:150px;}
     <div id="cartList"></div>
     <button type="button" id="btnMaisItens" class="btn-sec hidden" onclick="mostrarTela('cardapio')">+ Continuar pedindo</button>
     <div id="cartSugestoes" class="hidden"></div>
-    <p class="ajuda-link">Precisa de ajuda para pedir? <a href="#" onclick="abrirAjuda(event)">Fale com a gente no WhatsApp</a></p>
+    <button type="button" class="wa-ajuda" onclick="abrirAjuda(event)" aria-label="Ajuda no WhatsApp"><svg class="wa-ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg><span>Precisa de ajuda para pedir?<small>Fale com a gente no WhatsApp</small></span></button>
     <div id="cartTotalBox" class="hidden cart-total-fixo">
       <div class="linha-total">
         <div class="total-bloco"><small>Total</small><b id="cartTotalValor">R$ 0,00</b></div>
@@ -409,7 +415,7 @@ body.com-barra #app{padding-bottom:150px;}
     </div>
 
     <div id="avisoCheckoutLoja" class="aviso-checkout hidden"></div>
-    <p class="ajuda-link">Precisa de ajuda para pedir? <a href="#" onclick="abrirAjuda(event)">Fale com a gente no WhatsApp</a></p>
+    <button type="button" class="wa-ajuda" onclick="abrirAjuda(event)" aria-label="Ajuda no WhatsApp"><svg class="wa-ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg><span>Precisa de ajuda para pedir?<small>Fale com a gente no WhatsApp</small></span></button>
     <button class="btn-full btn-primary" id="btnEnviarPedido" onclick="enviarPedidoWhatsapp()">Enviar pedido pelo WhatsApp</button>
     <a id="fallbackWhatsapp" href="#" target="_blank" rel="noopener" class="btn-full btn-ghost hidden"
        style="display:block;text-align:center;text-decoration:none;margin-top:10px;">
@@ -782,6 +788,9 @@ function mostrarAvisoLoja(){
     box.innerHTML = '';
     const st = document.createElement('strong'); st.textContent = titulo;
     box.appendChild(st); box.appendChild(document.createTextNode(texto));
+    const bd = document.createElement('button'); bd.type = 'button'; bd.className = 'wa-duvida';
+    bd.innerHTML = '<svg class="wa-ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg><span>Tirar uma dúvida no WhatsApp</span>';
+    bd.onclick = abrirDuvida; box.appendChild(bd);
     box.classList.remove('hidden');
     if(chk){
       chk.textContent = lojaBloqueando()
@@ -1089,6 +1098,15 @@ function linhasDoPedido(){
 }
 
 /* ---------- Ajuda: o cliente fala com uma pessoa no WhatsApp ---------- */
+function linhaCampanha(){
+  try{ const t = textoOrigem(); return t ? `\n(Campanha: ${t})` : ''; }catch(e){ return ''; }
+}
+function abrirDuvida(ev){      // loja fechada: o cliente quer tirar uma duvida, sem estar pedindo
+  if(ev && ev.preventDefault) ev.preventDefault();
+  const msg = 'Olá! Estou no site da Gran Paolo e tenho uma dúvida.' + linhaCampanha();
+  window.open(`https://wa.me/${WHATSAPP_NUMERO}?text=${encodeURIComponent(msg)}`, '_blank');
+  return false;
+}
 function abrirAjuda(ev){
   if(ev && ev.preventDefault) ev.preventDefault();
   try{
@@ -1102,6 +1120,7 @@ function abrirAjuda(ev){
       carrinho.forEach(i=>{ msg += `\n• ${i.qtd}x ${i.nome} (${i.tamanho})`; });
       msg += `\nTotal: ${fmtMoeda(totalCarrinho())}`;
     }
+    msg += linhaCampanha();
     window.open(`https://wa.me/${WHATSAPP_NUMERO}?text=${encodeURIComponent(msg)}`, '_blank');
   }catch(e){
     window.open(`https://wa.me/${WHATSAPP_NUMERO}`, '_blank');
