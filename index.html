@@ -212,6 +212,14 @@ nav.bottom button.active{color:var(--accent);}
 .aviso-loja{margin:12px 16px 0;padding:12px 14px;background:#FFF4D6;border:1px solid #E8C979;border-radius:12px;color:#5A4308;font-size:13.5px;line-height:1.4;}
 .aviso-loja strong{display:block;font-size:14.5px;margin-bottom:2px;color:#3F2E04;}
 .aviso-checkout{margin:0 0 10px;padding:11px 13px;background:#FFF4D6;border:1px solid #E8C979;border-radius:12px;color:#5A4308;font-size:13px;line-height:1.4;}
+.btn-sec{width:100%;padding:12px;border:2px solid var(--accent);background:#fff;color:var(--accent-dark);border-radius:12px;font-size:14.5px;font-weight:700;margin-top:6px;}
+.ci-qtd{display:flex;align-items:center;gap:10px;margin:8px 0 2px;font-size:13px;color:var(--ink-soft);}
+.ci-qtd .passo{width:32px;height:32px;border-radius:50%;border:1.5px solid var(--accent);background:#fff;color:var(--accent-dark);font-size:18px;font-weight:700;line-height:1;display:flex;align-items:center;justify-content:center;padding:0;}
+.ci-qtd .passo:disabled{opacity:.35;}
+.ci-qtd .num{min-width:22px;text-align:center;font-weight:700;color:var(--ink);font-size:15px;}
+.barra-carrinho{position:fixed;left:0;right:0;bottom:calc(var(--nav-h,66px) + 8px);max-width:520px;margin:0 auto;padding:0 12px;z-index:24;}
+.barra-carrinho button{width:100%;display:flex;justify-content:space-between;align-items:center;background:var(--accent);color:#fff;border:none;border-radius:14px;padding:13px 16px;font-size:14.5px;font-weight:700;box-shadow:0 6px 18px rgba(60,35,20,.28);}
+body.com-barra #app{padding-bottom:150px;}
 .produto-card .desc{font-size:11.5px;color:var(--ink-soft);margin-top:3px;line-height:1.35;}
 .produto-card.esgotado{opacity:.55;}
 .produto-card .add-btn:disabled{background:#B9B2AC;cursor:not-allowed;}
@@ -308,11 +316,12 @@ nav.bottom button.active{color:var(--accent);}
   <section class="screen" id="screen-carrinho">
     <h2 style="font-size:19px;color:var(--accent-dark);margin-bottom:14px;">Seu carrinho</h2>
     <div id="cartList"></div>
+    <button type="button" id="btnMaisItens" class="btn-sec hidden" onclick="mostrarTela('cardapio')">+ Adicionar mais itens</button>
     <div id="cartSugestoes" class="hidden"></div>
     <p class="ajuda-link">Precisa de ajuda para pedir? <a href="#" onclick="abrirAjuda(event)">Fale com a gente no WhatsApp</a></p>
     <div id="cartTotalBox" class="hidden cart-total-fixo">
       <div class="total-row"><span>Total</span><span id="cartTotalValor">R$ 0,00</span></div>
-      <button class="btn-full btn-primary" style="margin-top:10px;" onclick="irParaCheckout()">Continuar</button>
+      <button class="btn-full btn-primary" id="btnFinalizar" style="margin-top:10px;" onclick="irParaCheckout()">Finalizar pedido</button>
     </div>
   </section>
 
@@ -376,6 +385,7 @@ nav.bottom button.active{color:var(--accent);}
     </a>
   </section>
 
+  <div id="barraCarrinho" class="barra-carrinho hidden"><button type="button" onclick="mostrarTela('carrinho')"><span id="barraCarrinhoTxt">🛒 Ver carrinho</span><span id="barraCarrinhoTotal"></span></button></div>
   <nav class="bottom" id="navBottom">
     <button data-tela="home" onclick="mostrarTela('home')"><span class="icon">🏠</span>Início</button>
     <button data-tela="cardapio" onclick="mostrarTela('cardapio')"><span class="icon">📋</span>Cardápio</button>
@@ -902,6 +912,7 @@ function mostrarTela(nome){
   document.getElementById('screen-'+nome).classList.add('active');
   document.querySelectorAll('nav.bottom button').forEach(b=>b.classList.toggle('active', b.dataset.tela===nome));
   if(nome==='carrinho') renderCarrinho();
+  atualizarBarraCarrinho();
   window.scrollTo(0,0);
 }
 
@@ -1185,6 +1196,31 @@ function atualizarBadgeCarrinho(){
   const badge = document.getElementById('cartBadge');
   if(qtdTotal>0){ badge.textContent = qtdTotal; badge.classList.remove('hidden'); }
   else badge.classList.add('hidden');
+  atualizarBarraCarrinho();
+}
+// Barra "Ver carrinho" no cardapio: mostra quantos itens ja tem e leva para o carrinho com um toque
+function atualizarBarraCarrinho(){
+  try{
+    const barra = document.getElementById('barraCarrinho');
+    if(!barra) return;
+    const noCardapio = document.getElementById('screen-cardapio').classList.contains('active');
+    const qtd = carrinho.reduce((a,i)=>a+i.qtd,0);
+    const mostrar = noCardapio && qtd > 0;
+    barra.classList.toggle('hidden', !mostrar);
+    document.body.classList.toggle('com-barra', mostrar);
+    if(mostrar){
+      document.getElementById('barraCarrinhoTxt').textContent = '🛒 Ver carrinho · ' + qtd + (qtd===1 ? ' item' : ' itens');
+      document.getElementById('barraCarrinhoTotal').textContent = fmtMoeda(totalCarrinho());
+    }
+  }catch(e){}
+}
+function alterarQtd(idx, delta){
+  const it = carrinho[idx]; if(!it) return;
+  const nova = Math.min(20, Math.max(1, it.qtd + delta));
+  if(nova === it.qtd) return;
+  it.qtd = nova;
+  atualizarBadgeCarrinho();
+  renderCarrinho();
 }
 function removerItem(idx){
   carrinho.splice(idx,1);
@@ -1198,6 +1234,7 @@ function renderCarrinho(){
   if(carrinho.length===0){
     lista.innerHTML = '<div class="empty-cart">Seu carrinho está vazio.<br>Vá no cardápio e escolha algo gostoso 🍕</div>';
     totalBox.classList.add('hidden');
+    document.getElementById('btnMaisItens').classList.add('hidden');
     renderSugestoes();
     return;
   }
@@ -1208,16 +1245,25 @@ function renderCarrinho(){
       <div class="ci-info">
         <h4>${item.nome}</h4>
         <span>${item.tamanho}</span>
-        <div class="ci-qtd">Qtd: ${item.qtd} × ${fmtMoeda(item.precoUnit)}</div>
+        <div class="ci-qtd">
+          <button type="button" class="passo menos" aria-label="Diminuir">−</button>
+          <span class="num">${item.qtd}</span>
+          <button type="button" class="passo mais" aria-label="Aumentar">+</button>
+          <span>× ${fmtMoeda(item.precoUnit)}</span>
+        </div>
         <button class="ci-remove">Remover</button>
       </div>
       <div class="ci-price">${fmtMoeda(item.precoUnit*item.qtd)}</div>
     `;
     div.querySelector('.ci-remove').onclick = ()=>removerItem(idx);
+    const bMenos = div.querySelector('.passo.menos'); bMenos.disabled = item.qtd<=1; bMenos.onclick = ()=>alterarQtd(idx,-1);
+    div.querySelector('.passo.mais').onclick = ()=>alterarQtd(idx,1);
     lista.appendChild(div);
   });
   document.getElementById('cartTotalValor').textContent = fmtMoeda(totalCarrinho());
   totalBox.classList.remove('hidden');
+  document.getElementById('btnMaisItens').classList.remove('hidden');
+  document.getElementById('btnFinalizar').textContent = 'Finalizar pedido · ' + fmtMoeda(totalCarrinho());
   renderSugestoes();
 }
 
