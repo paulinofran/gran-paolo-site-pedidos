@@ -551,13 +551,13 @@ async function telaNotas(c){
 
   c.appendChild(el('h2', '', 'Códigos fiscais (copiados da Suitable)'));
   const falta = notasDados.perfis.filter(f=>!f.pis_cofins_confirmado).length;
-  c.appendChild(el('p', 'dica', falta ? 'O PIS e o COFINS ainda NÃO foram confirmados pelo contador em ' + falta + ' perfil(is). Enquanto isso, a Produção fica bloqueada de propósito. Preencha com o que o contador disser e marque "Confirmado".' : 'Todos os perfis confirmados pelo contador.'));
+  c.appendChild(el('p', 'dica', falta ? 'O PIS e o COFINS de ' + falta + ' perfil(is) ainda não foram conferidos (pelo contador ou numa nota real da Suitable). Enquanto isso, a Produção fica bloqueada para esses itens. Quando conferir, marque "Conferido".' : 'Todos os perfis conferidos (contador ou nota real da Suitable).'));
   notasDados.perfis.forEach(f=>{
     const d = el('details'); d.appendChild(el('summary', '', f.nome + (f.pis_cofins_confirmado ? ' ✓' : '')));
     d.appendChild(el('div', 'dica', 'NCM ' + f.ncm + ' · CFOP ' + f.cfop + ' · CSOSN ' + f.csosn + ' · CEST ' + (f.cest || '—')));
     const pis = el('input', 'num'); pis.value = f.pis_cst; const cof = el('input', 'num'); cof.value = f.cofins_cst;
     const l = el('div', 'linha'); l.appendChild(campo('CST do PIS', pis)); l.appendChild(campo('CST do COFINS', cof)); d.appendChild(l);
-    const ok = marca('Confirmado pelo contador', f.pis_cofins_confirmado); ok.style.marginTop = '8px'; d.appendChild(ok);
+    const ok = marca('Conferido (contador ou nota real)', f.pis_cofins_confirmado); ok.style.marginTop = '8px'; d.appendChild(ok);
     const b = el('button', 'btn verde peq', 'Salvar este perfil'); b.style.marginTop = '8px';
     b.onclick = ()=>tentar(async()=>{
       if(!/^\d{2}$/.test(pis.value.trim()) || !/^\d{2}$/.test(cof.value.trim())) throw new Error('O CST tem 2 números (ex.: 49).');
