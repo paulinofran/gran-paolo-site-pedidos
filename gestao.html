@@ -468,6 +468,7 @@ function desenharCliente(res){
 const TEXTOS_ROBO = [
   ['saudacao', 'Quando o cliente diz "oi" (loja aberta)'], ['fechado', 'Quando o cliente diz "oi" (loja fechada)'],
   ['ajuda_site', 'Cliente veio do botão de ajuda do site'], ['ajuda_site_fechado', 'Botão de ajuda do site, loja fechada'],
+  ['sair_lista', 'Cliente pede para sair da lista (SAIR)'], ['voltar_lista', 'Cliente pede para voltar a receber'],
   ['duvida_site', 'Cliente veio do botão de dúvida do site (loja aberta)'], ['duvida_site_fechado', 'Botão de dúvida do site, loja fechada'],
   ['humano', 'Cliente pede atendente'], ['humano_fechado', 'Cliente pede atendente, loja fechada'],
   ['pedido_recebido', 'Pedido do site chegou pelo WhatsApp'], ['confirmado', 'Pedido confirmado (quando você toca em Recebi)'],
@@ -478,6 +479,14 @@ const TEXTOS_ROBO = [
   ['horario_aberto', 'Pergunta de horário (loja aberta)'], ['horario_fechado', 'Pergunta de horário (loja fechada)'], ['nao_entendi', 'Robô não entendeu a mensagem'],
 ];
 let botDados = null;
+async function buscarTodos(caminho){
+  const todos = [];
+  for(let ini = 0; ini < 20000; ini += 1000){
+    const pag = await api(caminho + '&limit=1000&offset=' + ini);
+    todos.push(...pag); if(pag.length < 1000) break;
+  }
+  return todos;
+}
 const hora = (iso) => new Date(iso).toLocaleTimeString('pt-BR', {timeZone:'America/Fortaleza', hour:'2-digit', minute:'2-digit'});
 
 async function carregarBot(){
@@ -492,7 +501,8 @@ async function carregarBot(){
     const ini = agoraLocal().data + 'T00:00:00-03:00';
     const hoje = await api(`/rest/v1/bot_fila?select=status&${f}&criado_em=gte.${encodeURIComponent(ini)}`);
     const entradas = await api(`/rest/v1/bot_mensagens?select=id&${f}&sentido=eq.entrada&criado_em=gte.${encodeURIComponent(ini)}`);
-    botDados = {instalado:true, cfg:cfg[0] || null, textos, conv, msgs, hoje, entradas:entradas.length};
+    const contatos = await buscarTodos(`/rest/v1/bot_contatos_v?${f}&order=ultimo_contato_em.desc,telefone.asc`);   // o telefone desempata: sem isso, contatos com o mesmo horario podem sumir entre as paginas
+    botDados = {instalado:true, cfg:cfg[0] || null, textos, conv, msgs, hoje, entradas:entradas.length, contatos};
   }catch(e){
     botDados = {instalado:false, erro:String(e.message || e)};
   }
@@ -518,6 +528,45 @@ function desenharAtend(box){
     ok.onclick = ()=>tentar(async()=>{ await rpc('bot_marcar_atendido', {p_loja:LOJA, p_telefone:cv.telefone}); await carregarBot(); desenhar(); }, 'Marcado como atendido');
     lin.appendChild(ok); card.appendChild(lin); box.appendChild(card);
   });
+}
+
+/* ---------- lista de contatos: planilhas ---------- */
+const csvCampo = (v) => { const t = String(v === null || v === undefined ? '' : v); return /[",\n;]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
+const telMeta = (tel) => { const d = String(tel || '').replace(/\D/g, ''); return (d.length === 10 || d.length === 11) ? '55' + d : (d.length >= 12 && d.startsWith('55') ? d : ''); };
+function csvNaoCompraram(lista){      // formato do Meta Ads: uma coluna "phone". Quem saiu da lista NUNCA entra.
+  const tels = [...new Set(lista.filter(x=>!x.ja_comprou && !x.optout).map(x=>telMeta(x.telefone)).filter(Boolean))];
+  return 'phone\n' + tels.join('\n') + (tels.length ? '\n' : '');
+}
+function csvCompleto(lista){
+  const cab = ['nome','telefone','origem','motivo','primeiro_contato','ultimo_contato','ja_comprou','total_pedidos','saiu_da_lista'];
+  const dia = (iso) => iso ? new Date(iso).toLocaleDateString('pt-BR', {timeZone:'America/Fortaleza'}) : '';
+  const linhas = lista.map(x=>[x.nome || '', x.telefone, x.origem || '', x.motivo_inicial || '', dia(x.primeiro_contato_em), dia(x.ultimo_contato_em), x.ja_comprou ? 'sim' : 'nao', x.total_pedidos, x.optout ? 'sim' : 'nao'].map(csvCampo).join(','));
+  return '\ufeff' + cab.join(',') + '\n' + linhas.join('\n') + (linhas.length ? '\n' : '');
+}
+function baixarCsv(nome, texto){
+  const url = URL.createObjectURL(new Blob([texto], {type:'text/csv;charset=utf-8'}));
+  const a = document.createElement('a'); a.href = url; a.download = nome; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 2000);
+}
+function desenharContatos(c){
+  const lista = botDados.contatos || [];
+  c.appendChild(el('h2', '', 'Contatos que o robô guardou'));
+  c.appendChild(el('p', 'dica', 'Todo mundo que chama no WhatsApp fica guardado, mesmo com a loja fechada e mesmo sem comprar. Quem pede para sair da lista (SAIR) fica de fora de qualquer anúncio.'));
+  const compraram = lista.filter(x=>x.ja_comprou).length, saiu = lista.filter(x=>x.optout).length;
+  const falta = lista.filter(x=>!x.ja_comprou && !x.optout).length;
+  const sd = el('div', 'saldo');
+  [[lista.length, 'contatos'], [falta, 'ainda não compraram'], [compraram, 'já compraram'], [saiu, 'saíram da lista']].forEach(([n, r])=>{ const d = el('div'); d.appendChild(document.createTextNode(String(n))); d.appendChild(el('small', '', r)); sd.appendChild(d); });
+  c.appendChild(sd);
+  const cont = {}; lista.forEach(x=>{ const k = x.origem_campanha || x.origem_fonte || 'sem origem'; cont[k] = (cont[k] || 0) + 1; });
+  const top = Object.entries(cont).sort((a, b)=>b[1] - a[1]).slice(0, 6);
+  if(top.length) c.appendChild(el('p', 'dica', 'De onde vêm: ' + top.map(([k, n])=>k + ' (' + n + ')').join(' · ')));
+  const hoje = agoraLocal().data;
+  const b1 = el('button', 'btn verde', 'Baixar: quem ainda não comprou (Meta Ads)'); b1.id = 'btnCsvNaoComprou';
+  b1.onclick = ()=>{ if(!falta){ aviso('Ninguém para exportar ainda.', 'erro'); return; } baixarCsv('contatos-nao-compraram-' + hoje + '.csv', csvNaoCompraram(lista)); };
+  const b2 = el('button', 'btn cinza', 'Baixar todos os contatos (planilha)'); b2.id = 'btnCsvTodos';
+  b2.onclick = ()=>{ if(!lista.length){ aviso('Nenhum contato ainda.', 'erro'); return; } baixarCsv('contatos-whatsapp-' + hoje + '.csv', csvCompleto(lista)); };
+  const lin = el('div', 'linha'); lin.appendChild(b1); lin.appendChild(b2); c.appendChild(lin);
+  c.appendChild(el('p', 'dica', 'Para anunciar: no Meta Ads, vá em Públicos > Criar público > Lista de clientes e suba o primeiro arquivo. Dá para criar anúncios só para quem conversou e ainda não comprou.'));
 }
 
 async function telaRobo(c){
@@ -549,6 +598,8 @@ async function telaRobo(c){
       botDados.msgs = botDados.conv.length ? await api(`/rest/v1/bot_mensagens?${fo}&telefone=in.(${botDados.conv.map(x=>x.telefone).join(',')})&order=criado_em.desc&limit=60`) : [];
       const b = $('boxAtend'); if(b) desenharAtend(b); }catch(e){}
   }, 15000);
+
+  desenharContatos(c);
 
   c.appendChild(el('h2', '', 'Ajustes'));
   const aj = el('div', 'cartao'); const lk = el('input'); lk.value = cfg.link_site; lk.style.width = '100%';
