@@ -103,9 +103,10 @@ const CHAVE_SESSAO = "gp_painel_sessao";          // a mesma do painel de pedido
 const CANAIS = ['Entrega','Retirada','Vem comer','Drive-thru','Balcão'];
 const DIAS = ['D','S','T','Q','Q','S','S'];
 const NOME_DIA = ['domingo','segunda','terça','quarta','quinta','sexta','sábado'];
-const ABAS = [['hoje','Hoje'],['cardapio','Cardápio'],['promos','Promoções'],['taxas','Taxas'],['regras','Regras'],['clientes','Clientes']];
+const ABAS = [['hoje','Hoje'],['cardapio','Cardápio'],['promos','Promoções'],['taxas','Taxas'],['regras','Regras'],['clientes','Clientes'],['robo','Robô']];
 
-let sessao = null, aba = 'hoje';
+let sessao = null, aba = (location.hash === '#robo') ? 'robo' : 'hoje';
+let timerRobo = null;
 let D = {categorias:[], produtos:[], promocoes:[], bairros:[], regras:null};
 let clienteBusca = null;
 
@@ -207,7 +208,7 @@ function desenharAbas(){
 function desenhar(){
   desenharAbas();
   const c = $('conteudo'); c.innerHTML = '';
-  ({hoje:telaHoje, cardapio:telaCardapio, promos:telaPromos, taxas:telaTaxas, regras:telaRegras, clientes:telaClientes})[aba](c);
+  ({hoje:telaHoje, cardapio:telaCardapio, promos:telaPromos, taxas:telaTaxas, regras:telaRegras, clientes:telaClientes, robo:telaRobo})[aba](c);
 }
 function campo(rotulo, input){ const w = el('label', 'campo'); w.appendChild(el('span', '', rotulo)); w.appendChild(input); return w; }
 function inputNum(v, passo){ const i = el('input', 'num'); i.type = 'text'; i.inputMode = (passo === '1') ? 'numeric' : 'decimal'; i.autocomplete = 'off'; i.value = v === null || v === undefined ? '' : String(v).replace('.', ','); return i; }
@@ -460,6 +461,122 @@ function desenharCliente(res){
     tr.appendChild(el('td', Number(m.valor) >= 0 ? 'pos' : 'neg', (Number(m.valor) >= 0 ? '+' : '') + (m.carteira === 'cashback' ? money(m.valor) : Number(m.valor))));
     tr.appendChild(el('td', '', m.descricao || '')); t.appendChild(tr); });
   res.appendChild(t);
+}
+
+
+/* ============================ ROBO (WhatsApp) ============================ */
+const TEXTOS_ROBO = [
+  ['saudacao', 'Quando o cliente diz "oi" (loja aberta)'], ['fechado', 'Quando o cliente diz "oi" (loja fechada)'],
+  ['ajuda_site', 'Cliente veio do botão de ajuda do site'], ['ajuda_site_fechado', 'Botão de ajuda do site, loja fechada'],
+  ['humano', 'Cliente pede atendente'], ['humano_fechado', 'Cliente pede atendente, loja fechada'],
+  ['pedido_recebido', 'Pedido do site chegou pelo WhatsApp'], ['confirmado', 'Pedido confirmado (quando você toca em Recebi)'],
+  ['pronto_retirar', 'Pedido pronto: Retirada'], ['pronto_drive', 'Pedido pronto: Drive-thru'], ['pronto_comer', 'Pedido pronto: Vem comer'],
+  ['saiu_entrega', 'Pedido saiu para entrega'], ['entregue', 'Pedido entregue (com cashback e pontos)'], ['cancelado', 'Pedido cancelado'],
+  ['status', 'Cliente pergunta do pedido'], ['sem_pedido', 'Pergunta do pedido, mas não achou pedido'],
+  ['pergunta_bairro', 'Cliente pergunta a taxa sem dizer o bairro'], ['taxa', 'Taxa de entrega do bairro'], ['taxa_nao_achei', 'Bairro não encontrado'],
+  ['horario_aberto', 'Pergunta de horário (loja aberta)'], ['horario_fechado', 'Pergunta de horário (loja fechada)'], ['nao_entendi', 'Robô não entendeu a mensagem'],
+];
+let botDados = null;
+const hora = (iso) => new Date(iso).toLocaleTimeString('pt-BR', {timeZone:'America/Fortaleza', hour:'2-digit', minute:'2-digit'});
+
+async function carregarBot(){
+  const f = 'loja_id=eq.' + LOJA;
+  try{
+    const [cfg, textos, conv] = await Promise.all([
+      api(`/rest/v1/bot_config?${f}`), api(`/rest/v1/bot_textos?${f}`),
+      api(`/rest/v1/bot_conversas?${f}&precisa_humano=eq.true&order=ultima_entrada_em.desc`),
+    ]);
+    let msgs = [];
+    if(conv.length){ msgs = await api(`/rest/v1/bot_mensagens?${f}&telefone=in.(${conv.map(c=>c.telefone).join(',')})&order=criado_em.desc&limit=60`); }
+    const ini = agoraLocal().data + 'T00:00:00-03:00';
+    const hoje = await api(`/rest/v1/bot_fila?select=status&${f}&criado_em=gte.${encodeURIComponent(ini)}`);
+    const entradas = await api(`/rest/v1/bot_mensagens?select=id&${f}&sentido=eq.entrada&criado_em=gte.${encodeURIComponent(ini)}`);
+    botDados = {instalado:true, cfg:cfg[0] || null, textos, conv, msgs, hoje, entradas:entradas.length};
+  }catch(e){
+    botDados = {instalado:false, erro:String(e.message || e)};
+  }
+}
+
+function desenharAtend(box){
+  box.innerHTML = '';
+  const conv = botDados.conv;
+  box.appendChild(el('h2', '', 'Precisam de atendimento (' + conv.length + ')'));
+  if(!conv.length){ box.appendChild(el('div', 'vazio', 'Ninguém esperando. Quando um cliente pedir atendente ou usar a ajuda do site, aparece aqui e no painel de pedidos.')); return; }
+  box.appendChild(el('p', 'dica', 'Responda pelo WhatsApp da loja e depois toque em "Marcar como atendido". Até lá o robô fica quieto com esse cliente.'));
+  conv.forEach(cv=>{
+    const card = el('div', 'cartao'); const topo = el('div', 'topo');
+    topo.appendChild(el('span', 'nome', cv.nome || cv.telefone)); topo.appendChild(el('span', 'chip am', cv.motivo || 'atendimento'));
+    card.appendChild(topo);
+    card.appendChild(el('div', 'dica', cv.telefone + ' · último contato ' + hora(cv.ultima_entrada_em)));
+    botDados.msgs.filter(m=>m.telefone === cv.telefone).slice(0, 3).reverse().forEach(m=>{
+      const l = el('div', 'dica', (m.sentido === 'entrada' ? 'Cliente: ' : 'Robô: ') + String(m.texto || '').replace(/\s+/g, ' ').slice(0, 140)); l.style.color = 'var(--ink)'; card.appendChild(l);
+    });
+    const lin = el('div', 'linha');
+    const wa = el('a', 'btn verde peq', 'Abrir no WhatsApp'); wa.href = 'https://wa.me/55' + cv.telefone; wa.target = '_blank'; wa.rel = 'noopener'; lin.appendChild(wa);
+    const ok = el('button', 'btn cinza peq', 'Marcar como atendido');
+    ok.onclick = ()=>tentar(async()=>{ await rpc('bot_marcar_atendido', {p_loja:LOJA, p_telefone:cv.telefone}); await carregarBot(); desenhar(); }, 'Marcado como atendido');
+    lin.appendChild(ok); card.appendChild(lin); box.appendChild(card);
+  });
+}
+
+async function telaRobo(c){
+  c.appendChild(el('div', 'vazio', 'Carregando o robô...'));
+  await carregarBot(); if(aba !== 'robo') return;
+  c.innerHTML = '';
+  if(!botDados.instalado){ c.appendChild(el('div', 'vazio', 'O robô ainda não foi instalado no banco de dados (falta rodar a Parte F no Supabase).')); return; }
+  const cfg = botDados.cfg;
+  if(!cfg){ c.appendChild(el('div', 'vazio', 'Configuração do robô não encontrada para esta loja.')); return; }
+
+  const st = el('div', 'cartao'); const topo = el('div', 'topo');
+  topo.appendChild(el('span', 'nome', 'Robô de WhatsApp')); topo.appendChild(el('span', 'chip ' + (cfg.ativo ? 'ok' : 'nao'), cfg.ativo ? 'Ligado' : 'Desligado'));
+  st.appendChild(topo);
+  st.appendChild(el('div', 'dica', cfg.ativo ? 'Respondendo clientes e avisando sobre os pedidos.' : 'Desligado: não responde ninguém e não envia avisos. Pode ligar quando a conexão com o WhatsApp estiver pronta.'));
+  const ef = botDados.hoje, cont = (s)=>ef.filter(x=>x.status === s).length;
+  st.appendChild(el('div', 'dica', 'Hoje: ' + botDados.entradas + ' mensagem(ns) de clientes · ' + cont('enviado') + ' aviso(s) enviado(s) · ' + cont('sem_janela') + ' sem janela de 24h · ' + cont('erro') + ' com erro.'));
+  const bt = el('button', 'btn ' + (cfg.ativo ? 'cinza' : 'verde'), cfg.ativo ? 'Desligar robô' : 'Ligar robô'); bt.style.marginTop = '8px';
+  bt.onclick = ()=>{
+    if(!cfg.ativo && !confirm('Ligar o robô? Ele passa a responder os clientes e a mandar avisos dos pedidos pelo WhatsApp.')) return;
+    tentar(async()=>{ await atualizar('bot_config', 'loja_id=eq.' + LOJA, {ativo:!cfg.ativo, atualizado_em:new Date().toISOString()}); desenhar(); }, cfg.ativo ? 'Robô desligado' : 'Robô ligado');
+  };
+  st.appendChild(bt); c.appendChild(st);
+
+  const boxAtend = el('div'); boxAtend.id = 'boxAtend'; c.appendChild(boxAtend); desenharAtend(boxAtend);
+  clearInterval(timerRobo);
+  timerRobo = setInterval(async()=>{
+    if(aba !== 'robo' || !sessao){ clearInterval(timerRobo); return; }
+    try{ const fo = 'loja_id=eq.' + LOJA; botDados.conv = await api(`/rest/v1/bot_conversas?${fo}&precisa_humano=eq.true&order=ultima_entrada_em.desc`);
+      botDados.msgs = botDados.conv.length ? await api(`/rest/v1/bot_mensagens?${fo}&telefone=in.(${botDados.conv.map(x=>x.telefone).join(',')})&order=criado_em.desc&limit=60`) : [];
+      const b = $('boxAtend'); if(b) desenharAtend(b); }catch(e){}
+  }, 15000);
+
+  c.appendChild(el('h2', '', 'Ajustes'));
+  const aj = el('div', 'cartao'); const lk = el('input'); lk.value = cfg.link_site; lk.style.width = '100%';
+  const hh = inputNum(cfg.humano_horas, '1');
+  aj.appendChild(campo('Link do site (o que o robô manda)', lk));
+  const l1 = el('div', 'linha'); l1.appendChild(campo('Horas que o robô fica quieto depois que pedem atendente', hh)); aj.appendChild(l1);
+  const sv = el('button', 'btn verde', 'Salvar ajustes'); sv.style.marginTop = '8px';
+  sv.onclick = ()=>tentar(async()=>{
+    const link = lk.value.trim(); if(!/^https:\/\/[^\s]+$/.test(link)) throw new Error('O link precisa começar com https://');
+    const h = num(hh.value); if(h === null || h < 1 || h > 72) throw new Error('Horas: informe de 1 a 72.');
+    await atualizar('bot_config', 'loja_id=eq.' + LOJA, {link_site:link.replace(/\/+$/, ''), humano_horas:Math.round(h), atualizado_em:new Date().toISOString()});
+  }, 'Ajustes salvos');
+  aj.appendChild(sv); c.appendChild(aj);
+
+  c.appendChild(el('h2', '', 'Mensagens do robô'));
+  c.appendChild(el('p', 'dica', 'Você pode mudar o texto de cada resposta. Os trechos entre chaves são preenchidos sozinhos: {nome_virgula} (", Maria"), {link}, {numero} (do pedido), {previsao}, {abre}, {bairro}, {taxa} e {ganho}. Mantenha só os que já estão no texto.'));
+  TEXTOS_ROBO.forEach(([chave, rotulo])=>{
+    const t = botDados.textos.find(x=>x.chave === chave); if(!t) return;
+    const d = el('details'); d.appendChild(el('summary', '', rotulo));
+    const ta = el('textarea'); ta.value = t.texto; ta.style.minHeight = '110px'; ta.style.width = '100%'; ta.style.marginTop = '6px'; ta.style.padding = '9px'; ta.style.border = '1.5px solid var(--line)'; ta.style.borderRadius = '9px'; d.appendChild(ta);
+    const b = el('button', 'btn verde peq', 'Salvar este texto'); b.style.marginTop = '6px';
+    b.onclick = ()=>tentar(async()=>{
+      const novo = ta.value.trim(); if(!novo) throw new Error('O texto não pode ficar vazio.');
+      const antigos = (t.texto.match(/\{[a-z_]+\}/g) || []), novos = (novo.match(/\{[a-z_]+\}/g) || []);
+      const estranho = novos.find(x=>antigos.indexOf(x) < 0); if(estranho) throw new Error('O trecho ' + estranho + ' não existe neste texto. Use só os que já estavam.');
+      await atualizar('bot_textos', `loja_id=eq.${LOJA}&chave=eq.${chave}`, {texto:novo}); t.texto = novo;
+    }, 'Texto salvo');
+    d.appendChild(b); c.appendChild(d);
+  });
 }
 
 /* ---------- inicio ---------- */

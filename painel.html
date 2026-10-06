@@ -108,6 +108,7 @@ const CHAVE_SESSAO = "gp_painel_sessao";
 
 let sessao = null, loja = null, statusLoja = null;
 let ativos = [], feitos = [], vistos = new Set(), primeiraCarga = true;
+let atendimentos = [], atendVistos = new Set(), primeiraAtend = true;   // clientes pedindo atendente no WhatsApp
 let ctxAudio = null, somAtivo = false, falhasSeguidas = 0, mostrarFeitos = false;
 
 const $ = (id) => document.getElementById(id);
@@ -295,6 +296,10 @@ function desenhar(){
   // faixas
   const f = $('faixas'); f.textContent = '';
   if(falhasSeguidas >= 3) f.appendChild(el('div', 'faixa erro', 'Sem conexão com o sistema. Verifique a internet. Os pedidos podem não estar chegando.'));
+  if(atendimentos.length){
+    const fa = el('div', 'faixa aviso', '💬 ' + atendimentos.length + (atendimentos.length === 1 ? ' cliente pede' : ' clientes pedem') + ' atendimento no WhatsApp: ' + atendimentos.slice(0, 3).map(c => (c.nome || c.telefone)).join(', ') + '. ');
+    const la = el('a', '', 'Ver e marcar como atendido'); la.href = 'gestao.html#robo'; la.style.color = 'inherit'; la.style.fontWeight = '800'; fa.appendChild(la); f.appendChild(fa);
+  }
   if(!somAtivo) f.appendChild(el('div', 'faixa aviso', 'O som está desligado. Toque em "Ativar som" para ouvir os pedidos novos.'));
   const sem = ativos.filter(semImpressao);
   if(sem.length) f.appendChild(el('div', 'faixa erro', 'ATENÇÃO: ' + sem.length + ' pedido(s) sem imprimir (' + sem.map(p => '#' + p.numero).join(', ') + '). Veja papel, cabo e impressora, ou toque em Reimprimir.'));
@@ -314,17 +319,24 @@ function desenhar(){
 function inicioDoDia(){ const d = new Date(); d.setHours(0, 0, 0, 0); return d.toISOString(); }
 async function carregar(){
   try{
-    const [a, f, l, st] = await Promise.all([
+    const [a, f, l, st, at] = await Promise.all([
       api('/rest/v1/pedidos?select=*&loja_id=eq.' + LOJA + '&status=in.(novo,cozinha,pronto)&order=criado_em.asc'),
       api('/rest/v1/pedidos?select=*&loja_id=eq.' + LOJA + '&status=in.(concluido,cancelado)&criado_em=gte.' + encodeURIComponent(inicioDoDia()) + '&order=criado_em.desc'),
       api('/rest/v1/lojas?select=*&id=eq.' + LOJA),
       api('/rest/v1/rpc/loja_status', {method: 'POST', body: JSON.stringify({p_loja: LOJA})}),
+      // isolado de proposito: se o robo ainda nao foi instalado no banco, o painel segue normal
+      api('/rest/v1/bot_conversas?select=id,nome,telefone,motivo&loja_id=eq.' + LOJA + '&precisa_humano=eq.true&order=ultima_entrada_em.desc').catch(() => []),
     ]);
     ativos = a || []; feitos = f || []; loja = (l && l[0]) || loja; statusLoja = st; falhasSeguidas = 0;
     const novosAgora = ativos.filter(p => p.status === 'novo' && !vistos.has(p.id));
     ativos.forEach(p => vistos.add(p.id));
     if(novosAgora.length && !primeiraCarga) tocarPedido();
     primeiraCarga = false;
+    atendimentos = at || [];
+    const novosAtend = atendimentos.filter(c => !atendVistos.has(c.id));
+    atendimentos.forEach(c => atendVistos.add(c.id));
+    if(novosAtend.length && !primeiraAtend) tocarAlerta();
+    primeiraAtend = false;
   }catch(e){ falhasSeguidas++; }
   desenhar();
 }
