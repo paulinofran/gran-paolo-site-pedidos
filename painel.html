@@ -80,6 +80,8 @@ main{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;padding:14px 16px
 .modal-pag .confirmar{background:#02341b;color:#fff;}
 .modal-pag .confirmar:disabled{opacity:.35;cursor:default;}
 .modal-pag .cancelar{background:#EFE6DA;color:#2A1D15;}
+.pix-alerta{background:#FFF3CD;border:1px solid #E8C766;border-radius:10px;padding:8px 10px;font-weight:700;margin:6px 0;font-size:14px}
+.pix-ok{color:#1a7f37;font-size:12px;margin:4px 0;font-weight:600}
 </style>
 </head>
 <body>
@@ -288,6 +290,11 @@ async function avancar(p){
   if(fiscal.ativo && proximo === fiscal.etapa && !p.pagamento_final){ if(!(await pedirPagamento(p))) return; }
   mudar(p, proximo);
 }
+async function conferirPix(p){
+  if(!confirm('O Pix de ' + money(p.total) + (p.nome ? ' (' + p.nome + ')' : '') + ' caiu na conta? Ao confirmar, o pedido #' + p.numero + ' imprime.')) return;
+  try{ await rpc('painel_conferir_pix', {p_pedido: p.id}); await carregar(); }
+  catch(e){ avisoErro('Não consegui conferir o Pix do #' + p.numero + '. Tente de novo.'); }
+}
 async function reimprimir(p){
   try{ await rpc('painel_reimprimir', {p_pedido: p.id}); await carregar(); }
   catch(e){ avisoErro('Não consegui pedir a reimpressão do #' + p.numero + '.'); }
@@ -323,6 +330,9 @@ function cartao(p){
   meta.appendChild(el('span', '', 'cobrar: ' + (p.pagamento || '—')));
   meta.appendChild(el('span', '', 'há ' + Math.floor(t.m) + ' min'));
   c.appendChild(meta);
+  const pixPend = p.pix_retido === true;
+  if(pixPend) c.appendChild(el('div', 'pix-alerta', '💰 PIX AGORA: confira no app do banco se caiu ' + money(p.total) + (p.nome ? ' de ' + p.nome : '') + '. O pedido só imprime depois.'));
+  else if(p.pix_conferido_em) c.appendChild(el('div', 'pix-ok', '✅ Pix conferido'));
   const itens = el('div', 'itens');
   (Array.isArray(p.itens) ? p.itens : []).forEach(i => itens.appendChild(el('div', '', (i.qtd || 1) + 'x ' + i.nome + ' (' + i.tamanho + ')')));
   c.appendChild(itens);
@@ -331,18 +341,19 @@ function cartao(p){
   }
   if(p.telefone) c.appendChild(el('div', 'extra', 'WhatsApp: ' + p.telefone));
   if(p.obs) c.appendChild(el('div', 'extra', 'Obs: ' + p.obs));
-  if(p.impresso_cozinha_em && p.impresso_caixa_em) c.appendChild(el('div', 'imp ok', 'Impresso'));
+  if(pixPend) c.appendChild(el('div', 'imp espera', 'Aguardando o Pix: ainda não imprime'));
+  else if(p.impresso_cozinha_em && p.impresso_caixa_em) c.appendChild(el('div', 'imp ok', 'Impresso'));
   else if(semImpressao(p)) c.appendChild(el('div', 'imp falha', 'NÃO IMPRIMIU' + (p.impressao_erro ? ' — ' + p.impressao_erro : '')));
   else c.appendChild(el('div', 'imp espera', 'Imprimindo...'));
   const b = el('button', 'acao ' + (p.status === 'pronto' ? 'final' : 'principal'),
-    p.status === 'novo' ? 'Recebi' : p.status === 'cozinha' ? 'Pronto' : rotuloFinal(p));
-  b.onclick = () => avancar(p);
+    pixPend ? 'Pix caiu: imprimir' : p.status === 'novo' ? 'Recebi' : p.status === 'cozinha' ? 'Pronto' : rotuloFinal(p));
+  b.onclick = () => pixPend ? conferirPix(p) : avancar(p);
   c.appendChild(b);
   const mini = el('div', 'mini');
   const voltar = el('button', '', 'Voltar etapa');
   if(p.status === 'novo') voltar.className = 'oculto';
   voltar.onclick = () => mudar(p, p.status === 'cozinha' ? 'novo' : 'cozinha');
-  const re = el('button', '', 'Reimprimir'); re.onclick = () => reimprimir(p);
+  const re = el('button', pixPend ? 'oculto' : '', 'Reimprimir'); re.onclick = () => reimprimir(p);
   const canc = el('button', '', 'Cancelar pedido');
   canc.onclick = async () => {
     if(!confirm('Cancelar o pedido #' + p.numero + '?')) return;

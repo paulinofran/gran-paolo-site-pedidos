@@ -159,9 +159,10 @@ function aviso(msg, tipo){
   const t = el('div', 'toast ' + (tipo || 'ok'), msg); $('aviso').appendChild(t);
   setTimeout(()=>t.remove(), tipo === 'erro' ? 6000 : 2500);
 }
+function msgErro(e){ const t = String((e && e.message) || e || ''); try{ const j = JSON.parse(t); if(j && j.message) return j.message; }catch(_){} return t; }
 async function tentar(fn, okMsg){
   try{ const r = await fn(); if(okMsg) aviso(okMsg, 'ok'); return r; }
-  catch(e){ aviso('Não deu certo: ' + String(e.message || e).slice(0,160), 'erro'); return undefined; }
+  catch(e){ aviso('Não deu certo: ' + msgErro(e).slice(0,160), 'erro'); return undefined; }
 }
 
 /* ---------- datas (horario de Natal) ---------- */
@@ -424,6 +425,7 @@ function telaRegras(c){
     await atualizar('loja_regras', 'loja_id=eq.' + LOJA, corpo); await carregarTudo(); desenhar();
   }, 'Regras salvas');
   b.style.marginTop = '4px'; c.appendChild(b);
+  const pixBox = el('div'); pixBox.id = 'pixBox'; pixBox.style.marginTop = '14px'; c.appendChild(pixBox); montarPix(pixBox);
 }
 
 /* ============================ CLIENTES ============================ */
@@ -563,6 +565,61 @@ async function telaRelatorios(c){
   secaoRel(corpo, 'bairros', 'Entregas por bairro', 'bairros', tabelaSimples(['Bairro', 'Pedidos', 'Faturamento', 'Ticket médio', 'Taxas'], relDados.bairros.map(x=>[x.bairro, x.pedidos, money(x.faturamento), money(x.ticket_medio), money(x.taxas)]), 'Nenhuma entrega neste período.'));
   corpo.appendChild(el('p', 'dica', 'Origem das vendas: quanto cada campanha, link ou anúncio vendeu. Pedidos sem origem vieram direto do site.'));
   secaoRel(corpo, 'origem', 'Origem das vendas', 'origem', tabelaSimples(['Origem', 'Pedidos', 'Faturamento', 'Ticket médio'], relDados.origem.map(x=>[x.origem, x.pedidos, money(x.faturamento), money(x.ticket_medio)]), 'Nenhuma venda neste período.'));
+}
+
+/* ============================ PIX PELO QR CODE ============================ */
+function pixSemAcento(t){ return String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Za-z0-9 ]/g,' ').replace(/\s+/g,' ').trim(); }
+function pixCampo(id, valor){ return id + String(valor.length).padStart(2,'0') + valor; }
+function pixCrc16(texto){
+  let crc = 0xFFFF;
+  for(let i=0;i<texto.length;i++){ crc ^= texto.charCodeAt(i) << 8; for(let b=0;b<8;b++){ crc = (crc & 0x8000) ? ((crc << 1) ^ 0x1021) : (crc << 1); crc &= 0xFFFF; } }
+  return crc.toString(16).toUpperCase().padStart(4,'0');
+}
+function pixPayload({chave, recebedor, cidade, valor}){          // igual ao do site
+  const conta = pixCampo('00','br.gov.bcb.pix') + pixCampo('01', chave);
+  let p = pixCampo('00','01') + pixCampo('01','11') + pixCampo('26', conta) + pixCampo('52','0000') + pixCampo('53','986');
+  if(valor > 0) p += pixCampo('54', Number(valor).toFixed(2));
+  p += pixCampo('58','BR') + pixCampo('59', pixSemAcento(recebedor).toUpperCase().slice(0,25) || 'GRAN PAOLO')
+     + pixCampo('60', pixSemAcento(cidade).toUpperCase().slice(0,15) || 'NATAL') + pixCampo('62', pixCampo('05','***'));
+  p += '6304';
+  return p + pixCrc16(p);
+}
+async function montarPix(box){
+  let linhas;
+  try{ linhas = await api('/rest/v1/pix_config?select=*&loja_id=eq.' + LOJA); }
+  catch(e){ box.appendChild(el('div', 'vazio', 'O Pix pelo QR Code ainda não foi instalado no banco de dados (falta rodar a Parte I no Supabase).')); return; }
+  if(aba !== 'regras') return;
+  let cfg = (linhas && linhas[0]) || {};
+  const card = el('div', 'cartao'); card.id = 'cartaoPix'; card.appendChild(el('div', 'nome', 'Pix pelo QR Code (em teste)'));
+  card.appendChild(el('div', 'dica', 'Com o Pix ligado, o cliente vê a opção "Pix agora" no site, paga pelo app do banco e o pedido fica retido (sem imprimir) até você apertar "Pix caiu" no painel. Sem taxa e sem depender de ninguém.'));
+  const situ = el('div', 'dica'); situ.id = 'pixSituacao';
+  const at = marca('Pix agora ligado', cfg.ativo);
+  const tipo = el('select'); tipo.id = 'pixTipo'; [['cnpj', 'CNPJ'], ['cpf', 'CPF'], ['telefone', 'Telefone'], ['email', 'E-mail'], ['aleatoria', 'Chave aleatória']].forEach(([v, r])=>{ const o = el('option', '', r); o.value = v; tipo.appendChild(o); });
+  tipo.value = cfg.tipo_chave || 'cnpj';
+  const chave = el('input'); chave.id = 'pixChave'; chave.value = cfg.chave || ''; chave.placeholder = 'A chave Pix da loja';
+  const rec = el('input'); rec.id = 'pixRecebedor'; rec.maxLength = 25; rec.value = cfg.recebedor || 'GRAN PAOLO PIZZARIA';
+  const cid = el('input'); cid.id = 'pixCidade'; cid.maxLength = 15; cid.value = cfg.cidade || 'PARNAMIRIM';
+  card.appendChild(at); card.appendChild(situ);
+  const l1 = el('div', 'linha'); l1.appendChild(campo('Tipo da chave', tipo)); l1.appendChild(campo('Chave Pix', chave)); card.appendChild(l1);
+  const l2 = el('div', 'linha'); l2.appendChild(campo('Nome do recebedor (até 25 letras)', rec)); l2.appendChild(campo('Cidade (até 15 letras)', cid)); card.appendChild(l2);
+  const teste = el('div'); teste.id = 'pixTeste';
+  const desenharTeste = ()=>{
+    situ.textContent = cfg.ativo ? 'Situação: LIGADO. Os clientes já veem "Pix agora" no site.' : 'Situação: desligado. Os clientes não veem nada de diferente.';
+    teste.innerHTML = '';
+    if(!cfg.chave || !cfg.tipo_chave) return;
+    const cod = pixPayload({chave:cfg.chave, recebedor:cfg.recebedor, cidade:cfg.cidade, valor:1});
+    teste.appendChild(el('div', 'dica', 'Para conferir sem pagar nada: copie o código de teste abaixo (R$ 1,00), abra o app do seu banco, vá em Pix > Copia e Cola e cole. O banco mostra o nome de quem vai receber; confira se é você e feche sem pagar.'));
+    const ta = el('textarea'); ta.id = 'pixCodigoTeste'; ta.readOnly = true; ta.rows = 3; ta.value = cod; ta.style.width = '100%'; ta.style.fontSize = '12px'; teste.appendChild(ta);
+    const cp = el('button', 'btn cinza peq', 'Copiar código de teste'); cp.id = 'btnCopiarTeste';
+    cp.onclick = async ()=>{ try{ await navigator.clipboard.writeText(cod); aviso('Código copiado. Cole no app do banco.', 'ok'); }catch(e){ ta.select(); aviso('Selecione o texto e copie.', 'ok'); } };
+    teste.appendChild(cp);
+  };
+  const salvar = el('button', 'btn verde', 'Salvar o Pix'); salvar.id = 'btnSalvarPix'; salvar.style.marginTop = '8px';
+  salvar.onclick = ()=>tentar(async()=>{
+    const r = await rpc('gestao_salvar_pix', {p_loja:LOJA, p_ativo:at.input.checked, p_tipo:tipo.value, p_chave:chave.value, p_recebedor:rec.value, p_cidade:cid.value});
+    cfg = r || cfg; chave.value = cfg.chave || chave.value; rec.value = cfg.recebedor || rec.value; cid.value = cfg.cidade || cid.value; desenharTeste();
+  }, 'Pix salvo');
+  card.appendChild(salvar); card.appendChild(teste); box.appendChild(card); desenharTeste();
 }
 
 /* ============================ NOTAS FISCAIS ============================ */
