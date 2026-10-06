@@ -470,7 +470,7 @@ function desenharCliente(res){
 
 
 /* ============================ NOTAS FISCAIS ============================ */
-const ROT_NOTA = {aguardando:['am','Falta o pagamento'], pendente:['az','Na fila'], enviando:['az','Enviando'], autorizada:['ok','Autorizada'], erro:['nao','Erro'], cancelada:['nao','Cancelada']};
+const ROT_NOTA = {aguardando:['am','Falta o pagamento'], dispensada:['az','Dispensada'], pendente:['az','Na fila'], enviando:['az','Enviando'], autorizada:['ok','Autorizada'], erro:['nao','Erro'], cancelada:['nao','Cancelada']};
 const BANDS = [['01','Visa'],['02','Master'],['06','Elo'],['07','Hiper'],['03','Amex'],['99','Outras']];
 let notasDados = null;
 async function carregarNotas(){
@@ -494,7 +494,7 @@ async function telaNotas(c){
   topo.appendChild(t1);
   topo.appendChild(el('div', 'dica', !cfg.ativo ? 'Desligada: nenhuma nota é emitida e o painel e o site ficam como sempre foram.' : cfg.ambiente === 'producao' ? 'PRODUÇÃO: as notas têm valor fiscal de verdade.' : 'TESTE: as notas não têm valor fiscal e não mexem na numeração da Suitable.'));
   const n = (s)=>notasDados.notas.filter(x=>x.status === s).length;
-  topo.appendChild(el('div', 'dica', 'Últimas 40: ' + n('autorizada') + ' autorizadas · ' + n('pendente') + ' na fila · ' + n('aguardando') + ' aguardando pagamento · ' + n('erro') + ' com erro.'));
+  topo.appendChild(el('div', 'dica', 'Últimas 40: ' + n('autorizada') + ' autorizadas · ' + n('pendente') + ' na fila · ' + n('aguardando') + ' aguardando pagamento · ' + n('dispensada') + ' dispensadas · ' + n('erro') + ' com erro.'));
   const bt = el('button', 'btn ' + (cfg.ativo ? 'cinza' : 'verde'), cfg.ativo ? 'Desligar nota fiscal' : 'Ligar nota fiscal'); bt.id = 'btnFiscalLiga'; bt.style.marginTop = '8px';
   bt.onclick = ()=>{
     if(!cfg.ativo && cfg.ambiente === 'producao' && !confirm('Ligar em PRODUÇÃO? As notas passam a valer de verdade. Só faça isso na virada, com a emissão da Suitable desligada.')) return;
@@ -507,17 +507,19 @@ async function telaNotas(c){
   const cnpj = el('input'); cnpj.value = cfg.cnpj || ''; cnpj.placeholder = '00.000.000/0000-00'; cnpj.inputMode = 'numeric';
   const serie = inputNum(cfg.serie, '1');
   const amb = el('select'); [['homologacao', 'Teste (sem valor fiscal)'], ['producao', 'Produção (vale de verdade)']].forEach(([v, t])=>{ const o = el('option', '', t); o.value = v; amb.appendChild(o); }); amb.value = cfg.ambiente;
+  const dinh = el('select'); [['so_se_pedir', 'Dinheiro: só emite se o cliente pedir (CPF ou você marcar)'], ['sempre', 'Dinheiro: sempre emite']].forEach(([v, t])=>{ const o = el('option', '', t); o.value = v; dinh.appendChild(o); }); dinh.value = cfg.dinheiro || 'so_se_pedir';
   const etapa = el('select'); [['concluido', 'Quando o pedido é entregue/finalizado'], ['pronto', 'Quando fica pronto'], ['cozinha', 'Quando você toca em Recebi']].forEach(([v, t])=>{ const o = el('option', '', t); o.value = v; etapa.appendChild(o); }); etapa.value = cfg.emitir_em;
   cf.appendChild(campo('CNPJ da empresa', cnpj));
   const l1 = el('div', 'linha'); l1.appendChild(campo('Série da nota', serie)); cf.appendChild(l1);
-  cf.appendChild(campo('Ambiente', amb)); cf.appendChild(campo('Emitir a nota', etapa));
+  cf.appendChild(campo('Ambiente', amb)); cf.appendChild(campo('Emitir a nota', etapa)); cf.appendChild(campo('Pagamento em dinheiro', dinh));
+  cf.appendChild(el('div', 'dica', 'Pix e cartão sempre emitem a nota. Confirme com o contador a regra do dinheiro, porque a lei pede nota em toda venda ao consumidor.'));
   cf.appendChild(el('div', 'dica', 'Série 2 não se encontra com a numeração da Suitable (série 1). Confirme com o contador antes da virada.'));
   const sv = el('button', 'btn verde', 'Salvar configuração'); sv.style.marginTop = '8px';
   sv.onclick = ()=>tentar(async()=>{
     const d = cnpj.value.replace(/\D/g, ''); if(d && d.length !== 14) throw new Error('O CNPJ precisa ter 14 números.');
     const sr = num(serie.value); if(sr === null || sr < 1 || sr > 999) throw new Error('A série deve ficar entre 1 e 999.');
     if(amb.value === 'producao' && cfg.ambiente !== 'producao' && !confirm('Mudar para PRODUÇÃO? As notas passam a valer de verdade.')) return;
-    await atualizar('fiscal_config', 'loja_id=eq.' + LOJA, {cnpj:d || null, serie:Math.round(sr), ambiente:amb.value, emitir_em:etapa.value, atualizado_em:new Date().toISOString()}); desenhar();
+    await atualizar('fiscal_config', 'loja_id=eq.' + LOJA, {cnpj:d || null, serie:Math.round(sr), ambiente:amb.value, emitir_em:etapa.value, dinheiro:dinh.value, atualizado_em:new Date().toISOString()}); desenhar();
   }, 'Configuração salva');
   cf.appendChild(sv); c.appendChild(cf);
 
@@ -529,11 +531,12 @@ async function telaNotas(c){
     tp.appendChild(el('span', 'nome', 'Pedido #' + (ped.numero || nt.pedido_id) + (ped.total ? ' · ' + money(ped.total) : '')));
     const rot = ROT_NOTA[nt.status] || ['am', nt.status]; tp.appendChild(el('span', 'chip ' + rot[0], rot[1])); card.appendChild(tp);
     card.appendChild(el('div', 'dica', (nt.ambiente === 'homologacao' ? 'TESTE · ' : '') + (nt.numero ? 'Nota ' + nt.numero + ' série ' + nt.serie + ' · ' : '') + hora(nt.criado_em)));
-    if(nt.mensagem && nt.status !== 'autorizada') { const m = el('div', 'dica', nt.mensagem); m.style.color = 'var(--rd)'; card.appendChild(m); }
+    if(nt.mensagem && nt.status !== 'autorizada') { const m = el('div', 'dica', nt.mensagem); if(nt.status === 'erro') m.style.color = 'var(--rd)'; card.appendChild(m); }
     const lin = el('div', 'linha');
     if(nt.url_danfe){ const a = el('a', 'btn verde peq', 'Abrir nota'); a.href = nt.url_danfe; a.target = '_blank'; a.rel = 'noopener'; lin.appendChild(a); }
     if(nt.url_xml){ const a = el('a', 'btn cinza peq', 'XML'); a.href = nt.url_xml; a.target = '_blank'; a.rel = 'noopener'; lin.appendChild(a); }
     if(nt.status === 'erro' || nt.status === 'pendente'){ const b = el('button', 'btn vermelho peq', 'Reenviar'); b.onclick = ()=>tentar(async()=>{ await rpc('fiscal_reenviar', {p_nota:nt.id}); desenhar(); }, 'Nota na fila de novo'); lin.appendChild(b); }
+    if(nt.status === 'dispensada'){ const b = el('button', 'btn verde peq', 'Emitir mesmo assim'); b.onclick = ()=>tentar(async()=>{ await rpc('fiscal_solicitar_nota', {p_nota:nt.id}); desenhar(); }, 'Nota na fila'); lin.appendChild(b); }
     card.appendChild(lin);
     if(nt.status === 'aguardando'){
       const fs_ = el('select'); ['Pix', 'Dinheiro', 'Débito', 'Crédito'].forEach(f=>{ const o = el('option', '', f); o.value = f; fs_.appendChild(o); });

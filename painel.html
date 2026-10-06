@@ -73,6 +73,8 @@ main{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;padding:14px 16px
 .modal-pag .bandeiras{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;}
 .modal-pag .bandeiras .opcao{padding:11px 4px;font-size:15px;}
 .modal-pag .rotulo{font-size:13px;font-weight:700;color:#7A6A5C;margin:4px 0 6px;}
+.modal-pag .nota-pediu{display:flex;align-items:center;gap:10px;padding:13px;background:#F7F1E8;border-radius:12px;font-weight:700;font-size:16px;margin-bottom:12px;cursor:pointer;}
+.modal-pag .nota-pediu input{width:22px;height:22px;}
 .modal-pag .rodape{display:flex;gap:10px;margin-top:6px;}
 .modal-pag .rodape button{flex:1;padding:15px;border:0;border-radius:14px;font-size:17px;font-weight:800;cursor:pointer;}
 .modal-pag .confirmar{background:#02341b;color:#fff;}
@@ -256,22 +258,25 @@ function pedirPagamento(p){
     m.appendChild(el('p', '', 'Pedido #' + p.numero + ' · ' + (p.nome || '') + ' · R$ ' + Number(p.total).toFixed(2).replace('.', ',')));
     const op = el('div', 'opcoes'); m.appendChild(op);
     const rotBand = el('div', 'rotulo', 'Bandeira do cartão'); const band = el('div', 'bandeiras');
+    const lbNota = el('label', 'nota-pediu'); const chk = document.createElement('input'); chk.type = 'checkbox'; chk.id = 'chkPediuNota'; chk.checked = !!(p.cpf_nota || p.nota_solicitada);
+    lbNota.appendChild(chk); lbNota.appendChild(document.createTextNode('O cliente pediu nota fiscal'));
     const conf = el('button', 'confirmar', 'Confirmar'); conf.id = 'btnConfirmarPag';
     const atualizar = () => {
       [...op.children].forEach(b => b.classList.toggle('sel', b.dataset.forma === forma));
       const cartao = forma === 'Débito' || forma === 'Crédito';
       rotBand.style.display = band.style.display = cartao ? '' : 'none';
       [...band.children].forEach(b => b.classList.toggle('sel', b.dataset.band === bandeira));
+      lbNota.style.display = forma === 'Dinheiro' ? '' : 'none';      // pix e cartao sempre saem; dinheiro so se o cliente pedir
       conf.disabled = !forma || (cartao && !bandeira);
     };
     FORMAS_PAG.forEach(f => { const b = el('button', 'opcao', f); b.dataset.forma = f; b.onclick = () => { forma = f; if(f !== 'Débito' && f !== 'Crédito') bandeira = null; atualizar(); }; op.appendChild(b); });
-    m.appendChild(rotBand); m.appendChild(band);
+    m.appendChild(rotBand); m.appendChild(band); m.appendChild(lbNota);
     BANDEIRAS.forEach(([cod, nome]) => { const b = el('button', 'opcao', nome); b.dataset.band = cod; b.onclick = () => { bandeira = cod; atualizar(); }; band.appendChild(b); });
     const rod = el('div', 'rodape'); const volta = el('button', 'cancelar', 'Voltar'); volta.id = 'btnVoltarPag';
     volta.onclick = () => { fundo.remove(); resolve(false); };
     conf.onclick = async () => {
       conf.disabled = true;
-      try{ await rpc('painel_definir_pagamento', {p_pedido: p.id, p_forma: forma, p_bandeira: bandeira}); fundo.remove(); resolve(true); }
+      try{ await rpc('painel_definir_pagamento', {p_pedido: p.id, p_forma: forma, p_bandeira: bandeira, p_nota: forma === 'Dinheiro' ? chk.checked : null}); fundo.remove(); resolve(true); }
       catch(e){ avisoErro('Não consegui gravar o pagamento do #' + p.numero + '. Tente de novo.'); atualizar(); }
     };
     rod.appendChild(volta); rod.appendChild(conf); m.appendChild(rod);
