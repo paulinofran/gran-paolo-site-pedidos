@@ -212,6 +212,21 @@ nav.bottom button.active{color:var(--accent);}
 .aviso-loja{margin:12px 16px 0;padding:12px 14px;background:#FFF4D6;border:1px solid #E8C979;border-radius:12px;color:#5A4308;font-size:13.5px;line-height:1.4;}
 .aviso-loja strong{display:block;font-size:14.5px;margin-bottom:2px;color:#3F2E04;}
 .aviso-checkout{margin:0 0 10px;padding:11px 13px;background:#FFF4D6;border:1px solid #E8C979;border-radius:12px;color:#5A4308;font-size:13px;line-height:1.4;}
+.promo-etapa{margin:14px 0 4px;}
+.promo-etapa-titulo{font-size:14px;font-weight:700;color:var(--ink);display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
+.promo-etapa-titulo small{font-weight:500;font-size:11.5px;color:var(--ink-soft);}
+.promo-lista{margin-top:8px;max-height:230px;overflow-y:auto;border:1px solid var(--line);border-radius:12px;background:#fff;}
+.promo-op{display:flex;justify-content:space-between;align-items:center;width:100%;padding:11px 12px;border:none;border-bottom:1px solid var(--line);background:none;font-size:13.5px;color:var(--ink);text-align:left;}
+.promo-op:last-child{border-bottom:none;}
+.promo-op .pr{color:var(--ink-soft);font-size:12.5px;white-space:nowrap;margin-left:10px;}
+.promo-op.sel{background:var(--accent);color:#fff;font-weight:700;}
+.promo-op.sel .pr{color:#fff;}
+.promo-fixo{margin-top:8px;padding:11px 12px;border:1px solid var(--line);border-radius:12px;background:#fff;font-size:13.5px;display:flex;justify-content:space-between;}
+.promo-preco{margin-top:6px;font-size:12.5px;color:var(--ink-soft);text-align:right;}
+.promo-preco b{color:var(--accent-dark);font-size:13.5px;}
+.promo-preco .gratis{color:#1B7F3B;font-weight:700;}
+.promo-preco s{margin-right:6px;}
+.ci-comp{font-size:12.5px;color:var(--ink-soft);line-height:1.5;margin-top:2px;}
 .btn-sec{width:100%;padding:12px;border:2px solid var(--accent);background:#fff;color:var(--accent-dark);border-radius:12px;font-size:14.5px;font-weight:700;margin-top:6px;}
 .ci-qtd{display:flex;align-items:center;gap:10px;margin:8px 0 2px;font-size:13px;color:var(--ink-soft);}
 .ci-qtd .passo{width:32px;height:32px;border-radius:50%;border:1.5px solid var(--accent);background:#fff;color:var(--accent-dark);font-size:18px;font-weight:700;line-height:1;display:flex;align-items:center;justify-content:center;padding:0;}
@@ -415,6 +430,28 @@ body.com-barra #app{padding-bottom:150px;}
     </div>
     <div class="sheet-footer">
       <button class="btn-full btn-primary" id="btnAddCarrinho" onclick="confirmarAddProduto()">Adicionar — R$ 0,00</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== MODAL: Promoção / Combo ===================== -->
+<div class="overlay" id="overlayPromo">
+  <div class="sheet" style="position:relative;">
+    <button class="close-x" onclick="fecharOverlay('overlayPromo')">✕</button>
+    <div class="sheet-handle"></div>
+    <h3 id="promoTitulo">Promoção</h3>
+    <p id="promoDesc" style="font-size:13px;color:var(--ink-soft);margin:2px 0 4px;line-height:1.4;"></p>
+    <div id="promoEtapas"></div>
+    <div class="qtd-row">
+      <span style="font-size:13.5px;font-weight:600;color:var(--ink-soft);">Quantidade</span>
+      <div class="qtd-stepper">
+        <button onclick="alterarQtdPromo(-1)">−</button>
+        <span id="promoQtd">1</span>
+        <button onclick="alterarQtdPromo(1)">+</button>
+      </div>
+    </div>
+    <div class="sheet-footer">
+      <button class="btn-full btn-primary" id="btnAddPromo" onclick="confirmarAddPromo()" disabled>Escolha os sabores</button>
     </div>
   </div>
 </div>
@@ -757,6 +794,163 @@ async function atualizarStatusLoja(){
 setInterval(atualizarStatusLoja, 60000);
 document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) atualizarStatusLoja(); });
 
+/* ---------- Promocoes e combos (montados em etapas) ---------- */
+let PROMOS_BANCO = [];
+let abaManual = false;      // o cliente ja escolheu uma aba sozinho?
+let promoPendente = null;
+let promoAtual = null, promoEscolhas = [], promoQtd = 1;
+const ROTULO_DIAS = ['domingo','segunda','terça','quarta','quinta','sexta','sábado'];
+function arred2(n){ return Math.round(n*100)/100; }
+function semPizza(n){ return String(n).replace(/^Pizza /,''); }
+
+function promoDisponivel(pm){
+  return !!pm.disponivel && (!modalidadeAtual || !pm.canais || pm.canais.indexOf(modalidadeAtual) >= 0);
+}
+function ordemDasAbas(){
+  const base = CATEGORIAS_ORDEM.filter(c=>c!=='Promoção');
+  return PROMOS_BANCO.some(promoDisponivel) ? ['Promoção', ...base] : CATEGORIAS_ORDEM;
+}
+// opcoes de uma etapa: [{id, nome, preco}]
+function opcoesDaEtapa(et){
+  if(et.tipo === 'borda'){
+    return BORDAS.filter(b=>b.preco !== undefined && b.id !== 'sem-borda' && (et.opcoes||[]).indexOf(b.nome) >= 0)
+                 .map(b=>({id:b.nome, nome:'Borda ' + b.nome, preco:b.preco}));
+  }
+  const pizzas = CATALOGO.filter(p=>['Tradicional','Especial','Doce'].indexOf(p.categoria) >= 0 && !p.esgotado && p.slug);
+  const lista = et.qualquer_pizza ? pizzas : (et.opcoes||[]).map(sl=>pizzas.find(p=>p.slug===sl)).filter(Boolean);
+  return lista.map(p=>{ const t = p.tamanhos.find(x=>x.tamanho===et.tamanho); return t ? {id:p.slug, nome:p.nome, preco:t.preco} : null; }).filter(Boolean);
+}
+function etapaFixa(et, ops){ return ops.length === 1 && Number(et.min) === 1 && Number(et.max) === 1; }
+function precosDaEtapa(et, escolhidas){      // {normal, final} para as opcoes escolhidas
+  if(!escolhidas.length) return {normal:0, final:0};
+  const normal = escolhidas.reduce((a,o)=>a+o.preco,0) / escolhidas.length;
+  return {normal:arred2(normal), final:arred2(normal * (100 - Number(et.desconto_pct||0)) / 100)};
+}
+function precoAPartirDe(pm){
+  let total = 0;
+  for(const et of pm.etapas){
+    const ops = opcoesDaEtapa(et); if(!ops.length) return null;
+    total += precosDaEtapa(et, [ops.reduce((m,o)=>o.preco<m.preco?o:m, ops[0])]).final;
+  }
+  return arred2(total);
+}
+function criarCardPromo(pm){
+  const card = document.createElement('div');
+  card.className = 'produto-card';
+  const apartir = precoAPartirDe(pm);
+  const dias = (pm.dias && pm.dias.length) ? 'Só ' + (pm.dias.length===1 ? 'toda ' : 'às ') + pm.dias.map(d=>ROTULO_DIAS[d]).join(' e ') + '. ' : '';
+  card.innerHTML = `<div class="info"><h3></h3><div class="desc"></div><div class="precos">${apartir!==null ? 'A partir de <b>' + fmtMoeda(apartir) + '</b>' : ''}</div></div><button class="add-btn">Montar</button>`;
+  card.querySelector('h3').textContent = '🔥 ' + pm.nome;
+  card.querySelector('.desc').textContent = pm.descricao || '';
+  const b = card.querySelector('.add-btn');
+  if(apartir===null){ card.classList.add('esgotado'); b.disabled = true; b.textContent = 'Indisponível'; }
+  else b.onclick = ()=>abrirPromo(pm.slug);
+  return card;
+}
+function abrirPromo(slug){
+  const pm = PROMOS_BANCO.find(x=>x.slug===slug); if(!pm) return;
+  promoAtual = pm; promoQtd = 1; promoEscolhas = pm.etapas.map(et=>{ const ops = opcoesDaEtapa(et); return etapaFixa(et, ops) ? [ops[0]] : []; });
+  document.getElementById('promoTitulo').textContent = pm.nome;
+  document.getElementById('promoDesc').textContent = pm.descricao || '';
+  document.getElementById('promoQtd').textContent = '1';
+  desenharPromo();
+  abrirOverlay('overlayPromo');
+  pixel('ViewContent', {content_name: pm.nome, content_type: 'product'});
+}
+function desenharPromo(){
+  const box = document.getElementById('promoEtapas'); box.innerHTML = '';
+  promoAtual.etapas.forEach((et, k)=>{
+    const ops = opcoesDaEtapa(et), fixa = etapaFixa(et, ops), esc = promoEscolhas[k];
+    const sec = document.createElement('div'); sec.className = 'promo-etapa';
+    const mx = Number(et.max)||1, mn = Number(et.min)||1;
+    const dica = fixa ? '' : (mx>1 ? `escolha ${mn===mx ? mx : 'até ' + mx} (meio a meio)` : 'escolha 1');
+    sec.innerHTML = `<div class="promo-etapa-titulo"><span></span><small>${dica}</small></div>`;
+    sec.querySelector('span').textContent = (k+1) + '. ' + et.titulo;
+    if(fixa){
+      const f = document.createElement('div'); f.className = 'promo-fixo';
+      f.innerHTML = '<span></span><span class="pr"></span>'; f.firstChild.textContent = ops[0].nome; f.lastChild.textContent = 'incluso';
+      sec.appendChild(f);
+    } else if(!ops.length){
+      const f = document.createElement('div'); f.className = 'promo-fixo'; f.textContent = 'Sem opções disponíveis no momento.'; sec.appendChild(f);
+    } else {
+      const lista = document.createElement('div'); lista.className = 'promo-lista';
+      ops.forEach(o=>{
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'promo-op' + (esc.some(x=>x.id===o.id) ? ' sel' : '');
+        b.innerHTML = '<span></span><span class="pr"></span>'; b.firstChild.textContent = semPizza(o.nome); b.lastChild.textContent = fmtMoeda(o.preco);
+        b.onclick = ()=>{
+          const i = esc.findIndex(x=>x.id===o.id);
+          if(i >= 0) esc.splice(i,1); else { esc.push(o); while(esc.length > mx) esc.shift(); }
+          desenharPromo();
+        };
+        lista.appendChild(b);
+      });
+      sec.appendChild(lista);
+    }
+    if(esc.length >= mn){
+      const pr = precosDaEtapa(et, esc);
+      const linha = document.createElement('div'); linha.className = 'promo-preco';
+      if(pr.final === 0 && pr.normal > 0) linha.innerHTML = '<s>' + fmtMoeda(pr.normal) + '</s><span class="gratis">GRÁTIS</span>';
+      else if(pr.final < pr.normal) linha.innerHTML = '<s>' + fmtMoeda(pr.normal) + '</s><b>' + fmtMoeda(pr.final) + '</b>';
+      else linha.innerHTML = '<b>' + fmtMoeda(pr.final) + '</b>';
+      sec.appendChild(linha);
+    }
+    box.appendChild(sec);
+  });
+  atualizarBotaoPromo();
+}
+function promoCompleta(){ return promoAtual.etapas.every((et,k)=>promoEscolhas[k].length >= (Number(et.min)||1)); }
+function totalPromo(){
+  return arred2(promoAtual.etapas.reduce((a,et,k)=>a + precosDaEtapa(et, promoEscolhas[k]).final, 0));
+}
+function atualizarBotaoPromo(){
+  const btn = document.getElementById('btnAddPromo');
+  if(promoCompleta()){ btn.disabled = false; btn.textContent = 'Adicionar — ' + fmtMoeda(totalPromo() * promoQtd); }
+  else { btn.disabled = true; btn.textContent = 'Escolha os sabores'; }
+}
+function alterarQtdPromo(delta){
+  promoQtd = Math.min(20, Math.max(1, promoQtd + delta));
+  document.getElementById('promoQtd').textContent = promoQtd;
+  atualizarBotaoPromo();
+}
+// Monta as pizzas (e a borda) de cada etapa. Uma borda promocional fica junto da pizza anterior.
+function componentesDaPromo(){
+  const comps = [];
+  promoAtual.etapas.forEach((et,k)=>{
+    const esc = promoEscolhas[k]; if(!esc.length) return;
+    const pr = precosDaEtapa(et, esc);
+    if(et.tipo === 'borda'){
+      const alvo = comps[comps.length-1];
+      if(alvo){ alvo.tamanho += ' • Borda: ' + esc[0].nome.replace(/^Borda /,'') + (pr.final===0 ? ' (grátis)' : ''); alvo.preco = arred2(alvo.preco + pr.final); }
+      return;
+    }
+    const nome = esc.length === 1 ? esc[0].nome : 'Meio a Meio: ' + esc.map(o=>o.nome).join(' / ');
+    comps.push({nome, tamanho:et.tamanho + (pr.final===0 ? ' (grátis)' : ''), preco:pr.final});
+  });
+  return comps;
+}
+function confirmarAddPromo(){
+  if(!promoAtual || !promoCompleta()) return;
+  const comps = componentesDaPromo();
+  const total = arred2(comps.reduce((a,c)=>a+c.preco,0));
+  carrinho.push({tipo:'promo', promo:true, promoSlug:promoAtual.slug, nome:promoAtual.nome, tamanho:comps.map(c=>c.tamanho).join(' + '),
+                 precoUnit:total, qtd:promoQtd, componentes:comps});
+  pixel('AddToCart', {content_name: promoAtual.nome, content_type: 'product', value: total * promoQtd, currency: 'BRL'});
+  atualizarBadgeCarrinho();
+  fecharOverlay('overlayPromo');
+}
+// Cada pizza da promocao vira uma linha do pedido (a cozinha precisa ver cada uma)
+function linhasDoPedido(){
+  const linhas = [];
+  carrinho.forEach(i=>{
+    if(i.componentes){
+      i.componentes.forEach(c=>linhas.push({nome:c.nome, tamanho:c.tamanho + ' — ' + i.nome, qtd:i.qtd, precoUnit:c.preco, promo:true}));
+    } else {
+      linhas.push({nome:i.nome, tamanho:i.tamanho, qtd:i.qtd, precoUnit:i.precoUnit, promo:!!i.promo || /promo/i.test(i.tamanho||'')});
+    }
+  });
+  return linhas;
+}
+
 /* ---------- Ajuda: o cliente fala com uma pessoa no WhatsApp ---------- */
 function abrirAjuda(ev){
   if(ev && ev.preventDefault) ev.preventDefault();
@@ -798,7 +992,7 @@ function aplicarCardapioDoBanco(j){
       if(!tamanhos.length) return;
       const ORDEM_TAM = ['Grande','Pequena'];                    // a Grande aparece primeiro, como sempre
       tamanhos.sort((a,b)=> ((ORDEM_TAM.indexOf(a.tamanho)+1)||99) - ((ORDEM_TAM.indexOf(b.tamanho)+1)||99));
-      novoCat.push({nome, categoria:catSite, tamanhos, ord:p.ordem, canais:p.canais, esgotado:!!p.esgotado});
+      novoCat.push({nome, slug:p.slug, categoria:catSite, tamanhos, ord:p.ordem, canais:p.canais, esgotado:!!p.esgotado});
       if(p.foto) fotos[nome] = p.foto + '?v=1';
       if(p.descricao) descs[nome] = p.descricao;
       const g = tamanhos.find(t=>t.tamanho==='Grande'), pq = tamanhos.find(t=>t.tamanho==='Pequena');
@@ -820,6 +1014,7 @@ function aplicarCardapioDoBanco(j){
   }
   if(!novoCat.length) return false;
 
+  PROMOS_BANCO = Array.isArray(j.promocoes) ? j.promocoes : [];
   CATALOGO.splice(0, CATALOGO.length, ...novoCat);
   SABORES_MEIO.splice(0, SABORES_MEIO.length, ...salgadas);
   SABORES_MEIO_DOCE.splice(0, SABORES_MEIO_DOCE.length, ...doces);
@@ -842,8 +1037,14 @@ function aplicarCardapioDoBanco(j){
   }
 
   const catAtiva = (document.querySelector('.tab.active') || {dataset:{}}).dataset.cat;
+  const abrirNasPromos = !abaManual && PROMOS_BANCO.some(promoDisponivel);   // vitrine: promocoes primeiro
   montarTabs();
-  if(catAtiva) mostrarCategoria(catAtiva);
+  if(catAtiva || abrirNasPromos) mostrarCategoria(abrirNasPromos ? 'Promoção' : catAtiva);
+  if(promoPendente){                                  // link ?promo=terca-super
+    const pm = PROMOS_BANCO.find(x=>x.slug===promoPendente && promoDisponivel(x));
+    promoPendente = null;
+    if(pm){ mostrarTela('cardapio'); document.getElementById('headerSub').textContent = 'Monte seu pedido'; abrirPromo(pm.slug); }
+  }
   return true;
 }
 
@@ -886,6 +1087,7 @@ function init(){
   popularSelectsMeio();
   popularBordasMeio();
   atualizarBadgeCarrinho();
+  promoPendente = params.get('promo') ? slugSabor(params.get('promo')) : null;
   try{ abrirPeloLink(params); }catch(e){ /* link invalido: segue o fluxo normal */ }
   atualizarStatusLoja();
   carregarCardapioDoBanco();
@@ -941,11 +1143,11 @@ function escolherModalidade(m){
 function montarTabs(){
   const wrap = document.getElementById('tabsCategorias');
   wrap.innerHTML = '';
-  CATEGORIAS_ORDEM.forEach(cat=>{
+  ordemDasAbas().forEach(cat=>{
     const b = document.createElement('button');
     b.className = 'tab'; b.textContent = CATEGORIAS_LABEL[cat] || cat;
     b.dataset.cat = cat;
-    b.onclick = ()=>mostrarCategoria(cat);
+    b.onclick = ()=>{ abaManual = true; mostrarCategoria(cat); };
     wrap.appendChild(b);
   });
 }
@@ -975,6 +1177,14 @@ function mostrarCategoria(cat){
     return;
   }
 
+  if(cat === 'Promoção' && PROMOS_BANCO.length){
+    const hoje = PROMOS_BANCO.filter(promoDisponivel);
+    if(!hoje.length){
+      lista.innerHTML = '<div class="empty-cart">Hoje não temos promoções para essa forma de pedido.<br>Dê uma olhada nas pizzas 🍕</div>';
+    }
+    hoje.forEach(pm=>lista.appendChild(criarCardPromo(pm)));
+    return;
+  }
   const itens = CATALOGO.filter(p=>p.categoria===cat && vendeNoCanal(p));
   itens.forEach(p=>lista.appendChild(criarCardProduto(p)));
 }
@@ -1244,7 +1454,7 @@ function renderCarrinho(){
     div.innerHTML = `
       <div class="ci-info">
         <h4>${item.nome}</h4>
-        <span>${item.tamanho}</span>
+        ${item.componentes ? '<div class="ci-comp">' + item.componentes.map(c=>'• ' + c.nome + ' (' + c.tamanho + ')' + (c.preco===0 ? ' — grátis' : '')).join('<br>') + '</div>' : '<span>' + item.tamanho + '</span>'}
         <div class="ci-qtd">
           <button type="button" class="passo menos" aria-label="Diminuir">−</button>
           <span class="num">${item.qtd}</span>
@@ -1574,7 +1784,7 @@ function irParaCheckout(){
   }
   carregarDadosCliente();
   const resumo = document.getElementById('resumoCheckout');
-  resumo.innerHTML = carrinho.map(i=>`${i.qtd}x ${i.nome} (${i.tamanho}) — ${fmtMoeda(i.precoUnit*i.qtd)}`).join('<br>');
+  resumo.innerHTML = carrinho.map(i=>`${i.qtd}x ${i.nome}${i.componentes ? '' : ' (' + i.tamanho + ')'} — ${fmtMoeda(i.precoUnit*i.qtd)}`).join('<br>');
   if(modalidadeAtual==='Entrega'){
     const sel = document.getElementById('campoBairro');
     if(sel.options.length<=1){
@@ -1613,7 +1823,7 @@ function enviarPedidoWhatsapp(){
   salvarPedidoNoCRM({
     nome, telefone, endereco: modalidadeAtual==='Entrega' ? endereco : '',
     modalidade: modalidadeAtual, bairro: bairro ? bairro.nome : null, taxa,
-    itens: carrinho.map(i=>({nome:i.nome, tamanho:i.tamanho, qtd:i.qtd, precoUnit:i.precoUnit})),
+    itens: linhasDoPedido(),
     total: totalCarrinho()+taxa, pagamento, obs,
   });
 
@@ -1634,7 +1844,12 @@ function enviarPedidoWhatsapp(){
   }
   msg += `\n*Itens:*\n`;
   carrinho.forEach(i=>{
-    msg += `• ${i.qtd}x ${i.nome} (${i.tamanho}) — ${fmtMoeda(i.precoUnit*i.qtd)}\n`;
+    if(i.componentes){
+      msg += `• ${i.qtd}x ${i.nome} — ${fmtMoeda(i.precoUnit*i.qtd)}\n`;
+      i.componentes.forEach(c=>{ msg += `    - ${c.nome} (${c.tamanho})${c.preco===0 ? ' — grátis' : ''}\n`; });
+    } else {
+      msg += `• ${i.qtd}x ${i.nome} (${i.tamanho}) — ${fmtMoeda(i.precoUnit*i.qtd)}\n`;
+    }
   });
   if(taxa>0) msg += `\nTaxa de entrega: ${fmtMoeda(taxa)}\n`;
   msg += `\n*Total: ${fmtMoeda(totalCarrinho()+taxa)}*\n`;
