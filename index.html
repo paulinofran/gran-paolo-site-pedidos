@@ -209,6 +209,11 @@ nav.bottom button.active{color:var(--accent);}
 .sug-txt small{display:block;font-weight:500;color:var(--ink-soft);font-size:11.5px;margin-top:1px;}
 .cart-total-fixo{position:sticky;bottom:var(--nav-h,66px);z-index:15;background:var(--bg);padding:0 0 10px;margin-top:6px;box-shadow:0 -10px 14px -4px rgba(250,244,236,.97);}
 .cart-total-fixo .total-row{margin-top:0;padding:10px 0 6px;}
+.cart-total-fixo .linha-total{display:flex;align-items:center;gap:12px;padding-top:10px;border-top:2px solid var(--line);}
+.cart-total-fixo .total-bloco{display:flex;flex-direction:column;line-height:1.15;min-width:96px;}
+.cart-total-fixo .total-bloco small{font-size:12px;color:var(--ink-soft);font-weight:600;}
+.cart-total-fixo .total-bloco b{font-size:19px;color:var(--ink);}
+.cart-total-fixo .linha-total .btn-full{margin-top:0 !important;flex:1;}
 .aviso-loja{margin:12px 16px 0;padding:12px 14px;background:#FFF4D6;border:1px solid #E8C979;border-radius:12px;color:#5A4308;font-size:13.5px;line-height:1.4;}
 .aviso-loja strong{display:block;font-size:14.5px;margin-bottom:2px;color:#3F2E04;}
 .aviso-checkout{margin:0 0 10px;padding:11px 13px;background:#FFF4D6;border:1px solid #E8C979;border-radius:12px;color:#5A4308;font-size:13px;line-height:1.4;}
@@ -338,12 +343,14 @@ body.com-barra #app{padding-bottom:150px;}
   <section class="screen" id="screen-carrinho">
     <h2 style="font-size:19px;color:var(--accent-dark);margin-bottom:14px;">Seu carrinho</h2>
     <div id="cartList"></div>
-    <button type="button" id="btnMaisItens" class="btn-sec hidden" onclick="mostrarTela('cardapio')">+ Adicionar mais itens</button>
+    <button type="button" id="btnMaisItens" class="btn-sec hidden" onclick="mostrarTela('cardapio')">+ Continuar pedindo</button>
     <div id="cartSugestoes" class="hidden"></div>
     <p class="ajuda-link">Precisa de ajuda para pedir? <a href="#" onclick="abrirAjuda(event)">Fale com a gente no WhatsApp</a></p>
     <div id="cartTotalBox" class="hidden cart-total-fixo">
-      <div class="total-row"><span>Total</span><span id="cartTotalValor">R$ 0,00</span></div>
-      <button class="btn-full btn-primary" id="btnFinalizar" style="margin-top:10px;" onclick="irParaCheckout()">Finalizar pedido</button>
+      <div class="linha-total">
+        <div class="total-bloco"><small>Total</small><b id="cartTotalValor">R$ 0,00</b></div>
+        <button class="btn-full btn-primary" id="btnFinalizar" onclick="irParaCheckout()">Prosseguir com o pedido</button>
+      </div>
     </div>
   </section>
 
@@ -802,7 +809,16 @@ async function atualizarStatusLoja(){
   mostrarAvisoLoja();
 }
 setInterval(atualizarStatusLoja, 60000);
-document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) atualizarStatusLoja(); });
+const CARGA_EM = Date.now();
+document.addEventListener('visibilitychange', ()=>{
+  if(document.hidden) return;
+  atualizarStatusLoja();
+  // aba esquecida aberta por muito tempo, sem nada em andamento: recarrega para pegar a versao mais nova
+  try{
+    const emAndamento = carrinho.length > 0 || document.querySelector('.overlay.active') || document.getElementById('screen-checkout').classList.contains('active');
+    if(Date.now() - CARGA_EM > 45*60*1000 && !emAndamento) location.reload();
+  }catch(e){}
+});
 
 /* ---------- Saldo de cashback e pontos no checkout ---------- */
 let saldoCliente = null, saldoTelefone = '', regrasLoja = null, saldoTimer = null;
@@ -1597,7 +1613,6 @@ function renderCarrinho(){
   document.getElementById('cartTotalValor').textContent = fmtMoeda(totalCarrinho());
   totalBox.classList.remove('hidden');
   document.getElementById('btnMaisItens').classList.remove('hidden');
-  document.getElementById('btnFinalizar').textContent = 'Finalizar pedido · ' + fmtMoeda(totalCarrinho());
   renderSugestoes();
 }
 
