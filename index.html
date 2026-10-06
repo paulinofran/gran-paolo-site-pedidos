@@ -212,6 +212,13 @@ nav.bottom button.active{color:var(--accent);}
 .aviso-loja{margin:12px 16px 0;padding:12px 14px;background:#FFF4D6;border:1px solid #E8C979;border-radius:12px;color:#5A4308;font-size:13.5px;line-height:1.4;}
 .aviso-loja strong{display:block;font-size:14.5px;margin-bottom:2px;color:#3F2E04;}
 .aviso-checkout{margin:0 0 10px;padding:11px 13px;background:#FFF4D6;border:1px solid #E8C979;border-radius:12px;color:#5A4308;font-size:13px;line-height:1.4;}
+.bloco-saldo{background:#F1FAF3;border:1px solid #BFE3C8;border-radius:12px;padding:12px 14px;margin:14px 0;font-size:13.5px;color:#14502B;line-height:1.45;}
+.bloco-saldo h4{font-size:14px;margin:0 0 4px;color:#14502B;}
+.bloco-saldo .op{display:flex;gap:10px;align-items:flex-start;margin-top:8px;}
+.bloco-saldo .op input{margin-top:3px;width:18px;height:18px;flex:none;}
+.bloco-saldo .nota{font-size:12.5px;color:#3B6B4B;margin-top:6px;}
+.bloco-saldo.ganho{background:#FFF8E6;border-color:#EBD58D;color:#5A4308;}
+.linha-desc{display:flex;justify-content:space-between;font-size:13px;color:#14804A;margin-top:6px;font-weight:600;}
 .promo-etapa{margin:14px 0 4px;}
 .promo-etapa-titulo{font-size:14px;font-weight:700;color:var(--ink);display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
 .promo-etapa-titulo small{font-weight:500;font-size:11.5px;color:var(--ink-soft);}
@@ -384,8 +391,11 @@ body.com-barra #app{padding-bottom:150px;}
       <textarea id="campoObs" placeholder="Ex: sem cebola, troco para R$100, etc."></textarea>
     </div>
 
+    <div id="blocoSaldo" class="bloco-saldo hidden"></div>
+
     <div style="background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin:16px 0;">
       <div id="resumoCheckout" style="font-size:13px;color:var(--ink-soft);"></div>
+      <div id="linhasDesconto"></div>
       <div class="total-row" style="border-top:1px solid var(--line);margin-top:10px;padding-top:10px;">
         <span>Total</span><span id="checkoutTotalValor">R$ 0,00</span>
       </div>
@@ -794,6 +804,117 @@ async function atualizarStatusLoja(){
 setInterval(atualizarStatusLoja, 60000);
 document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) atualizarStatusLoja(); });
 
+/* ---------- Saldo de cashback e pontos no checkout ---------- */
+let saldoCliente = null, saldoTelefone = '', regrasLoja = null, saldoTimer = null;
+let usarCashback = true, usarPontos = true;           // ja vem marcado: o cliente usa tudo, sem travar a venda
+function telParaSaldo(){
+  let d = String((document.getElementById('campoTelefone')||{}).value || '').replace(/\D/g,'');
+  if(d.length >= 12 && d.indexOf('55') === 0) d = d.slice(2);
+  return d;
+}
+function agendarBuscaSaldo(){ clearTimeout(saldoTimer); saldoTimer = setTimeout(buscarSaldo, 600); }
+async function buscarSaldo(){
+  const tel = telParaSaldo();
+  if(tel.length < 10){ saldoCliente = null; saldoTelefone = ''; atualizarTotalCheckout(); return; }
+  if(tel === saldoTelefone && saldoCliente){ atualizarTotalCheckout(); return; }
+  try{
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/saldo_cliente`, {
+      method: "POST",
+      headers: {"apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json"},
+      body: JSON.stringify({p_loja: LOJA_ID, p_telefone: tel}),
+    });
+    if(!r.ok) return;
+    const j = await r.json();
+    if(j && typeof j === 'object'){ saldoCliente = j; saldoTelefone = tel; }
+  }catch(e){ return; }
+  atualizarTotalCheckout();
+}
+function calcularDescontos(){
+  const bruto = arred2(totalCarrinho() + taxaEntregaSelecionada());
+  const out = {cashback:0, pontos:0, descontoPontos:0, bruto, total:bruto};
+  const s = saldoCliente; if(!s) return out;
+  let resta = bruto;
+  if(usarCashback && Number(s.cashback) > 0){ out.cashback = arred2(Math.min(Number(s.cashback), resta)); resta = arred2(resta - out.cashback); }
+  const ptsRes = Number(s.pontos_por_resgate) || 0, valRes = Number(s.valor_do_resgate) || 0;
+  if(usarPontos && ptsRes > 0 && valRes > 0){
+    const blocos = Math.min(Math.floor(Number(s.pontos) / ptsRes), Math.floor(resta / valRes + 1e-9));
+    if(blocos > 0){ out.pontos = blocos * ptsRes; out.descontoPontos = arred2(blocos * valRes); resta = arred2(resta - out.descontoPontos); }
+  }
+  out.total = arred2(resta);
+  return out;
+}
+function estimarGanho(){
+  const r = regrasLoja; if(!r || !carrinho.length) return null;
+  const d = calcularDescontos();
+  const ehPromo = i => i.promo || /promo/i.test(i.tamanho || '');
+  let cb = 0, pts = 0;
+  if(r.cashback_ativo && (r.canais_cashback||[]).indexOf(modalidadeAtual) >= 0){
+    const itens = carrinho.reduce((a,i)=>a + ((r.cashback_exclui_promocoes && ehPromo(i)) ? 0 : i.precoUnit*i.qtd), 0);
+    cb = arred2(Math.max(itens - d.cashback - d.descontoPontos, 0) * Number(r.cashback_pct) / 100);
+  }
+  if(r.fidelidade_ativa && (r.canais_fidelidade||[]).indexOf(modalidadeAtual) >= 0){
+    let base = d.total; if(!r.conta_frete) base -= taxaEntregaSelecionada();
+    pts = Math.floor(Math.max(base,0) / Number(r.reais_por_ponto));
+  }
+  return (cb > 0 || pts > 0) ? {cb, pts} : null;
+}
+function dataCurta(iso){ const m = String(iso||'').match(/(\d{4})-(\d{2})-(\d{2})/); return m ? m[3] + '/' + m[2] : ''; }
+function desenharSaldo(){
+  const box = document.getElementById('blocoSaldo'); if(!box) return;
+  box.innerHTML = ''; box.className = 'bloco-saldo hidden';
+  const s = saldoCliente, ganho = estimarGanho();
+  const el = (tag, txt, cls)=>{ const e = document.createElement(tag); if(cls) e.className = cls; e.textContent = txt; return e; };
+  const temCb = s && Number(s.cashback) > 0;
+  const ptsRes = s ? (Number(s.pontos_por_resgate) || 0) : 0, valRes = s ? (Number(s.valor_do_resgate) || 0) : 0;
+  const pts = s ? Number(s.pontos) || 0 : 0;
+  const bruto = arred2(totalCarrinho() + taxaEntregaSelecionada());
+  let algo = false;
+  if(temCb || (ptsRes && pts >= ptsRes)){
+    box.classList.remove('hidden'); algo = true;
+    box.appendChild(el('h4', '💰 Você tem saldo!'));
+    const d = calcularDescontos();
+    if(temCb){
+      const op = document.createElement('label'); op.className = 'op';
+      const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = usarCashback;
+      cb.onchange = ()=>{ usarCashback = cb.checked; atualizarTotalCheckout(); };
+      const venc = s.cashback_vencimentos && s.cashback_vencimentos[0] ? ' (vence em ' + dataCurta(s.cashback_vencimentos[0].vence_em) + ')' : '';
+      op.appendChild(cb); op.appendChild(el('span', 'Usar meu cashback: ' + fmtMoeda(Number(s.cashback)) + venc));
+      box.appendChild(op);
+    }
+    if(ptsRes && pts >= ptsRes){
+      const op = document.createElement('label'); op.className = 'op';
+      const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = usarPontos;
+      cb.onchange = ()=>{ usarPontos = cb.checked; atualizarTotalCheckout(); };
+      const blocos = Math.floor(pts / ptsRes);
+      op.appendChild(cb); op.appendChild(el('span', 'Usar meus pontos: você tem ' + pts + ' (' + blocos + ' desconto' + (blocos>1?'s':'') + ' de ' + fmtMoeda(valRes) + ')'));
+      box.appendChild(op);
+      if(usarPontos && d.pontos === 0) box.appendChild(el('div', 'Para usar ' + ptsRes + ' pontos, o pedido precisa ter pelo menos ' + fmtMoeda(valRes) + ' depois do cashback.', 'nota'));
+    }
+  }
+  if(s && ptsRes && pts > 0 && pts < ptsRes){
+    box.classList.remove('hidden'); algo = true;
+    box.appendChild(el('div', '⭐ Você tem ' + pts + ' pontos. Faltam ' + (ptsRes - pts) + ' para ganhar ' + fmtMoeda(valRes) + ' de desconto.', 'nota'));
+  }
+  if(ganho){
+    box.classList.remove('hidden');
+    box.appendChild(el('div', '🎁 Neste pedido você ganha ' + [ganho.cb > 0 ? fmtMoeda(ganho.cb) + ' de cashback' : '', ganho.pts > 0 ? ganho.pts + (ganho.pts>1 ? ' pontos' : ' ponto') : ''].filter(Boolean).join(' e ') + ', depois que ele for entregue.', 'nota'));
+    if(!algo) box.classList.add('ganho');
+  }
+}
+// Avisa o banco quanto do saldo foi usado (funcao separada: se falhar, o pedido nao e afetado)
+function enviarSaldoDoPedido(telefone, cashback, pontos){
+  try{
+    if(!(cashback > 0 || pontos > 0)) { saldoCliente = null; saldoTelefone = ''; return; }
+    fetch(`${SUPABASE_URL}/rest/v1/rpc/aplicar_saldo_pedido`, {
+      method: "POST",
+      headers: {"apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json"},
+      keepalive: true,
+      body: JSON.stringify({p_loja: LOJA_ID, p_telefone: telefone, p_cashback: cashback, p_pontos: pontos}),
+    }).catch(()=>{});
+    saldoCliente = null; saldoTelefone = '';            // o proximo pedido consulta o saldo de novo
+  }catch(e){}
+}
+
 /* ---------- Promocoes e combos (montados em etapas) ---------- */
 let PROMOS_BANCO = [];
 let abaManual = false;      // o cliente ja escolheu uma aba sozinho?
@@ -1015,6 +1136,7 @@ function aplicarCardapioDoBanco(j){
   if(!novoCat.length) return false;
 
   PROMOS_BANCO = Array.isArray(j.promocoes) ? j.promocoes : [];
+  regrasLoja = j.regras || null;
   CATALOGO.splice(0, CATALOGO.length, ...novoCat);
   SABORES_MEIO.splice(0, SABORES_MEIO.length, ...salgadas);
   SABORES_MEIO_DOCE.splice(0, SABORES_MEIO_DOCE.length, ...doces);
@@ -1091,6 +1213,8 @@ function init(){
   try{ abrirPeloLink(params); }catch(e){ /* link invalido: segue o fluxo normal */ }
   atualizarStatusLoja();
   carregarCardapioDoBanco();
+  const campoTel = document.getElementById('campoTelefone');
+  if(campoTel) campoTel.addEventListener('input', agendarBuscaSaldo);
 }
 function popularBordasMeio(){
   const wrap = document.getElementById('meioBordas');
@@ -1750,7 +1874,16 @@ function taxaEntregaSelecionada(){
 }
 function atualizarTotalCheckout(){
   const totalBox = document.getElementById('checkoutTotalValor');
-  if(totalBox) totalBox.textContent = fmtMoeda(totalCarrinho() + taxaEntregaSelecionada());
+  const desc = calcularDescontos();
+  if(totalBox) totalBox.textContent = fmtMoeda(desc.total);
+  const linhas = document.getElementById('linhasDesconto');
+  if(linhas){
+    linhas.innerHTML = '';
+    const add = (t,v)=>{ const d = document.createElement('div'); d.className = 'linha-desc'; d.innerHTML = '<span></span><span></span>'; d.firstChild.textContent = t; d.lastChild.textContent = '− ' + fmtMoeda(v); linhas.appendChild(d); };
+    if(desc.cashback > 0) add('Cashback usado', desc.cashback);
+    if(desc.pontos > 0) add('Pontos usados (' + desc.pontos + ')', desc.descontoPontos);
+  }
+  desenharSaldo();
 }
 function salvarDadosCliente(nome, endereco, telefone){
   try{
@@ -1793,6 +1926,7 @@ function irParaCheckout(){
     }
   }
   atualizarStatusLoja();
+  buscarSaldo();
   atualizarTotalCheckout();
   pixel('InitiateCheckout', {value: totalCarrinho(), currency: 'BRL', num_items: carrinho.reduce((a,i)=>a+i.qtd,0)});
   mostrarTela('checkout');
@@ -1818,20 +1952,22 @@ function enviarPedidoWhatsapp(){
   if(modalidadeAtual==='Entrega' && endereco.includes('___')){ alert('Complete o número do seu endereço, onde aparece ___'); return; }
 
   salvarDadosCliente(nome, endereco, telefone);
+  const desc = calcularDescontos();                       // cashback e pontos que o cliente escolheu usar
+  enviarSaldoDoPedido(telefone, desc.cashback, desc.pontos);
 
   // Salva no CRM em segundo plano — não atrasa nem bloqueia o WhatsApp
   salvarPedidoNoCRM({
     nome, telefone, endereco: modalidadeAtual==='Entrega' ? endereco : '',
     modalidade: modalidadeAtual, bairro: bairro ? bairro.nome : null, taxa,
     itens: linhasDoPedido(),
-    total: totalCarrinho()+taxa, pagamento, obs,
+    total: desc.total, pagamento, obs,
   });
 
   // Pixel: "Purchase" = pedido enviado (o pagamento e na entrega/maquininha). Nao repete em 60s.
   const assinaturaPedido = telefone + '|' + (totalCarrinho()+taxa) + '|' + carrinho.map(i=>i.nome+i.qtd).join(',');
   if(assinaturaPedido !== ultimaCompraPixel.assinatura || Date.now() - ultimaCompraPixel.quando > 60000){
     ultimaCompraPixel = {assinatura: assinaturaPedido, quando: Date.now()};
-    pixel('Purchase', {value: totalCarrinho()+taxa, currency: 'BRL', content_type: 'product', num_items: carrinho.reduce((a,i)=>a+i.qtd,0), contents: carrinho.map(i=>({id: i.nome, quantity: i.qtd, item_price: i.precoUnit}))});
+    pixel('Purchase', {value: desc.total, currency: 'BRL', content_type: 'product', num_items: carrinho.reduce((a,i)=>a+i.qtd,0), contents: carrinho.map(i=>({id: i.nome, quantity: i.qtd, item_price: i.precoUnit}))});
   }
 
   let msg = `*Novo pedido — Gran Paolo*\n`;
@@ -1852,7 +1988,9 @@ function enviarPedidoWhatsapp(){
     }
   });
   if(taxa>0) msg += `\nTaxa de entrega: ${fmtMoeda(taxa)}\n`;
-  msg += `\n*Total: ${fmtMoeda(totalCarrinho()+taxa)}*\n`;
+  if(desc.cashback > 0) msg += `Cashback usado: -${fmtMoeda(desc.cashback)}\n`;
+  if(desc.pontos > 0) msg += `Pontos usados: ${desc.pontos} (-${fmtMoeda(desc.descontoPontos)})\n`;
+  msg += `\n*Total: ${fmtMoeda(desc.total)}*\n`;
   msg += `Pagamento: ${pagamento}\n`;
   if(obs) msg += `Obs: ${obs}\n`;
   const txtOrigem = textoOrigem();
