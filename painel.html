@@ -344,7 +344,12 @@ function cartao(p){
   voltar.onclick = () => mudar(p, p.status === 'cozinha' ? 'novo' : 'cozinha');
   const re = el('button', '', 'Reimprimir'); re.onclick = () => reimprimir(p);
   const canc = el('button', '', 'Cancelar pedido');
-  canc.onclick = () => { if(confirm('Cancelar o pedido #' + p.numero + '?')) mudar(p, 'cancelado'); };
+  canc.onclick = async () => {
+    if(!confirm('Cancelar o pedido #' + p.numero + '?')) return;
+    const motivo = (prompt('Motivo do cancelamento (opcional):') || '').trim();
+    await mudar(p, 'cancelado');
+    if(motivo){ try{ await rpc('painel_motivo_cancelamento', {p_pedido: p.id, p_motivo: motivo}); }catch(e){} }     // sem a Parte H, so nao anota o motivo
+  };
   mini.appendChild(voltar); mini.appendChild(re); mini.appendChild(canc);
   c.appendChild(mini);
   return c;

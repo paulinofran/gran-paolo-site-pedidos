@@ -103,7 +103,7 @@ const CHAVE_SESSAO = "gp_painel_sessao";          // a mesma do painel de pedido
 const CANAIS = ['Entrega','Retirada','Vem comer','Drive-thru','Balcão'];
 const DIAS = ['D','S','T','Q','Q','S','S'];
 const NOME_DIA = ['domingo','segunda','terça','quarta','quinta','sexta','sábado'];
-const ABAS = [['hoje','Hoje'],['cardapio','Cardápio'],['promos','Promoções'],['taxas','Taxas'],['regras','Regras'],['clientes','Clientes'],['notas','Notas'],['robo','Robô']];
+const ABAS = [['hoje','Hoje'],['cardapio','Cardápio'],['promos','Promoções'],['taxas','Taxas'],['regras','Regras'],['clientes','Clientes'],['relatorios','Relatórios'],['notas','Notas'],['robo','Robô']];
 
 let sessao = null, aba = (location.hash === '#robo') ? 'robo' : 'hoje';
 let timerRobo = null;
@@ -209,7 +209,7 @@ function desenharAbas(){
 function desenhar(){
   desenharAbas();
   const c = $('conteudo'); c.innerHTML = '';
-  ({hoje:telaHoje, cardapio:telaCardapio, promos:telaPromos, taxas:telaTaxas, regras:telaRegras, clientes:telaClientes, notas:telaNotas, robo:telaRobo})[aba](c);
+  ({hoje:telaHoje, cardapio:telaCardapio, promos:telaPromos, taxas:telaTaxas, regras:telaRegras, clientes:telaClientes, relatorios:telaRelatorios, notas:telaNotas, robo:telaRobo})[aba](c);
 }
 function campo(rotulo, input){ const w = el('label', 'campo'); w.appendChild(el('span', '', rotulo)); w.appendChild(input); return w; }
 function inputNum(v, passo){ const i = el('input', 'num'); i.type = 'text'; i.inputMode = (passo === '1') ? 'numeric' : 'decimal'; i.autocomplete = 'off'; i.value = v === null || v === undefined ? '' : String(v).replace('.', ','); return i; }
@@ -468,6 +468,102 @@ function desenharCliente(res){
   res.appendChild(t);
 }
 
+
+/* ============================ RELATORIOS ============================ */
+const somaDias = (iso, n) => { const d = new Date(iso + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+function periodoDoPreset(p){
+  const hoje = agoraLocal().data;
+  if(p === 'hoje') return {ini:hoje, fim:hoje};
+  if(p === '7') return {ini:somaDias(hoje, -6), fim:hoje};
+  if(p === '30') return {ini:somaDias(hoje, -29), fim:hoje};
+  if(p === 'mes') return {ini:hoje.slice(0, 8) + '01', fim:hoje};
+  const ini = hoje.slice(0, 8) + '01', fimAnt = somaDias(ini, -1);           // mes passado
+  return {ini:fimAnt.slice(0, 8) + '01', fim:fimAnt};
+}
+let relPeriodo = {preset:'mes', ...periodoDoPreset('mes')}, relDados = null;
+const brData = (iso) => String(iso).slice(8, 10) + '/' + String(iso).slice(5, 7);
+const brDataHora = (iso) => new Date(iso).toLocaleString('pt-BR', {timeZone:'America/Fortaleza', day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
+
+function csvRelatorio(qual, d){
+  const lin = (cab, linhas) => '\ufeff' + cab.join(',') + '\n' + linhas.map(l=>l.map(csvCampo).join(',')).join('\n') + (linhas.length ? '\n' : '');
+  const num2 = (v) => Number(v || 0).toFixed(2).replace('.', ',');
+  if(qual === 'resumo'){
+    const L = [['Faturamento', num2(d.resumo.faturamento)], ['Pedidos', d.resumo.pedidos], ['Ticket medio', num2(d.resumo.ticket_medio)], ['Cancelados', d.resumo.cancelados], ['Taxas de entrega', num2(d.resumo.taxas_entrega)]];
+    d.resumo.por_modalidade.forEach(x=>L.push(['Modalidade: ' + x.nome, num2(x.faturamento) + ' (' + x.pedidos + ' pedidos)']));
+    d.resumo.por_pagamento.forEach(x=>L.push(['Pagamento: ' + x.nome, num2(x.faturamento) + ' (' + x.pedidos + ' pedidos)']));
+    d.resumo.por_dia.forEach(x=>L.push(['Dia ' + x.dia, num2(x.faturamento) + ' (' + x.pedidos + ' pedidos)']));
+    return lin(['Item', 'Valor'], L);
+  }
+  if(qual === 'produtos') return lin(['Produto', 'Tamanho', 'Quantidade', 'Valor'], d.produtos.produtos.map(x=>[x.nome, x.tamanho, x.quantidade, num2(x.valor)]));
+  if(qual === 'cancelados') return lin(['Pedido', 'Quando', 'Cliente', 'Modalidade', 'Total', 'Motivo'], d.cancelados.map(x=>[x.numero, brDataHora(x.quando), x.cliente, x.modalidade, num2(x.total), x.motivo || '']));
+  if(qual === 'bairros') return lin(['Bairro', 'Pedidos', 'Faturamento', 'Ticket medio', 'Taxas'], d.bairros.map(x=>[x.bairro, x.pedidos, num2(x.faturamento), num2(x.ticket_medio), num2(x.taxas)]));
+  return lin(['Origem', 'Pedidos', 'Faturamento', 'Ticket medio'], d.origem.map(x=>[x.origem, x.pedidos, num2(x.faturamento), num2(x.ticket_medio)]));
+}
+async function carregarRelatorios(){
+  const a = {p_loja:LOJA, p_ini:relPeriodo.ini, p_fim:relPeriodo.fim};
+  try{
+    const [resumo, produtos, cancelados, bairros, origem] = await Promise.all(['rel_resumo', 'rel_produtos', 'rel_cancelados', 'rel_entregas_bairro', 'rel_origem'].map(f=>rpc(f, a)));
+    relDados = {instalado:true, resumo, produtos, cancelados, bairros, origem};
+  }catch(e){
+    relDados = {instalado: !/PGRST202|Could not find|404|does not exist/i.test(String(e.message || e)), erro:String(e.message || e)};
+  }
+}
+function tabelaSimples(cab, linhas, vazio){
+  if(!linhas.length) return el('div', 'vazio', vazio || 'Nada neste período.');
+  const t = el('table', 'extrato'); const th = el('tr'); cab.forEach(x=>th.appendChild(el('th', '', x))); t.appendChild(th);
+  linhas.forEach(l=>{ const tr = el('tr'); l.forEach(v=>tr.appendChild(el('td', '', String(v)))); t.appendChild(tr); });
+  const w = el('div'); w.style.overflowX = 'auto'; w.appendChild(t); return w;
+}
+function secaoRel(c, id, titulo, qual, conteudo){
+  const h = el('div', 'topo'); h.appendChild(el('h2', '', titulo));
+  const b = el('button', 'btn cinza peq', 'Exportar planilha'); b.id = 'btnCsv_' + qual;
+  b.onclick = ()=>baixarCsv('relatorio-' + qual + '-' + relPeriodo.ini + '_a_' + relPeriodo.fim + '.csv', csvRelatorio(qual, relDados));
+  h.appendChild(b); c.appendChild(h); c.appendChild(conteudo);
+}
+async function telaRelatorios(c){
+  const barra = el('div', 'cartao'); barra.appendChild(el('div', 'nome', 'Período'));
+  const chips = el('div', 'cheios'); chips.style.marginTop = '8px';
+  const mk = (id, rot)=>{ const b = el('button', 'btn peq ' + (relPeriodo.preset === id ? 'verde' : 'cinza'), rot); b.dataset.preset = id; b.onclick = ()=>{ relPeriodo = {preset:id, ...periodoDoPreset(id)}; desenhar(); }; chips.appendChild(b); };
+  [['hoje', 'Hoje'], ['7', 'Últimos 7 dias'], ['30', 'Últimos 30 dias'], ['mes', 'Este mês'], ['passado', 'Mês passado']].forEach(([i, r])=>mk(i, r));
+  barra.appendChild(chips);
+  const di = el('input'); di.type = 'date'; di.value = relPeriodo.ini; di.id = 'relIni'; const df = el('input'); df.type = 'date'; df.value = relPeriodo.fim; df.id = 'relFim';
+  const l = el('div', 'linha'); l.appendChild(campo('De', di)); l.appendChild(campo('Até', df));
+  const ver = el('button', 'btn verde peq', 'Ver'); ver.id = 'relVer'; ver.style.alignSelf = 'flex-end';
+  ver.onclick = ()=>{ if(!di.value || !df.value || di.value > df.value){ aviso('Confira as datas: o início precisa ser antes do fim.', 'erro'); return; } relPeriodo = {preset:'', ini:di.value, fim:df.value}; desenhar(); };
+  l.appendChild(ver); barra.appendChild(l); c.appendChild(barra);
+  const corpo = el('div'); corpo.appendChild(el('div', 'vazio', 'Calculando...')); c.appendChild(corpo);
+
+  await carregarRelatorios(); if(aba !== 'relatorios') return;
+  corpo.innerHTML = '';
+  if(!relDados.instalado){ corpo.appendChild(el('div', 'vazio', 'Os relatórios ainda não foram instalados no banco de dados (falta rodar a Parte H no Supabase).')); return; }
+  if(relDados.erro){ corpo.appendChild(el('div', 'vazio', 'Não consegui carregar os relatórios agora. Tente de novo.')); return; }
+  const R = relDados.resumo;
+  corpo.appendChild(el('p', 'dica', 'Considera só pedidos finalizados, pelo valor que o cliente pagou (com frete e descontos), no horário da loja. Período: ' + brData(relPeriodo.ini) + ' a ' + brData(relPeriodo.fim) + '.'));
+  const sd = el('div', 'saldo');
+  [[money(R.faturamento), 'faturamento'], [String(R.pedidos), 'pedidos'], [money(R.ticket_medio), 'ticket médio'], [String(R.cancelados), 'cancelados']].forEach(([n, r])=>{ const d = el('div'); d.appendChild(document.createTextNode(n)); d.appendChild(el('small', '', r)); sd.appendChild(d); });
+  corpo.appendChild(sd);
+  if(!R.pedidos){ corpo.appendChild(el('div', 'vazio', 'Nenhuma venda neste período.')); }
+
+  const resumo = el('div');
+  resumo.appendChild(el('div', 'dica', 'Por modalidade'));
+  resumo.appendChild(tabelaSimples(['Modalidade', 'Pedidos', 'Faturamento', 'Ticket médio'], R.por_modalidade.map(x=>[x.nome, x.pedidos, money(x.faturamento), money(x.ticket_medio)])));
+  resumo.appendChild(el('div', 'dica', 'Por forma de pagamento'));
+  resumo.appendChild(tabelaSimples(['Pagamento', 'Pedidos', 'Faturamento'], R.por_pagamento.map(x=>[x.nome, x.pedidos, money(x.faturamento)])));
+  resumo.appendChild(el('div', 'dica', 'Por dia (taxas de entrega no período: ' + money(R.taxas_entrega) + ')'));
+  resumo.appendChild(tabelaSimples(['Dia', 'Pedidos', 'Faturamento'], R.por_dia.map(x=>[brData(x.dia), x.pedidos, money(x.faturamento)])));
+  secaoRel(corpo, 'resumo', 'Resumo', 'resumo', resumo);
+
+  const P = relDados.produtos, prod = el('div');
+  prod.appendChild(tabelaSimples(['Produto', 'Tam.', 'Qtd', 'Valor'], P.produtos.slice(0, 15).map(x=>[x.nome, x.tamanho, x.quantidade, money(x.valor)]), 'Nenhum produto vendido neste período.'));
+  if(P.produtos.length > 15){ const d = el('details'); d.appendChild(el('summary', '', 'Ver os outros ' + (P.produtos.length - 15) + ' produtos')); d.appendChild(tabelaSimples(['Produto', 'Tam.', 'Qtd', 'Valor'], P.produtos.slice(15).map(x=>[x.nome, x.tamanho, x.quantidade, money(x.valor)]))); prod.appendChild(d); }
+  if(P.bordas.length){ prod.appendChild(el('div', 'dica', 'Bordas')); prod.appendChild(tabelaSimples(['Borda', 'Qtd'], P.bordas.map(x=>[x.borda, x.quantidade]))); }
+  secaoRel(corpo, 'produtos', 'Produtos vendidos', 'produtos', prod);
+
+  secaoRel(corpo, 'cancelados', 'Cancelados', 'cancelados', tabelaSimples(['#', 'Quando', 'Cliente', 'Modalidade', 'Total', 'Motivo'], relDados.cancelados.map(x=>[x.numero, brDataHora(x.quando), x.cliente || '', x.modalidade, money(x.total), x.motivo || '—']), 'Nenhum cancelamento neste período.'));
+  secaoRel(corpo, 'bairros', 'Entregas por bairro', 'bairros', tabelaSimples(['Bairro', 'Pedidos', 'Faturamento', 'Ticket médio', 'Taxas'], relDados.bairros.map(x=>[x.bairro, x.pedidos, money(x.faturamento), money(x.ticket_medio), money(x.taxas)]), 'Nenhuma entrega neste período.'));
+  corpo.appendChild(el('p', 'dica', 'Origem das vendas: quanto cada campanha, link ou anúncio vendeu. Pedidos sem origem vieram direto do site.'));
+  secaoRel(corpo, 'origem', 'Origem das vendas', 'origem', tabelaSimples(['Origem', 'Pedidos', 'Faturamento', 'Ticket médio'], relDados.origem.map(x=>[x.origem, x.pedidos, money(x.faturamento), money(x.ticket_medio)]), 'Nenhuma venda neste período.'));
+}
 
 /* ============================ NOTAS FISCAIS ============================ */
 const ROT_NOTA = {aguardando:['am','Falta o pagamento'], dispensada:['az','Dispensada'], pendente:['az','Na fila'], enviando:['az','Enviando'], autorizada:['ok','Autorizada'], erro:['nao','Erro'], cancelada:['nao','Cancelada']};
