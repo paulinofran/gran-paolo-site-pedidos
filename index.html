@@ -212,6 +212,9 @@ nav.bottom button.active{color:var(--accent);}
 .aviso-loja{margin:12px 16px 0;padding:12px 14px;background:#FFF4D6;border:1px solid #E8C979;border-radius:12px;color:#5A4308;font-size:13.5px;line-height:1.4;}
 .aviso-loja strong{display:block;font-size:14.5px;margin-bottom:2px;color:#3F2E04;}
 .aviso-checkout{margin:0 0 10px;padding:11px 13px;background:#FFF4D6;border:1px solid #E8C979;border-radius:12px;color:#5A4308;font-size:13px;line-height:1.4;}
+.produto-card .desc{font-size:11.5px;color:var(--ink-soft);margin-top:3px;line-height:1.35;}
+.produto-card.esgotado{opacity:.55;}
+.produto-card .add-btn:disabled{background:#B9B2AC;cursor:not-allowed;}
 .ajuda-link{text-align:center;font-size:12.5px;color:var(--ink-soft);margin:16px 0 8px;line-height:1.5;}
 .ajuda-link a{color:var(--accent-dark);font-weight:700;text-decoration:underline;}
 .sug-add{background:var(--accent);color:#fff;border:none;border-radius:10px;padding:8px 12px;font-size:12.5px;font-weight:700;white-space:nowrap;}
@@ -765,6 +768,105 @@ function abrirAjuda(ev){
   return false;
 }
 
+/* ---------- Cardapio vindo do banco (com o cardapio embutido como plano B) ---------- */
+const DESCRICOES = {};
+const SLUG_CATEGORIA = {tradicional:'Tradicional', especial:'Especial', doce:'Doce', bebida:'Bebida'};
+function vendeNoCanal(p){ return !modalidadeAtual || !p.canais || p.canais.indexOf(modalidadeAtual) >= 0; }
+function nomeNoSite(c, p){ return c.tipo === 'pizza' ? 'Pizza ' + p.nome : p.nome; }
+function idDoTamanho(nome, tam){ return slugLink(nome) + (tam === 'Única' ? '' : '-' + slugLink(tam)); }
+function aplicarDesconto(preco, pct){ return Math.round(preco * (100 - pct)) / 100; }
+
+function aplicarCardapioDoBanco(j){
+  if(!j || !Array.isArray(j.categorias) || !j.categorias.length) return false;
+  const novoCat = [], salgadas = [], doces = [], fotos = {}, descs = {}, porSlug = {};
+  j.categorias.forEach(c=>{
+    const catSite = SLUG_CATEGORIA[c.slug] || c.nome;
+    (c.produtos||[]).forEach(p=>{
+      if(!p.disponivel && !p.esgotado) return;                 // fora do dia ou do horario: nem aparece
+      const nome = nomeNoSite(c, p);
+      const tamanhos = (p.tamanhos||[]).map(t=>({tamanho:t.nome, preco:Number(t.preco), id:idDoTamanho(nome, t.nome)}));
+      if(!tamanhos.length) return;
+      const ORDEM_TAM = ['Grande','Pequena'];                    // a Grande aparece primeiro, como sempre
+      tamanhos.sort((a,b)=> ((ORDEM_TAM.indexOf(a.tamanho)+1)||99) - ((ORDEM_TAM.indexOf(b.tamanho)+1)||99));
+      novoCat.push({nome, categoria:catSite, tamanhos, ord:p.ordem, canais:p.canais, esgotado:!!p.esgotado});
+      if(p.foto) fotos[nome] = p.foto + '?v=1';
+      if(p.descricao) descs[nome] = p.descricao;
+      const g = tamanhos.find(t=>t.tamanho==='Grande'), pq = tamanhos.find(t=>t.tamanho==='Pequena');
+      if(c.tipo === 'pizza' && g){
+        porSlug[p.slug] = {nome, grande:g.preco};
+        if(!p.esgotado && pq) (catSite === 'Doce' ? doces : salgadas).push({nome, grande:g.preco, pequena:pq.preco});
+      }
+    });
+  });
+  // Pizza do dia: continua aparecendo na aba "Promoção" (agora vinda da promocao do banco)
+  const pd = (j.promocoes||[]).find(x=>x.slug==='pizza-do-dia' && x.disponivel);
+  if(pd && pd.etapas && pd.etapas[0]){
+    const et = pd.etapas[0];
+    (et.opcoes||[]).forEach((slug,i)=>{
+      const base = porSlug[slug]; if(!base) return;
+      novoCat.push({nome:base.nome, categoria:'Promoção', ord:200+i,
+                    tamanhos:[{tamanho:'Grande Promoção', preco:aplicarDesconto(base.grande, Number(et.desconto_pct)||0), id:idDoTamanho(base.nome,'Grande Promoção')}]});
+    });
+  }
+  if(!novoCat.length) return false;
+
+  CATALOGO.splice(0, CATALOGO.length, ...novoCat);
+  SABORES_MEIO.splice(0, SABORES_MEIO.length, ...salgadas);
+  SABORES_MEIO_DOCE.splice(0, SABORES_MEIO_DOCE.length, ...doces);
+  Object.keys(FOTOS).forEach(k=>{ delete FOTOS[k]; }); Object.assign(FOTOS, fotos);
+  Object.keys(DESCRICOES).forEach(k=>{ delete DESCRICOES[k]; }); Object.assign(DESCRICOES, descs);
+
+  // bordas: atualiza o preco no proprio objeto (outras partes do site guardam referencia a ele)
+  (j.bordas||[]).forEach(bd=>{
+    const ex = BORDAS.find(x=>x.nome===bd.nome);
+    if(ex) ex.preco = Number(bd.preco); else BORDAS.push({nome:bd.nome, preco:Number(bd.preco), id:'borda-' + slugLink(bd.nome)});
+  });
+  for(let k=BORDAS.length-1; k>0; k--){ if(!(j.bordas||[]).some(bd=>bd.nome===BORDAS[k].nome)) BORDAS.splice(k,1); }
+
+  // bairros e taxas
+  const novosBairros = (j.bairros||[]).map(b=>({nome:b.nome, taxa:Number(b.taxa)}));
+  if(novosBairros.length && JSON.stringify(novosBairros) !== JSON.stringify(BAIRROS_TAXA)){
+    BAIRROS_TAXA.splice(0, BAIRROS_TAXA.length, ...novosBairros);
+    const sel = document.getElementById('campoBairro');
+    if(sel) sel.innerHTML = '<option value="">Selecione seu bairro...</option>';
+  }
+
+  const catAtiva = (document.querySelector('.tab.active') || {dataset:{}}).dataset.cat;
+  montarTabs();
+  if(catAtiva) mostrarCategoria(catAtiva);
+  return true;
+}
+
+function removerIncompativeis(){
+  if(!modalidadeAtual || !carrinho.length) return;
+  const fora = carrinho.filter(i=>{ const p = CATALOGO.find(x=>x.nome===i.nome); return p && !vendeNoCanal(p); });
+  if(!fora.length) return;
+  fora.forEach(i=>{ const k = carrinho.indexOf(i); if(k >= 0) carrinho.splice(k,1); });
+  atualizarBadgeCarrinho();
+  try{ renderCarrinho(); }catch(e){}
+  alert('Estes itens não são vendidos para essa forma de receber e saíram do carrinho:\n• ' + fora.map(i=>i.nome).join('\n• '));
+}
+
+async function carregarCardapioDoBanco(){
+  try{                                             // 1) o que ficou guardado da ultima visita (rapido)
+    const guardado = JSON.parse(localStorage.getItem('gp_cardapio') || 'null');
+    if(guardado && guardado.t && (Date.now() - guardado.t) < 24*3600*1000) aplicarCardapioDoBanco(guardado.d);
+  }catch(e){}
+  try{                                             // 2) o cardapio de agora, direto do banco
+    const ctl = new AbortController(); const timer = setTimeout(()=>ctl.abort(), 6000);
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/cardapio_publico`, {
+      method: "POST",
+      headers: {"apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json"},
+      body: JSON.stringify({p_loja: LOJA_ID}), signal: ctl.signal,
+    });
+    clearTimeout(timer);
+    if(!r.ok) return;
+    const j = await r.json();
+    if(aplicarCardapioDoBanco(j)){ try{ localStorage.setItem('gp_cardapio', JSON.stringify({t:Date.now(), d:j})); }catch(e){} }
+  }catch(e){ /* sem internet ou banco fora: segue com o cardapio que ja esta no site */ }
+}
+setInterval(carregarCardapioDoBanco, 5*60*1000);
+
 function init(){
   const params = new URLSearchParams(window.location.search);
   origemCampanha = params.get('origem');
@@ -776,6 +878,7 @@ function init(){
   atualizarBadgeCarrinho();
   try{ abrirPeloLink(params); }catch(e){ /* link invalido: segue o fluxo normal */ }
   atualizarStatusLoja();
+  carregarCardapioDoBanco();
 }
 function popularBordasMeio(){
   const wrap = document.getElementById('meioBordas');
@@ -811,6 +914,9 @@ function escolherModalidade(m){
   document.getElementById('modalidadePill').textContent = '📍 ' + (ROTULO_MODALIDADE[m] || m);
   document.getElementById('headerSub').textContent = 'Monte seu pedido';
   document.getElementById('campoEnderecoWrap').classList.toggle('hidden', m!=='Entrega');
+  removerIncompativeis();
+  const abaAtiva = document.querySelector('.tab.active');
+  if(abaAtiva) mostrarCategoria(abaAtiva.dataset.cat);
   if(irCheckoutAposModalidade && carrinho.length>0){
     irCheckoutAposModalidade = false;
     irParaCheckout();
@@ -858,7 +964,7 @@ function mostrarCategoria(cat){
     return;
   }
 
-  const itens = CATALOGO.filter(p=>p.categoria===cat);
+  const itens = CATALOGO.filter(p=>p.categoria===cat && vendeNoCanal(p));
   itens.forEach(p=>lista.appendChild(criarCardProduto(p)));
 }
 
@@ -885,15 +991,23 @@ function criarCardProduto(p){
   }
   const foto = FOTOS[p.nome];
   const fotoHtml = foto ? `<img class="produto-img" src="${foto}" alt="${p.nome}" width="62" height="62" loading="lazy" decoding="async">` : '';
+  const descTxt = DESCRICOES[p.nome] || p.descricao || '';
   card.innerHTML = `
     ${fotoHtml}
     <div class="info">
       <h3>${p.nome}</h3>
+      ${descTxt ? '<div class="desc"></div>' : ''}
       <div class="precos">${precosTxt}</div>
     </div>
     <button class="add-btn">Adicionar</button>
   `;
-  card.querySelector('.add-btn').onclick = ()=>abrirModalProduto(p);
+  if(descTxt) card.querySelector('.desc').textContent = descTxt;   // textContent: seguro contra texto estranho
+  const btnAdd = card.querySelector('.add-btn');
+  if(p.esgotado){
+    card.classList.add('esgotado'); btnAdd.disabled = true; btnAdd.textContent = 'Esgotado hoje';
+  } else {
+    btnAdd.onclick = ()=>abrirModalProduto(p);
+  }
   return card;
 }
 
