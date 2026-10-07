@@ -2118,19 +2118,23 @@ function enviarPedidoWhatsapp(){
   fallback.href = url;
   fallback.classList.remove('hidden');
 
+  // Pix agora: mostra o QR Code PRIMEIRO e nunca tira o cliente desta aba, senao ele perde o QR
+  // (o pedido ja foi salvo; fica retido ate a equipe conferir o Pix)
+  const ehPix = (pagamento === PIX_ROTULO);
+  if(ehPix) mostrarPix(desc.total);
+
   // Tentativa 1: window.open direto (geralmente permitido por ser
   // consequência direta de um clique do usuário).
+  // Obs.: com 'noopener' o navegador SEMPRE devolve null, o que mandava a aba toda para o WhatsApp.
   let abriu = null;
-  try{ abriu = window.open(url, '_blank', 'noopener'); }catch(e){ abriu = null; }
+  try{ abriu = window.open(url, '_blank', ehPix ? undefined : 'noopener'); }catch(e){ abriu = null; }
 
   // Tentativa 2: se window.open não retornou uma janela válida, tenta
   // navegar a própria aba pro link (funciona bem com esquemas wa.me).
-  if(!abriu){
+  // No Pix agora isso NAO acontece: o cliente fica no QR e o link de backup segue visivel.
+  if(!abriu && !ehPix){
     try{ window.location.href = url; }catch(e){ /* segue pro fallback visível */ }
   }
-
-  // Pix agora: mostra o QR Code (o pedido ja foi enviado; fica retido ate a equipe conferir o Pix)
-  if(pagamento === PIX_ROTULO) mostrarPix(desc.total);
 }
 
 /* ---------- Util ---------- */
