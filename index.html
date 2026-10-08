@@ -26,7 +26,8 @@
         <li>Use <b>Pix Copia e Cola</b> (ou aponte a câmera para o QR Code).</li>
         <li>Confira o valor e pague.</li>
       </ol>
-      <div class="pix-aviso">Seu pedido já foi enviado para nós. Ele só começa a ser feito <b>depois que o Pix cair</b>. Se demorar mais que alguns minutos, fale com a gente pelo WhatsApp.</div>
+      <div class="pix-aviso">Seu pedido já foi enviado para nós. Ele só começa a ser feito <b>depois que o Pix cair</b>. Depois de pagar, toque em <b>"Já paguei"</b> para nos avisar pelo WhatsApp e agilizar.</div>
+      <a class="btn-full btn-primary" id="pixZap" href="#" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;margin-bottom:8px;">Já paguei: avisar no WhatsApp</a>
       <button class="btn-full btn-ghost" id="btnFecharPix" type="button" onclick="fecharPix()">Fechar</button>
     </div>
   </div>
@@ -2121,7 +2122,12 @@ function enviarPedidoWhatsapp(){
   // Pix agora: mostra o QR Code PRIMEIRO e nunca tira o cliente desta aba, senao ele perde o QR
   // (o pedido ja foi salvo; fica retido ate a equipe conferir o Pix)
   const ehPix = (pagamento === PIX_ROTULO);
-  if(ehPix) mostrarPix(desc.total);
+  if(ehPix){
+    // O WhatsApp NAO abre sozinho: senao ele fica na frente do QR. O cliente avisa depois de pagar, pelo botao "Ja paguei".
+    const zap = document.getElementById('pixZap'); if(zap) zap.href = url;
+    mostrarPix(desc.total);
+    return;
+  }
 
   // Tentativa 1: window.open direto (geralmente permitido por ser
   // consequência direta de um clique do usuário).
