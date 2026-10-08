@@ -243,6 +243,49 @@ async function telaEstoque(c){
   const porId = {}; ins.forEach(i=>{ porId[i.id] = i; });
   const recarregarEstoque = () => { if(aba === 'estoque') desenhar(); };
 
+  // ---------- 0) Abastecer a Producao ----------
+  const hojeDow = agoraLocal().dow;
+  const comPlano = ins.filter(i=>i.unidade === 'g' && Array.isArray(i.ideal_semana) && Number(i.porcao_g) > 0);
+  const comIdeal = comPlano.filter(i=>Number(i.ideal_semana[hojeDow] || 0) > 0);
+  const semHoje = comPlano.filter(i=>!(Number(i.ideal_semana[hojeDow] || 0) > 0));
+  const ab = el('div', 'cartao'); ab.appendChild(el('div', 'nome', 'Abastecer a Produção · hoje é ' + NOME_DIA[hojeDow]));
+  ab.appendChild(el('div', 'dica', 'Pese o que sobrou na linha e digite. O sistema diz quanto repor para chegar no nível ideal de hoje e tira do Central sozinho. Se não pesou, deixe vazio: vale o que o sistema calculou pelas vendas.'));
+  const linhasAb = [];
+  const fPorc = (g, porc) => (Math.round(g / porc * 10) / 10).toLocaleString('pt-BR') + ' porções';
+  if(!comPlano.length) ab.appendChild(el('div', 'vazio', 'Nenhum insumo com nível ideal ainda. Em "Saldos", abra "Nível ideal da linha" no insumo.'));
+  else if(!comIdeal.length) ab.appendChild(el('div', 'vazio', 'Hoje não é dia de abastecer nenhum insumo.'));
+  if(semHoje.length && comIdeal.length) ab.appendChild(el('div', 'dica', 'Hoje não é dia de abastecer: ' + semHoje.map(i=>i.nome).join(', ') + '.'));
+  comIdeal.forEach(i=>{
+    const porc = Number(i.porcao_g), idealG = Number(i.ideal_semana[hojeDow] || 0) * porc;
+    const box = el('div', 'cartao'); const tp = el('div', 'topo'); tp.appendChild(el('span', 'nome', i.nome));
+    tp.appendChild(el('span', 'chip ok', 'Ideal hoje: ' + fmtQtd(idealG, 'g') + ' (' + fPorc(idealG, porc) + ')')); box.appendChild(tp);
+    box.appendChild(el('div', 'dica', 'O sistema acha que tem na linha: ' + fmtQtd(i.saldo_producao, 'g') + ' · Central tem: ' + fmtQtd(i.saldo_central, 'g')));
+    const inp = inputNum('', ''); inp.placeholder = 'peso contado (kg)'; inp.style.width = '100%';
+    box.appendChild(campo('Peso que você contou na linha (kg)', inp));
+    const res = el('div', 'nome'); res.style.marginTop = '6px'; box.appendChild(res);
+    const linha = {i, inp, repor:0};
+    const calc = () => { const t = num(inp.value); const base = (t === null || inp.value.trim() === '') ? Number(i.saldo_producao) : Math.round(t * 1000 * 100) / 100;
+      linha.pesado = (inp.value.trim() === '' || t === null) ? null : base;
+      linha.repor = Math.max(0, Math.round((idealG - base) * 100) / 100);
+      res.textContent = linha.repor > 0 ? 'Repor: ' + fmtQtd(linha.repor, 'g') + ' (' + fPorc(linha.repor, porc) + ')' : 'Linha cheia: não precisa repor';
+      res.style.color = (linha.repor > Number(i.saldo_central)) ? '#b45309' : '';
+      if(linha.repor > Number(i.saldo_central)) res.textContent += ' · atenção: o Central só tem ' + fmtQtd(Math.max(0, Number(i.saldo_central)), 'g'); };
+    inp.oninput = calc; calc(); linhasAb.push(linha); ab.appendChild(box);
+  });
+  if(comIdeal.length){
+    const bab = el('button', 'btn verde', 'Confirmar abastecimento'); bab.style.marginTop = '8px';
+    bab.onclick = () => tentar(async()=>{
+      const itens = linhasAb.filter(l=>l.repor > 0 || l.pesado !== null).map(l=>({insumo:l.i.id, pesado:l.pesado, repor:l.repor}));
+      if(!itens.length) throw new Error('Nada para abastecer agora: a linha já está cheia.');
+      const r = await rpc('est_abastecer', {p_loja:LOJA, p_itens:itens});
+      const falt = (r || []).filter(x=>Number(x.faltou) > 0);
+      if(falt.length) aviso('Faltou no Central: ' + falt.map(x=>(porId[x.insumo]||{}).nome).join(', ') + '. Passou só o que tinha.', 'erro');
+      recarregarEstoque();
+    }, 'Produção abastecida');
+    ab.appendChild(bab);
+  }
+  c.appendChild(ab);
+
   // ---------- 1) Guia de producao (rendimento) ----------
   const g = el('div', 'cartao'); g.appendChild(el('div', 'nome', 'Guia de produção (rendimento)'));
   g.appendChild(el('div', 'dica', 'Chegou frango cru, cozinhou e temperou: anote o peso que entrou e o peso que ficou pronto. O pronto entra sozinho no estoque Central e o custo por kg é atualizado.'));
@@ -297,6 +340,22 @@ async function telaEstoque(c){
       bc.onclick = () => { const r = prompt('Quanto tem de ' + i.nome + ' agora na Produção? (' + un + ')'); if(r === null) return;
         tentar(async()=>{ const q = paraBanco(r, i.unidade); if(q === null || q < 0) throw new Error('Digite o peso conferido.'); await rpc('est_conferir', {p_loja:LOJA, p_insumo:i.id, p_pesado:q}); recarregarEstoque(); }, 'Conferência salva'); };
       lin.appendChild(bc); card.appendChild(lin);
+      if(i.unidade === 'g'){
+        const dt = el('details'); dt.appendChild(el('summary', '', 'Nível ideal da linha' + (i.ideal_semana ? '' : ' (não definido)')));
+        dt.appendChild(el('div', 'dica', 'Nos dias de abastecer, quantas porções a linha deve ter para aguentar até o próximo abastecimento. Deixe vazio (ou 0) nos dias em que não abastece.'));
+        const pg = inputNum(i.porcao_g || '', ''); pg.style.width = '100%'; dt.appendChild(campo('Gramas de cada porção (ex: 70)', pg));
+        const ordem = [1,2,3,4,5,6,0]; const dias = {};
+        const lnd = el('div', 'linha');
+        ordem.forEach(d=>{ const x = inputNum(Array.isArray(i.ideal_semana) ? i.ideal_semana[d] : '', '1'); x.style.width = '100%'; dias[d] = x; lnd.appendChild(campo(NOME_DIA[d].slice(0,3), x)); });
+        dt.appendChild(lnd);
+        const bs = el('button', 'btn peq verde', 'Salvar nível ideal'); bs.style.marginTop = '6px';
+        bs.onclick = () => tentar(async()=>{
+          const pgv = num(pg.value); if(!pgv || pgv <= 0) throw new Error('Informe os gramas de cada porção.');
+          const arr = [0,1,2,3,4,5,6].map(d=>{ const v = dias[d].value.trim() === '' ? 0 : num(dias[d].value); if(v === null || v < 0) throw new Error('Número inválido em ' + NOME_DIA[d] + '.'); return v; });
+          await rpc('est_definir_ideal', {p_loja:LOJA, p_insumo:i.id, p_porcao_g:pgv, p_ideal:arr}); recarregarEstoque();
+        }, 'Nível ideal salvo');
+        dt.appendChild(bs); card.appendChild(dt);
+      }
       lista.appendChild(card);
     });
   };
