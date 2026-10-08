@@ -103,7 +103,7 @@ const CHAVE_SESSAO = "gp_painel_sessao";          // a mesma do painel de pedido
 const CANAIS = ['Entrega','Retirada','Vem comer','Drive-thru','Balcão'];
 const DIAS = ['D','S','T','Q','Q','S','S'];
 const NOME_DIA = ['domingo','segunda','terça','quarta','quinta','sexta','sábado'];
-const ABAS = [['hoje','Hoje'],['cardapio','Cardápio'],['promos','Promoções'],['taxas','Taxas'],['regras','Regras'],['clientes','Clientes'],['relatorios','Relatórios'],['notas','Notas'],['robo','Robô']];
+const ABAS = [['hoje','Hoje'],['cardapio','Cardápio'],['promos','Promoções'],['taxas','Taxas'],['regras','Regras'],['clientes','Clientes'],['relatorios','Relatórios'],['notas','Notas'],['robo','Robô'],['estoque','Estoque']];
 
 let sessao = null, aba = (location.hash === '#robo') ? 'robo' : 'hoje';
 let timerRobo = null;
@@ -210,13 +210,124 @@ function desenharAbas(){
 function desenhar(){
   desenharAbas();
   const c = $('conteudo'); c.innerHTML = '';
-  ({hoje:telaHoje, cardapio:telaCardapio, promos:telaPromos, taxas:telaTaxas, regras:telaRegras, clientes:telaClientes, relatorios:telaRelatorios, notas:telaNotas, robo:telaRobo})[aba](c);
+  ({hoje:telaHoje, cardapio:telaCardapio, promos:telaPromos, taxas:telaTaxas, regras:telaRegras, clientes:telaClientes, relatorios:telaRelatorios, notas:telaNotas, robo:telaRobo, estoque:telaEstoque})[aba](c);
 }
 function campo(rotulo, input){ const w = el('label', 'campo'); w.appendChild(el('span', '', rotulo)); w.appendChild(input); return w; }
 function inputNum(v, passo){ const i = el('input', 'num'); i.type = 'text'; i.inputMode = (passo === '1') ? 'numeric' : 'decimal'; i.autocomplete = 'off'; i.value = v === null || v === undefined ? '' : String(v).replace('.', ','); return i; }
 function marca(rotulo, marcado){ const l = el('label', 'marca'); const i = el('input'); i.type = 'checkbox'; i.checked = !!marcado; l.appendChild(i); l.appendChild(el('span', '', rotulo)); l.input = i; return l; }
 function catNome(p){ const c = D.categorias.find(x=>x.id === p.categoria_id); return c ? c.nome : ''; }
 const nomeProd = (p) => (D.categorias.find(c=>c.id===p.categoria_id)||{}).tipo === 'pizza' ? 'Pizza ' + p.nome : p.nome;
+
+
+/* ============================ ESTOQUE (Parte J) ============================ */
+// Quantidades: insumo em gramas aparece em kg na tela; ovo e manjericao ficam em unidades.
+const fmtQtd = (v, un) => un === 'un' ? (Math.round(Number(v) * 10) / 10).toLocaleString('pt-BR') + ' un' : (Number(v) / 1000).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' kg';
+const paraBanco = (txt, un) => { const n = num(txt); return n === null ? null : (un === 'un' ? n : Math.round(n * 1000 * 100) / 100); };
+
+async function telaEstoque(c){
+  c.appendChild(el('h2', '', 'Estoque de insumos'));
+  c.appendChild(el('p', 'dica', 'Cada pedido que entra no site já desconta daqui, pela ficha técnica. O estoque da Produção é o da linha de pizza; o Central abastece a Produção.'));
+  const topo = el('div'); c.appendChild(topo);
+  topo.appendChild(el('div', 'vazio', 'Carregando o estoque...'));
+  let ins, mov, pend;
+  try{
+    const f = 'loja_id=eq.' + LOJA;
+    [ins, mov, pend] = await Promise.all([
+      api(`/rest/v1/est_insumos?select=*&${f}&ativo=eq.true&order=nome.asc`),
+      api(`/rest/v1/est_movimentos?select=*&${f}&order=criado_em.desc&limit=25`),
+      api(`/rest/v1/est_pendencias?select=*&${f}&resolvido=eq.false&order=criado_em.desc&limit=200`),
+    ]);
+  }catch(e){ topo.innerHTML = ''; topo.appendChild(el('div', 'vazio', 'O estoque ainda não foi instalado no banco de dados (falta rodar a Parte J no Supabase).')); return; }
+  if(aba !== 'estoque') return;
+  topo.remove();
+  const porId = {}; ins.forEach(i=>{ porId[i.id] = i; });
+  const recarregarEstoque = () => { if(aba === 'estoque') desenhar(); };
+
+  // ---------- 1) Guia de producao (rendimento) ----------
+  const g = el('div', 'cartao'); g.appendChild(el('div', 'nome', 'Guia de produção (rendimento)'));
+  g.appendChild(el('div', 'dica', 'Chegou frango cru, cozinhou e temperou: anote o peso que entrou e o peso que ficou pronto. O pronto entra sozinho no estoque Central e o custo por kg é atualizado.'));
+  const sel = el('select'); ins.filter(i=>i.unidade === 'g').forEach(i=>{ const o = el('option', '', i.nome); o.value = i.id; sel.appendChild(o); });
+  const bruto = inputNum('', ''), valor = inputNum('', ''), extra = inputNum('', ''), pronto = inputNum('', '');
+  [bruto, valor, extra, pronto].forEach(x=>{ x.style.width = '100%'; });
+  const previa = el('div', 'dica');
+  const calc = () => { const b = num(bruto.value), v = num(valor.value), e = num(extra.value) || 0, p = num(pronto.value);
+    previa.textContent = (p && v !== null) ? 'Rende ' + (b ? Math.round(p / b * 100) + '% do peso cru · ' : '') + 'custo do pronto: R$ ' + ((v + e) / p).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' por kg' : ''; };
+  [bruto, valor, extra, pronto].forEach(x=>{ x.oninput = calc; });
+  const lin1 = el('div', 'linha'); lin1.appendChild(campo('Insumo', sel)); g.appendChild(lin1);
+  const lin2 = el('div', 'linha'); lin2.appendChild(campo('Peso cru (kg)', bruto)); lin2.appendChild(campo('Valor da compra (R$)', valor)); g.appendChild(lin2);
+  const lin3 = el('div', 'linha'); lin3.appendChild(campo('Custo extra: tempero, gás (R$)', extra)); lin3.appendChild(campo('Peso pronto (kg)', pronto)); g.appendChild(lin3);
+  g.appendChild(previa);
+  const bg = el('button', 'btn verde', 'Salvar rendimento'); bg.style.marginTop = '8px';
+  bg.onclick = () => tentar(async()=>{
+    const pb = paraBanco(bruto.value, 'g'), pf = paraBanco(pronto.value, 'g'), v = num(valor.value), e = num(extra.value) || 0;
+    if(!sel.value) throw new Error('Escolha o insumo.');
+    if(!pf || pf <= 0) throw new Error('Informe o peso pronto (kg).');
+    if(v === null) throw new Error('Informe o valor da compra (pode ser 0).');
+    await rpc('est_rendimento', {p_loja:LOJA, p_insumo:sel.value, p_bruto_g:pb || 0, p_valor_compra:v, p_custo_adicional:e, p_final_g:pf});
+    recarregarEstoque();
+  }, 'Rendimento salvo: entrou no estoque Central');
+  g.appendChild(bg); c.appendChild(g);
+
+  // ---------- 2) Lista de estoque ----------
+  c.appendChild(el('h2', '', 'Saldos'));
+  const busca = el('input', 'busca'); busca.placeholder = 'Buscar insumo (ex: frango)'; c.appendChild(busca);
+  const lista = el('div'); c.appendChild(lista);
+  const mostrar = () => {
+    lista.innerHTML = ''; const t = slug(busca.value);
+    const ach = ins.filter(i=>!t || slug(i.nome).indexOf(t) >= 0);
+    if(!ach.length){ lista.appendChild(el('div', 'vazio', 'Nenhum insumo encontrado.')); return; }
+    ach.forEach(i=>{
+      const card = el('div', 'cartao'); const tp = el('div', 'topo'); tp.appendChild(el('span', 'nome', i.nome));
+      const neg = Number(i.saldo_producao) < 0, baixo = !neg && Number(i.saldo_producao) < Number(i.minimo_producao);
+      tp.appendChild(el('span', 'chip ' + (neg ? 'nao' : baixo ? 'am' : 'ok'), neg ? 'Negativo' : baixo ? 'Baixo' : 'OK'));
+      card.appendChild(tp);
+      const sd = el('div', 'saldo');
+      const a = el('div'); a.appendChild(el('small', '', 'Produção (linha)')); a.appendChild(document.createTextNode(fmtQtd(i.saldo_producao, i.unidade))); sd.appendChild(a);
+      const b = el('div'); b.appendChild(el('small', '', 'Central')); b.appendChild(document.createTextNode(fmtQtd(i.saldo_central, i.unidade))); sd.appendChild(b);
+      card.appendChild(sd);
+      const un = i.unidade === 'un' ? 'unidades' : 'kg';
+      const lin = el('div', 'linha');
+      if(i.unidade === 'g'){
+        const bt = el('button', 'btn peq cinza', 'Passar pra Produção');
+        bt.onclick = () => { const r = prompt('Quantos kg de ' + i.nome + ' vão do Central pra Produção?'); if(r === null) return;
+          tentar(async()=>{ const q = paraBanco(r, 'g'); if(!q || q <= 0) throw new Error('Digite uma quantidade maior que zero.'); await rpc('est_transferir', {p_loja:LOJA, p_insumo:i.id, p_qtd:q}); recarregarEstoque(); }, 'Passou pra Produção'); };
+        lin.appendChild(bt);
+      }
+      const bc = el('button', 'btn peq cinza', 'Conferir peso');
+      bc.onclick = () => { const r = prompt('Quanto tem de ' + i.nome + ' agora na Produção? (' + un + ')'); if(r === null) return;
+        tentar(async()=>{ const q = paraBanco(r, i.unidade); if(q === null || q < 0) throw new Error('Digite o peso conferido.'); await rpc('est_conferir', {p_loja:LOJA, p_insumo:i.id, p_pesado:q}); recarregarEstoque(); }, 'Conferência salva'); };
+      lin.appendChild(bc); card.appendChild(lin);
+      lista.appendChild(card);
+    });
+  };
+  busca.oninput = mostrar; mostrar();
+
+  // ---------- 3) Pendencias ----------
+  c.appendChild(el('h2', '', 'Pendências: pedidos sem ficha técnica'));
+  const grupos = {};
+  pend.forEach(p=>{ const k = (p.item_nome || '') + ' | ' + (p.item_tamanho || ''); (grupos[k] = grupos[k] || {nome:p.item_nome, tam:p.item_tamanho, motivo:p.motivo, n:0}).n++; });
+  const ks = Object.keys(grupos);
+  if(!ks.length){ c.appendChild(el('div', 'vazio', 'Nenhuma pendência. Todos os itens vendidos acharam a ficha técnica.')); }
+  else {
+    c.appendChild(el('p', 'dica', 'Estes itens foram vendidos mas não acharam ficha com o mesmo nome, então não descontaram nada. Me mande esta lista que eu acerto os nomes.'));
+    ks.forEach(k=>{ const gp = grupos[k]; const card = el('div', 'cartao'); const tp = el('div', 'topo');
+      tp.appendChild(el('span', 'nome', gp.nome + (gp.tam ? ' — ' + gp.tam : ''))); tp.appendChild(el('span', 'chip am', gp.n + 'x')); card.appendChild(tp);
+      card.appendChild(el('div', 'dica', gp.motivo || '')); c.appendChild(card); });
+  }
+
+  // ---------- 4) Ultimos movimentos ----------
+  const det = el('details'); det.appendChild(el('summary', '', 'Últimos movimentos'));
+  const tb = el('table', 'extrato');
+  const TIPO = {rendimento:'Rendimento', transferencia:'Transferência', venda:'Venda', estorno:'Devolução', conferencia:'Conferência', ajuste:'Ajuste'};
+  mov.forEach(m=>{ const i = porId[m.insumo_id] || {nome:m.insumo_id, unidade:'g'}; const tr = el('tr');
+    const d = new Date(m.criado_em); tr.appendChild(el('td', '', d.toLocaleString('pt-BR', {timeZone:'America/Fortaleza', day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'})));
+    tr.appendChild(el('td', '', (TIPO[m.tipo] || m.tipo) + ' · ' + (m.local === 'central' ? 'Central' : 'Produção')));
+    tr.appendChild(el('td', '', i.nome));
+    tr.appendChild(el('td', Number(m.qtd) < 0 ? 'neg' : 'pos', (Number(m.qtd) > 0 ? '+' : '') + fmtQtd(m.qtd, i.unidade)));
+    tb.appendChild(tr); });
+  if(!mov.length) det.appendChild(el('div', 'vazio', 'Ainda sem movimentos.')); else det.appendChild(tb);
+  c.appendChild(det);
+}
 
 /* ============================ HOJE ============================ */
 function telaHoje(c){
