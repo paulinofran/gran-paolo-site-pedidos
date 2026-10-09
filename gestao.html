@@ -934,24 +934,47 @@ async function carregarBot(){
   }
 }
 
+const rascunhos = {};          // o que a equipe ja digitou em cada conversa (a tela se atualiza sozinha, e nao pode apagar o texto)
+const ROTULO_SAIDA = {humano_painel:'Equipe'};
+async function responderCliente(telefone, texto){
+  if(sessao && sessao.expira - Date.now() < 120000) await renovar();
+  const r = await fetch(SUPABASE_URL + '/functions/v1/whatsapp-robo?acao=responder', {
+    method:'POST', headers:{apikey:SUPABASE_KEY, 'Content-Type':'application/json', Authorization:'Bearer ' + (sessao ? sessao.access_token : '')},
+    body:JSON.stringify({telefone, texto}),
+  });
+  let j = null; try{ j = await r.json(); }catch(e){}
+  if(!r.ok || !j || !j.ok) throw new Error((j && j.erro) || ('erro ' + r.status));
+}
 function desenharAtend(box){
   box.innerHTML = '';
   const conv = botDados.conv;
   box.appendChild(el('h2', '', 'Precisam de atendimento (' + conv.length + ')'));
   if(!conv.length){ box.appendChild(el('div', 'vazio', 'Ninguém esperando. Quando um cliente pedir atendente ou usar a ajuda do site, aparece aqui e no painel de pedidos.')); return; }
-  box.appendChild(el('p', 'dica', 'Responda pelo WhatsApp da loja e depois toque em "Marcar como atendido". Até lá o robô fica quieto com esse cliente.'));
+  box.appendChild(el('p', 'dica', 'Escreva a resposta aqui e toque em "Enviar": ela chega no WhatsApp do cliente pelo número do robô. Quando terminar, toque em "Marcar como atendido" para o robô voltar a responder. Até lá ele fica quieto com esse cliente. O WhatsApp só deixa responder até 24 horas depois da última mensagem do cliente.'));
   conv.forEach(cv=>{
     const card = el('div', 'cartao'); const topo = el('div', 'topo');
     topo.appendChild(el('span', 'nome', cv.nome || cv.telefone)); topo.appendChild(el('span', 'chip am', cv.motivo || 'atendimento'));
     card.appendChild(topo);
     card.appendChild(el('div', 'dica', cv.telefone + ' · último contato ' + hora(cv.ultima_entrada_em)));
-    botDados.msgs.filter(m=>m.telefone === cv.telefone).slice(0, 3).reverse().forEach(m=>{
-      const l = el('div', 'dica', (m.sentido === 'entrada' ? 'Cliente: ' : 'Robô: ') + String(m.texto || '').replace(/\s+/g, ' ').slice(0, 140)); l.style.color = 'var(--ink)'; card.appendChild(l);
+    botDados.msgs.filter(m=>m.telefone === cv.telefone).slice(0, 6).reverse().forEach(m=>{
+      const quem = m.sentido === 'entrada' ? 'Cliente' : (ROTULO_SAIDA[m.acao] || 'Robô');
+      const l = el('div', 'dica', hora(m.criado_em) + ' · ' + quem + ': ' + String(m.texto || '').replace(/\s+/g, ' ').slice(0, 220)); l.style.color = 'var(--ink)'; card.appendChild(l);
     });
+    const aberta = !!cv.ultima_entrada_em && (Date.now() - new Date(cv.ultima_entrada_em).getTime()) < 24 * 3600 * 1000;
+    const ta = el('textarea'); ta.placeholder = aberta ? 'Escreva a resposta para o cliente...' : 'Passaram mais de 24 horas: só dá para responder quando o cliente escrever de novo.';
+    ta.maxLength = 1500; ta.disabled = !aberta; ta.style.cssText = 'width:100%;min-height:70px;margin-top:8px;padding:9px;border:1.5px solid var(--line);border-radius:9px;font:inherit';
+    ta.value = rascunhos[cv.telefone] || ''; ta.oninput = ()=>{ rascunhos[cv.telefone] = ta.value; };
+    card.appendChild(ta);
     const lin = el('div', 'linha');
-    const wa = el('a', 'btn verde peq', 'Abrir no WhatsApp'); wa.href = 'https://wa.me/55' + cv.telefone; wa.target = '_blank'; wa.rel = 'noopener'; lin.appendChild(wa);
+    const env = el('button', 'btn verde peq', 'Enviar'); env.disabled = !aberta;
+    env.onclick = ()=>{
+      const t = ta.value.trim(); if(!t){ aviso('Escreva a mensagem primeiro.', 'erro'); return; }
+      env.disabled = true; env.textContent = 'Enviando...';
+      tentar(async()=>{ await responderCliente(cv.telefone, t); rascunhos[cv.telefone] = ''; await carregarBot(); desenhar(); }, 'Mensagem enviada').then(r=>{ if(r === undefined){ env.disabled = false; env.textContent = 'Enviar'; } });
+    };
+    lin.appendChild(env);
     const ok = el('button', 'btn cinza peq', 'Marcar como atendido');
-    ok.onclick = ()=>tentar(async()=>{ await rpc('bot_marcar_atendido', {p_loja:LOJA, p_telefone:cv.telefone}); await carregarBot(); desenhar(); }, 'Marcado como atendido');
+    ok.onclick = ()=>tentar(async()=>{ await rpc('bot_marcar_atendido', {p_loja:LOJA, p_telefone:cv.telefone}); delete rascunhos[cv.telefone]; await carregarBot(); desenhar(); }, 'Marcado como atendido');
     lin.appendChild(ok); card.appendChild(lin); box.appendChild(card);
   });
 }
@@ -1020,6 +1043,7 @@ async function telaRobo(c){
   clearInterval(timerRobo);
   timerRobo = setInterval(async()=>{
     if(aba !== 'robo' || !sessao){ clearInterval(timerRobo); return; }
+    const ativo = document.activeElement; if(ativo && ativo.tagName === 'TEXTAREA' && $('boxAtend') && $('boxAtend').contains(ativo)) return;   // está digitando: não mexe na tela
     try{ const fo = 'loja_id=eq.' + LOJA; botDados.conv = await api(`/rest/v1/bot_conversas?${fo}&precisa_humano=eq.true&order=ultima_entrada_em.desc`);
       botDados.msgs = botDados.conv.length ? await api(`/rest/v1/bot_mensagens?${fo}&telefone=in.(${botDados.conv.map(x=>x.telefone).join(',')})&order=criado_em.desc&limit=60`) : [];
       const b = $('boxAtend'); if(b) desenharAtend(b); }catch(e){}
