@@ -190,17 +190,28 @@ function prepararSom(){
   }catch(e){ somAtivo = false; }
   atualizarBotaoSom();
 }
-function tom(freq, inicio, dur, vol){
+function tom(freq, inicio, dur, vol, tipo){
   const o = ctxAudio.createOscillator(), g = ctxAudio.createGain();
-  o.type = 'sine'; o.frequency.value = freq; o.connect(g); g.connect(ctxAudio.destination);
+  o.type = tipo || 'sine'; o.frequency.value = freq; o.connect(g); g.connect(ctxAudio.destination);
   const t0 = ctxAudio.currentTime + inicio;
   g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(vol, t0 + 0.02);
   g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
   o.start(t0); o.stop(t0 + dur + 0.05);
 }
-function tocarPedido(){            // campainha: 3 notas
+function tocarPedido(){            // SIRENE de pedido novo: duas notas alternadas, forte e longa (~3,5 s)
   if(!somAtivo || !ctxAudio) return;
-  try{ tom(880, 0, 0.5, 0.5); tom(1175, 0.35, 0.5, 0.5); tom(1568, 0.7, 0.8, 0.5); }catch(e){}
+  try{ for(let i = 0; i < 10; i++) tom(i % 2 ? 1397 : 988, i * 0.34, 0.3, 1.0, 'square'); }catch(e){}
+  piscarPedido();
+}
+let piscaTimer = null;
+function piscarPedido(){           // aba pisca "PEDIDO NOVO" enquanto houver pedido sem Recebi
+  if(piscaTimer) return;
+  const base = document.title; let lig = false;
+  piscaTimer = setInterval(() => {
+    const ha = typeof ativos !== 'undefined' && ativos.some(p => p.status === 'novo');
+    if(!ha){ clearInterval(piscaTimer); piscaTimer = null; document.title = base; return; }
+    lig = !lig; document.title = lig ? '🔔 PEDIDO NOVO!' : base;
+  }, 700);
 }
 function tocarAlerta(){            // aviso grave, diferente da campainha
   if(!somAtivo || !ctxAudio) return;
