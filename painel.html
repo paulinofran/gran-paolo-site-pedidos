@@ -493,7 +493,12 @@ $('btnLoja').addEventListener('click', alternarLoja);
 $('btnSom').addEventListener('click', () => { prepararSom(); tocarPedido(); });
 $('btnFeitos').addEventListener('click', () => { mostrarFeitos = !mostrarFeitos; desenhar(); });
 $('btnSair').addEventListener('click', () => { timers.forEach(clearInterval); sair(); });
-document.addEventListener('click', () => { if(ctxAudio && ctxAudio.state === 'suspended') ctxAudio.resume(); });
+/* qualquer clique na página já liga o som (o Chrome só libera áudio depois de um clique de verdade) */
+document.addEventListener('click', () => {
+  if(!somAtivo || !ctxAudio) prepararSom();
+  else if(ctxAudio.state !== 'running') ctxAudio.resume().catch(() => {});
+  atualizarBotaoSom();
+});
 
 (function retomar(){
   try{
