@@ -430,9 +430,9 @@ body.com-barra #app{padding-bottom:150px;}
       <select id="campoPagamento" onchange="atualizarDicaPix()">
         <option>Cartão de crédito (maquininha)</option>
         <option>Cartão de débito (maquininha)</option>
-        <option>Pix</option>
+        <option value="Pix">Pix na entrega ou retirada (pago na hora)</option>
         <option>Dinheiro</option>
-        <option value="Pix online (QR Code)" id="optPixOnline" hidden disabled>Pix agora (QR Code) — pague pelo app do banco</option>
+        <option value="Pix online (QR Code)" id="optPixOnline" hidden disabled>Pix agora pelo site (QR Code) — pedido começa após o Pix cair</option>
       </select>
       <small class="dica-pix hidden" id="dicaPixOnline">Depois de enviar o pedido, mostramos o QR Code. O pedido só entra na produção depois que conferirmos o seu Pix.</small>
     </div>
