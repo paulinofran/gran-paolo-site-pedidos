@@ -221,10 +221,23 @@ function tocarAtendimento(){       // bips agudos e rapidos: cliente esperando n
   if(!somAtivo || !ctxAudio) return;
   try{ for(let i = 0; i < 5; i++) tom(1500, i * 0.22, 0.12, 0.55); }catch(e){}
 }
-function atualizarBotaoSom(){
-  $('btnSom').textContent = somAtivo ? 'Som ligado' : 'Ativar som';
-  $('btnSom').className = 'btn ' + (somAtivo ? 'claro' : 'vermelho');
+function somFunciona(){            // o som só vale se o navegador deixou o áudio rodando
+  return !!(somAtivo && ctxAudio && ctxAudio.state === 'running');
 }
+function atualizarBotaoSom(){
+  const ok = somFunciona();
+  $('btnSom').textContent = ok ? 'Som ligado' : 'Ativar som';
+  $('btnSom').className = 'btn ' + (ok ? 'claro' : 'vermelho');
+}
+/* o Chrome pode suspender o áudio sozinho (aba parada, PC dormindo): tenta religar e mostra a verdade no botão */
+setInterval(() => {
+  try{ if(somAtivo && ctxAudio && ctxAudio.state !== 'running') ctxAudio.resume().catch(() => {}); }catch(e){}
+  atualizarBotaoSom();
+}, 3000);
+document.addEventListener('visibilitychange', () => {
+  try{ if(ctxAudio && ctxAudio.state !== 'running') ctxAudio.resume().catch(() => {}); }catch(e){}
+  atualizarBotaoSom();
+});
 
 /* ---------- regras de tempo ---------- */
 function prazoDe(p){ const pr = (loja && loja.prazos && loja.prazos[p.modalidade]) || [15, 29]; return pr; }
@@ -410,7 +423,7 @@ function desenhar(){
       catch(e){ avisoErro('Não consegui marcar como atendido. Tente de novo.'); }
     }; fa.appendChild(bo); f.appendChild(fa);
   }
-  if(!somAtivo) f.appendChild(el('div', 'faixa aviso', 'O som está desligado. Toque em "Ativar som" para ouvir os pedidos novos.'));
+  if(!somFunciona()) f.appendChild(el('div', 'faixa aviso', 'O som está desligado. Toque em "Ativar som" para ouvir os pedidos novos.'));
   const sem = ativos.filter(semImpressao);
   if(sem.length) f.appendChild(el('div', 'faixa erro', 'ATENÇÃO: ' + sem.length + ' pedido(s) sem imprimir (' + sem.map(p => '#' + p.numero).join(', ') + '). Veja papel, cabo e impressora, ou toque em Reimprimir.'));
   // concluídos
