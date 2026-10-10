@@ -323,7 +323,7 @@ body.com-barra #app{padding-bottom:150px;}
   <section class="screen active" id="screen-home">
     <div class="hero">
       <h2>Fome de uma Gran Paolo?</h2>
-      <p>Monte seu pedido e envie direto pro nosso WhatsApp.</p>
+      <p>Monte seu pedido aqui e acompanhe tudo pelo WhatsApp.</p>
     </div>
     <div class="modalidades">
       <button class="modalidade-card" onclick="escolherModalidade('Drive-thru')">
@@ -769,6 +769,10 @@ function enviarOrigemDoPedido(telefone){
   }catch(e){}
 }
 
+// Abas que podem ser abertas por link: ?categoria=promocoes | tradicional | especial | doce | bebida | meio-a-meio
+const CATEGORIA_POR_LINK = {promocoes:'Promoção', promocao:'Promoção', combos:'Promoção', combo:'Promoção',
+  tradicional:'Tradicional', tradicionais:'Tradicional', especial:'Especial', especiais:'Especial',
+  doce:'Doce', doces:'Doce', bebida:'Bebida', bebidas:'Bebida', 'meio-a-meio':'MeioAMeio', meioameio:'MeioAMeio'};
 // Link direto: ?produto=camarao  |  ?meio1=camarao&meio2=carne-de-sol  (&tamanho=pequena)
 function abrirPeloLink(params){
   const tamanhoPedido = slugSabor(params.get('tamanho') || 'grande');
@@ -800,6 +804,17 @@ function abrirPeloLink(params){
     document.getElementById('meioSabor1').value = String(a.idx);
     document.getElementById('meioSabor2').value = String(b.idx);
     selecionarTamanhoMeio(querPequena ? 'Pequena' : 'Grande');
+    return true;
+  }
+  // Link por categoria: ?categoria=promocoes (abre direto na aba Promocoes; combos e promocoes do dia)
+  const cat = params.get('categoria');
+  if(cat){
+    const alvoCat = CATEGORIA_POR_LINK[slugLink(cat)];
+    if(!alvoCat) return false;
+    mostrarTela('cardapio');
+    document.getElementById('headerSub').textContent = 'Monte seu pedido';
+    abaManual = true;                    // o cardapio do banco nao troca a aba escolhida pelo link
+    mostrarCategoria(alvoCat);
     return true;
   }
   return false;
