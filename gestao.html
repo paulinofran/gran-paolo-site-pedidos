@@ -545,9 +545,22 @@ function formNovoProduto(){
 /* ============================ CONTAS A PAGAR (Parte W) ============================ */
 const FORMAS_PAG = {dinheiro:'Dinheiro', cartao_debito:'Cartão débito', cartao_credito:'Cartão crédito', pix:'PIX', boleto:'Boleto'};
 const dataBR = (d) => d ? d.slice(8,10) + '/' + d.slice(5,7) + '/' + d.slice(0,4) : '';
-const CATS_CONTA = {insumos:'Insumos', fixas:'Contas fixas', equipe:'Equipe (salários, vales)', impostos:'Impostos e taxas', marketing:'Marketing', manutencao:'Manutenção e equipamentos', retirada:'Retirada do dono', outros:'Outros'};
+const CATS_PADRAO = {insumos:'Insumos', fixas:'Contas fixas', equipe:'Equipe (salários, vales)', impostos:'Impostos e taxas', marketing:'Marketing', manutencao:'Manutenção e equipamentos', retirada:'Retirada do dono', outros:'Outros'};
+let CATS_CONTA = Object.assign({}, CATS_PADRAO);       // chave -> nome (todas, inclusive escondidas, para o historico)
+let CATS_META = {};                                     // chave -> {ativa, protegida, ordem}; vazio = tabela ainda nao instalada
 const catNomeCurto = (k) => (CATS_CONTA[k] || 'Outros').split(' (')[0];
-function selCategoria(valor){ const s = el('select'); Object.keys(CATS_CONTA).forEach(k=>{ const o = el('option', '', CATS_CONTA[k]); o.value = k; s.appendChild(o); }); s.value = CATS_CONTA[valor] ? valor : 'outros'; return s; }
+function selCategoria(valor){
+  const s = el('select');
+  Object.keys(CATS_CONTA).forEach(k=>{ const m = CATS_META[k]; if(m && !m.ativa && k !== valor) return; const o = el('option', '', CATS_CONTA[k] + (m && !m.ativa ? ' (escondida)' : '')); o.value = k; s.appendChild(o); });
+  s.value = CATS_CONTA[valor] ? valor : 'outros'; return s;
+}
+async function carregarCategoriasConta(){
+  try{
+    const cs = await api(`/rest/v1/categorias_conta?select=*&loja_id=eq.${LOJA}&order=ordem.asc,nome.asc`);
+    if(cs.length){ CATS_CONTA = {}; CATS_META = {}; cs.forEach(x=>{ CATS_CONTA[x.chave] = x.nome; CATS_META[x.chave] = {ativa:x.ativa, protegida:x.protegida, ordem:x.ordem}; }); return; }
+  }catch(e){}
+  CATS_CONTA = Object.assign({}, CATS_PADRAO); CATS_META = {};
+}
 let filtroContas = {status:'pendente', de:'', ate:'', cat:''};
 
 // le o codigo do boleto (47 digitos da linha digitavel ou 44 do codigo de barras)
@@ -627,6 +640,16 @@ function chaveEmpresa(txt){
   return (d.length === 44 && d[0] === '8') ? d[1] + d.slice(15,19) : null;
 }
 
+// linha digitavel (47/48 numeros) a partir do codigo de barras (44): e a que o aplicativo do banco aceita digitada ou colada
+function dv10(t){ let soma = 0, peso = 2; for(let i = t.length - 1; i >= 0; i--){ let p = Number(t[i]) * peso; if(p > 9) p = Math.floor(p / 10) + p % 10; soma += p; peso = peso === 2 ? 1 : 2; } const r = soma % 10; return r === 0 ? 0 : 10 - r; }
+function dv11conv(t){ let soma = 0, peso = 2; for(let i = t.length - 1; i >= 0; i--){ soma += Number(t[i]) * peso; peso = peso === 9 ? 2 : peso + 1; } const dv = 11 - soma % 11; return dv > 9 ? 0 : dv; }
+function linhaParaPagar(txt){
+  const d = String(txt || '').replace(/\D/g, '');
+  if(d.length === 44 && d[0] === '8'){ const f = '67'.indexOf(d[2]) >= 0 ? dv10 : dv11conv; return [0, 11, 22, 33].map(i=>{ const b = d.slice(i, i + 11); return b + f(b); }).join(''); }
+  if(d.length === 44){ const c1 = d.slice(0, 4) + d.slice(19, 24), c2 = d.slice(24, 34), c3 = d.slice(34, 44); return c1 + dv10(c1) + c2 + dv10(c2) + c3 + dv10(c3) + d[4] + d.slice(5, 19); }
+  return d;
+}
+
 let zxPromessa = null;
 function carregarZxing(){
   if(window.ZXing) return Promise.resolve(window.ZXing);
@@ -645,6 +668,7 @@ async function telaContas(c){
       api(`/rest/v1/fornecedores_pagar?select=*&${f}&order=nome.asc&limit=500`),
     ]);
   }catch(e){ topo.innerHTML = ''; topo.appendChild(el('div', 'vazio', 'As contas ainda não foram instaladas no banco de dados (falta rodar a Parte W no Supabase).')); return; }
+  await carregarCategoriasConta();
   if(aba !== 'contas') return;
   topo.remove();
   const hoje = agoraLocal().data, mes = hoje.slice(0,7);
@@ -733,6 +757,7 @@ async function telaContas(c){
     desenhar();
   }, 'Conta salva');
   f1.appendChild(bs); nova.appendChild(f1); c.appendChild(nova);
+  c.appendChild(blocoCategorias(contas));
 
   // filtros
   const fil = el('div', 'linha'); fil.style.marginTop = '10px';
@@ -754,6 +779,48 @@ async function telaContas(c){
   lista.forEach(x=>c.appendChild(cartaoConta(x, forn)));
 }
 
+
+function blocoCategorias(contas){
+  const det = el('details'); det.appendChild(el('summary', '', 'Gerenciar categorias'));
+  const box = el('div', 'cartao'); box.style.marginTop = '8px'; det.appendChild(box);
+  if(!Object.keys(CATS_META).length){ box.appendChild(el('div', 'dica', 'Para editar as categorias falta rodar a Parte Y no Supabase.')); return det; }
+  box.appendChild(el('div', 'dica', 'Excluir: se a categoria não tem nenhuma conta, ela some. Se já tem conta, ela é só escondida (as contas antigas continuam com o nome dela). Retirada do dono e Outros não saem.'));
+  const usos = (k) => contas.filter(x=>(x.categoria || 'outros') === k).length;
+  Object.keys(CATS_CONTA).forEach(k=>{
+    const m = CATS_META[k]; const lin = el('div', 'linha'); lin.style.marginTop = '8px';
+    const nm = el('input'); nm.value = CATS_CONTA[k]; lin.appendChild(campo(m.ativa ? 'Nome' : 'Nome (escondida)', nm));
+    const bR = el('button', 'btn cinza', 'Renomear');
+    bR.onclick = ()=>tentar(async()=>{ const n = nm.value.trim(); if(!n) throw new Error('Falta o nome.'); await atualizar('categorias_conta', `loja_id=eq.${LOJA}&chave=eq.${encodeURIComponent(k)}`, {nome:n}); desenhar(); }, 'Categoria renomeada');
+    lin.appendChild(bR);
+    if(!m.ativa){ const bV = el('button', 'btn verde', 'Mostrar de novo'); bV.onclick = ()=>tentar(async()=>{ await atualizar('categorias_conta', `loja_id=eq.${LOJA}&chave=eq.${encodeURIComponent(k)}`, {ativa:true}); desenhar(); }, 'Categoria visível'); lin.appendChild(bV); }
+    if(!m.protegida){
+      const n = usos(k);
+      const bX = el('button', 'btn cinza', n ? 'Esconder (' + n + ' conta' + (n > 1 ? 's' : '') + ')' : 'Excluir');
+      bX.onclick = ()=>{ if(!confirm(n ? 'Esconder "' + CATS_CONTA[k] + '"? As ' + n + ' conta(s) dela continuam, só não aparece mais para escolher.' : 'Excluir "' + CATS_CONTA[k] + '"?')) return;
+        tentar(async()=>{ if(n){ await atualizar('categorias_conta', `loja_id=eq.${LOJA}&chave=eq.${encodeURIComponent(k)}`, {ativa:false}); } else { await api(`/rest/v1/categorias_conta?loja_id=eq.${LOJA}&chave=eq.${encodeURIComponent(k)}`, {method:'DELETE'}); } desenhar(); }, n ? 'Categoria escondida' : 'Categoria excluída'); };
+      if(m.ativa) lin.appendChild(bX);
+      else if(!n){ const bX2 = el('button', 'btn cinza', 'Excluir'); bX2.onclick = bX.onclick; lin.appendChild(bX2); }
+    }
+    box.appendChild(lin);
+  });
+  const nova = el('input'); nova.placeholder = 'Nova categoria (ex.: Motoboy)';
+  const bN = el('button', 'btn verde', 'Adicionar categoria'); bN.style.marginTop = '8px';
+  bN.onclick = ()=>tentar(async()=>{
+    const n = nova.value.trim(); if(!n) throw new Error('Digite o nome da categoria.');
+    if(Object.keys(CATS_CONTA).some(k=>CATS_CONTA[k].toLowerCase() === n.toLowerCase())) throw new Error('Já existe uma categoria com esse nome.');
+    let chave = slug(n) || 'cat'; let i = 2; while(CATS_CONTA[chave]) chave = slug(n) + '-' + (i++);
+    const ordem = Math.max(0, ...Object.keys(CATS_META).map(k=>CATS_META[k].ordem || 0)) + 1;
+    await inserir('categorias_conta', {loja_id:LOJA, chave, nome:n, ordem});
+    desenhar();
+  }, 'Categoria adicionada');
+  box.appendChild(el('div', '')); const l9 = el('div', 'linha'); l9.style.marginTop = '12px'; l9.appendChild(campo('Nova categoria', nova)); box.appendChild(l9); box.appendChild(bN);
+  return det;
+}
+async function copiarCodigo(x){
+  const l = linhaParaPagar(x.linha_digitavel);
+  try{ await navigator.clipboard.writeText(l); aviso('Código copiado (' + l.length + ' números). Cole no app do banco.', 'ok'); }
+  catch(e){ window.prompt('Copie o código abaixo:', l); }
+}
 function cartaoConta(x, forn){
   const card = el('div', 'cartao'); const topo = el('div', 'topo');
   topo.appendChild(el('span', 'nome', x.fornecedor));
@@ -772,6 +839,7 @@ function cartaoConta(x, forn){
     const pagar = el('button', 'btn verde', 'Marcar paga');
     pagar.onclick = ()=>tentar(async()=>{ await atualizar('contas_pagar', 'id=eq.' + x.id, {status:'paga', forma_pagamento:sel.value, data_pagamento:agoraLocal().data}); desenhar(); }, 'Conta marcada como paga');
     lin.appendChild(campo('Pago com', sel)); lin.appendChild(pagar);
+    if(x.linha_digitavel){ const cp0 = el('button', 'btn cinza', '📋 Copiar código'); cp0.onclick = ()=>copiarCodigo(x); lin.appendChild(cp0); }
   }else{
     const des = el('button', 'btn cinza', 'Voltar para pendente');
     des.onclick = ()=>tentar(async()=>{ await atualizar('contas_pagar', 'id=eq.' + x.id, {status:'pendente', data_pagamento:null}); desenhar(); });
@@ -786,7 +854,7 @@ function cartaoConta(x, forn){
   sv.onclick = ()=>tentar(async()=>{ const n = fn.value.trim(); if(!n) throw new Error('Falta o fornecedor.'); const v = num(val.value); if(v === null || v < 0) throw new Error('Valor inválido.');
     await atualizar('contas_pagar', 'id=eq.' + x.id, {fornecedor:n, categoria:catE.value, valor:v, vencimento:ven.value || null, observacao:obs.value.trim() || null}); desenhar(); }, 'Conta atualizada');
   l3.appendChild(sv);
-  if(x.linha_digitavel){ const cp = el('button', 'btn cinza', 'Copiar código'); cp.onclick = async()=>{ try{ await navigator.clipboard.writeText(x.linha_digitavel); aviso('Código copiado', 'ok'); }catch(e){ aviso('Não consegui copiar', 'erro'); } }; l3.appendChild(cp); }
+  if(x.linha_digitavel){ const cp = el('button', 'btn cinza', 'Copiar código'); cp.onclick = ()=>copiarCodigo(x); l3.appendChild(cp); }
   const ex = el('button', 'btn cinza', 'Excluir');
   ex.onclick = ()=>{ if(!confirm('Excluir a conta de ' + x.fornecedor + ' (' + money(x.valor) + ')?')) return; tentar(async()=>{ await api('/rest/v1/contas_pagar?id=eq.' + x.id, {method:'DELETE'}); desenhar(); }, 'Conta excluída'); };
   l3.appendChild(ex); mais.appendChild(l3); card.appendChild(mais);
