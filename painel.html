@@ -187,9 +187,34 @@ function prepararSom(){
     if(!ctxAudio){ const C = window.AudioContext || window.webkitAudioContext; if(C) ctxAudio = new C(); }
     if(ctxAudio && ctxAudio.state === 'suspended') ctxAudio.resume();
     somAtivo = !!ctxAudio;
+    manterAcordado();
   }catch(e){ somAtivo = false; }
   atualizarBotaoSom();
 }
+/* tom contínuo e inaudível: o Chrome entende que a aba "toca áudio" e não a adormece nem suspende o som */
+let osciladorVigia = null;
+function manterAcordado(){
+  try{
+    if(!ctxAudio || osciladorVigia) return;
+    const o = ctxAudio.createOscillator(), g = ctxAudio.createGain();
+    o.type = 'sine'; o.frequency.value = 30; g.gain.value = 0.003;
+    o.connect(g); g.connect(ctxAudio.destination); o.start();
+    osciladorVigia = o;
+  }catch(e){}
+}
+/* se o som cair com algo esperando, a aba pisca avisando (o bip não pode tocar sem um clique) */
+let piscaSemSom = false;
+function avisarSemSom(){
+  try{
+    const espera = (typeof ativos !== 'undefined' && ativos.some(p => p.status === 'novo')) ||
+                   (typeof atendimentos !== 'undefined' && atendimentos.some(c => !atendSilenciados.has(c.id)));
+    if(!somFunciona() && espera){
+      piscaSemSom = !piscaSemSom;
+      document.title = piscaSemSom ? '🔇 SEM SOM - CLIQUE NA TELA' : 'Painel de pedidos — Gran Paolo';
+    }else if(piscaSemSom){ piscaSemSom = false; document.title = 'Painel de pedidos — Gran Paolo'; }
+  }catch(e){}
+}
+setInterval(avisarSemSom, 1000);
 function tom(freq, inicio, dur, vol, tipo){
   const o = ctxAudio.createOscillator(), g = ctxAudio.createGain();
   o.type = tipo || 'sine'; o.frequency.value = freq; o.connect(g); g.connect(ctxAudio.destination);
@@ -232,6 +257,7 @@ function atualizarBotaoSom(){
 /* o Chrome pode suspender o áudio sozinho (aba parada, PC dormindo): tenta religar e mostra a verdade no botão */
 setInterval(() => {
   try{ if(somAtivo && ctxAudio && ctxAudio.state !== 'running') ctxAudio.resume().catch(() => {}); }catch(e){}
+  try{ if(somAtivo && ctxAudio && ctxAudio.state === 'running') manterAcordado(); }catch(e){}
   atualizarBotaoSom();
 }, 3000);
 document.addEventListener('visibilitychange', () => {
