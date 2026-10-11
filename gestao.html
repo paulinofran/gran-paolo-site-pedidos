@@ -572,6 +572,51 @@ function lerBoleto(txt){
 }
 
 
+// Procura o codigo de barras numa foto: tenta o leitor nativo do Chrome e depois a biblioteca, em varios tamanhos, giros e recortes.
+async function lerCodigoImagem(arquivo, Z, aoProgresso){
+  const ok = (t)=>{ const d = String(t||'').replace(/\D/g,''); return (d.length === 44 || d.length === 47 || d.length === 48) ? d : null; };
+  let bmp;
+  try{ bmp = await createImageBitmap(arquivo); }
+  catch(e){ bmp = await new Promise((res, rej)=>{ const u = URL.createObjectURL(arquivo), im = new Image(); im.onload = ()=>{ URL.revokeObjectURL(u); res(im); }; im.onerror = ()=>rej(new Error('Não consegui abrir essa imagem.')); im.src = u; }); }
+  const W0 = bmp.width, H0 = bmp.height;
+  // 1) leitor nativo do navegador (Chrome do Android tem), costuma ser o melhor
+  try{
+    if('BarcodeDetector' in window){
+      const sup = await BarcodeDetector.getSupportedFormats();
+      if(sup.indexOf('itf') >= 0){ const r = await new BarcodeDetector({formats:['itf']}).detect(bmp); for(const x of r){ const d = ok(x.rawValue); if(d) return d; } }
+    }
+  }catch(e){}
+  // 2) biblioteca ZXing em varias tentativas
+  const h = new Map(); h.set(Z.DecodeHintType.POSSIBLE_FORMATS, [Z.BarcodeFormat.ITF]); h.set(Z.DecodeHintType.TRY_HARDER, true);
+  const rd = new Z.MultiFormatReader(); rd.setHints(h);
+  const tenta = (cv)=>{ try{ return ok(rd.decode(new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(cv)))).getText()); }catch(e){ return null; } };
+  const pausa = ()=>new Promise(r=>setTimeout(r, 0));
+  const limite = Date.now() + 40000;   // no maximo ~40 s procurando
+  for(const fator of [1, 0.7, 0.5, 1.4]){
+    const esc = Math.min(fator, 5200 / Math.max(W0, H0));
+    for(const rot of [0, 90, 270, 180]){
+      if(Date.now() > limite) return null;
+      const w = Math.round(W0 * esc), hh = Math.round(H0 * esc), girado = rot === 90 || rot === 270;
+      const cv = document.createElement('canvas'); cv.width = girado ? hh : w; cv.height = girado ? w : hh;
+      const cx = cv.getContext('2d'); cx.imageSmoothingEnabled = true; cx.imageSmoothingQuality = 'high'; cx.fillStyle = '#fff'; cx.fillRect(0, 0, cv.width, cv.height);
+      cx.translate(cv.width / 2, cv.height / 2); cx.rotate(rot * Math.PI / 180); cx.drawImage(bmp, -w / 2, -hh / 2, w, hh);
+      if(aoProgresso) aoProgresso();
+      await pausa();
+      let d = tenta(cv); if(d) return d;
+      // faixas horizontais sobrepostas: o codigo costuma ser uma faixa estreita da pagina
+      const n = 6, alt = Math.ceil(cv.height / 3);
+      for(let i = 0; i < n; i++){
+        const y = Math.round(i * Math.max(0, cv.height - alt) / (n - 1));
+        const c2 = document.createElement('canvas'); c2.width = cv.width; c2.height = Math.min(alt, cv.height);
+        c2.getContext('2d').drawImage(cv, 0, y, cv.width, c2.height, 0, 0, cv.width, c2.height);
+        d = tenta(c2); if(d) return d;
+        if(i % 2 === 1) await pausa();
+      }
+    }
+  }
+  return null;
+}
+
 let zxPromessa = null;
 function carregarZxing(){
   if(window.ZXing) return Promise.resolve(window.ZXing);
@@ -636,13 +681,17 @@ async function telaContas(c){
     try{ await leitor.decodeFromConstraints({video:{facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080}}}, video, (r)=>achou(r)); }
     catch(e){ await leitor.decodeFromVideoDevice(null, video, (r)=>achou(r)); }
   });
-  const bFoto = el('label', 'btn cinza', '🖼️ Ler de uma foto ou print'); bFoto.style.cursor = 'pointer';
+  const bFoto = el('label', 'btn cinza', '🖼️ Ler da galeria (foto ou print)'); bFoto.style.cursor = 'pointer';
   const arq = el('input'); arq.type = 'file'; arq.accept = 'image/*'; arq.style.display = 'none'; bFoto.appendChild(arq);
   arq.onchange = ()=>tentar(async()=>{
-    const f = arq.files[0]; if(!f) return; const u = URL.createObjectURL(f);
-    try{ const r = await (await novoLeitor()).decodeFromImageUrl(u); const d = String(r.getText()).replace(/\D/g,''); if(d.length !== 44 && d.length !== 47 && d.length !== 48) throw new Error('Li uma imagem, mas não era um código de boleto.'); aplicarCodigo(d); }
-    catch(e){ throw new Error(e && e.message && e.message.indexOf('boleto') >= 0 ? e.message : 'Não achei o código de barras nessa imagem. Tente uma foto mais de perto, ou cole o número.'); }
-    finally{ URL.revokeObjectURL(u); arq.value = ''; }
+    const f = arq.files[0]; if(!f) return;
+    boxScan.style.display = 'block'; video.style.display = 'none'; bFecha.style.display = 'none'; stScan.textContent = 'Procurando o código na foto... pode levar alguns segundos.';
+    try{
+      const Z = await carregarZxing();
+      const d = await lerCodigoImagem(f, Z, ()=>{});
+      if(!d) throw new Error('Não achei o código de barras nessa foto. Tente uma foto mais de perto e reta, só com a faixa do código, ou cole o número.');
+      aplicarCodigo(d);
+    }finally{ boxScan.style.display = 'none'; video.style.display = ''; bFecha.style.display = ''; arq.value = ''; }
   });
   const f1 = el('div', 'cartao'); f1.style.marginTop = '8px';
   const lBot = el('div', 'linha'); lBot.appendChild(bCam); lBot.appendChild(bFoto); f1.appendChild(lBot); f1.appendChild(boxScan);
