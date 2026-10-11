@@ -945,6 +945,25 @@ async function responderCliente(telefone, texto){
   let j = null; try{ j = await r.json(); }catch(e){}
   if(!r.ok || !j || !j.ok) throw new Error((j && j.erro) || ('erro ' + r.status));
 }
+/* foto / audio / video / arquivo que o cliente mandou (fica num cofre privado; o link abre por 1 hora) */
+async function mostrarMidia(box, m){
+  try{
+    const r = await api('/storage/v1/object/sign/midias-whatsapp/' + m.midia_path, {method:'POST', body:JSON.stringify({expiresIn:3600})});
+    const url = SUPABASE_URL + '/storage/v1' + r.signedURL;
+    if(m.midia_tipo === 'image'){
+      const a = el('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener';
+      const im = el('img'); im.src = url; im.alt = 'Foto do cliente'; im.style.cssText = 'max-width:220px;max-height:220px;border-radius:10px;border:1px solid var(--line);display:block;';
+      a.appendChild(im); box.appendChild(a);
+    } else if(m.midia_tipo === 'audio'){
+      const au = el('audio'); au.controls = true; au.src = url; au.style.cssText = 'width:100%;max-width:320px;'; box.appendChild(au);
+    } else if(m.midia_tipo === 'video'){
+      const v = el('video'); v.controls = true; v.src = url; v.style.cssText = 'max-width:100%;width:260px;border-radius:10px;'; box.appendChild(v);
+    } else {
+      const a = el('a', '', 'Abrir arquivo enviado pelo cliente'); a.href = url; a.target = '_blank'; a.rel = 'noopener'; box.appendChild(a);
+    }
+    if(m.midia_legenda){ const lg = el('div', 'dica', 'Legenda: ' + m.midia_legenda); lg.style.color = 'var(--ink)'; box.appendChild(lg); }
+  }catch(e){ box.appendChild(el('div', 'dica', 'Não consegui abrir o arquivo agora (' + String(e.message || e).slice(0, 80) + ').')); }
+}
 function desenharAtend(box){
   box.innerHTML = '';
   const conv = botDados.conv;
@@ -959,6 +978,7 @@ function desenharAtend(box){
     botDados.msgs.filter(m=>m.telefone === cv.telefone).slice(0, 6).reverse().forEach(m=>{
       const quem = m.sentido === 'entrada' ? 'Cliente' : (ROTULO_SAIDA[m.acao] || 'Robô');
       const l = el('div', 'dica', hora(m.criado_em) + ' · ' + quem + ': ' + String(m.texto || '').replace(/\s+/g, ' ').slice(0, 220)); l.style.color = 'var(--ink)'; card.appendChild(l);
+      if(m.midia_path){ const mb = el('div', ''); mb.style.cssText = 'margin:2px 0 8px;'; card.appendChild(mb); mostrarMidia(mb, m); }
     });
     const aberta = !!cv.ultima_entrada_em && (Date.now() - new Date(cv.ultima_entrada_em).getTime()) < 24 * 3600 * 1000;
     const ta = el('textarea'); ta.placeholder = aberta ? 'Escreva a resposta para o cliente...' : 'Passaram mais de 24 horas: só dá para responder quando o cliente escrever de novo.';
