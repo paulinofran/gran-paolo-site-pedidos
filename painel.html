@@ -107,7 +107,7 @@ main{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;padding:14px 16px
       <button id="btnLoja" class="btn vermelho">Abrir loja</button>
       <button id="btnSom" class="btn claro">Ativar som</button>
       <button id="btnFeitos" class="btn claro">Concluídos hoje</button>
-      <a class="btn claro" href="gestao.html" style="text-decoration:none">Gestão</a>
+      <a class="btn claro" href="gestao.html" target="gestao" rel="noopener" style="text-decoration:none">Gestão</a>
       <button id="btnSair" class="btn claro">Sair</button>
     </div>
   </header>
@@ -438,7 +438,7 @@ function desenhar(){
   if(falhasSeguidas >= 3) f.appendChild(el('div', 'faixa erro', 'Sem conexão com o sistema. Verifique a internet. Os pedidos podem não estar chegando.'));
   if(atendimentos.length){
     const fa = el('div', 'faixa aviso', '💬 ' + atendimentos.length + (atendimentos.length === 1 ? ' cliente pede' : ' clientes pedem') + ' atendimento no WhatsApp: ' + atendimentos.slice(0, 3).map(c => (c.nome || c.telefone)).join(', ') + '. ');
-    const la = el('a', '', 'Ver e marcar como atendido'); la.href = 'gestao.html#robo'; la.style.color = 'inherit'; la.style.fontWeight = '800'; fa.appendChild(la);
+    const la = el('a', '', 'Ver e marcar como atendido'); la.href = 'gestao.html#robo'; la.target = 'gestao'; la.rel = 'noopener'; la.style.color = 'inherit'; la.style.fontWeight = '800'; fa.appendChild(la);
     if(atendimentos.some(c => !atendSilenciados.has(c.id))){
       const bv = el('button', 'btn claro', 'Já vi (parar o som)'); bv.id = 'btnJaVi';
       bv.onclick = () => { atendimentos.forEach(c => atendSilenciados.add(c.id)); desenhar(); }; fa.appendChild(bv);
