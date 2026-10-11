@@ -199,6 +199,38 @@ async function carregarTudo(){
   promocoes.forEach(pm=>pm.promocao_etapas.sort((a,b)=>a.ordem-b.ordem||a.id-b.id));
   let perfis = []; try{ perfis = await api('/rest/v1/fiscal_perfis?order=ordem.asc'); }catch(e){ perfis = []; }   // sem a Parte G, o campo some
   D = {categorias, produtos, promocoes, bairros, regras: regras[0] || null, perfis};
+  await carregarCustos();
+}
+
+/* ---------- CMV (so aqui na Gestao; o site do cliente nunca ve) ---------- */
+// custo da ficha tecnica / preco de venda. Casa produto <-> ficha pelo nome, igual ao banco faz na baixa de estoque.
+let CUSTO = {};   // chave da ficha -> custo em R$
+const normN = (t) => String(t||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,' ').trim();
+async function carregarCustos(){
+  CUSTO = {};
+  try{
+    const f = 'loja_id=eq.' + LOJA;
+    const [fichas, itens, ins] = await Promise.all([
+      api(`/rest/v1/est_fichas?select=id,chave&${f}&limit=1000`),
+      api(`/rest/v1/est_ficha_itens?select=ficha_id,insumo_id,qtd&${f}&limit=5000`),
+      api(`/rest/v1/est_insumos?select=id,custo_por_g&${f}&limit=1000`),
+    ]);
+    const cg = {}; ins.forEach(i=>{ cg[i.id] = Number(i.custo_por_g) || 0; });
+    const porFicha = {}; itens.forEach(i=>{ porFicha[i.ficha_id] = (porFicha[i.ficha_id] || 0) + Number(i.qtd) * (cg[i.insumo_id] || 0); });
+    fichas.forEach(fc=>{ if(porFicha[fc.id] !== undefined) CUSTO[normN(fc.chave)] = porFicha[fc.id]; });
+  }catch(e){ CUSTO = {}; }   // sem permissao ou sem a Parte J: simplesmente nao mostra o selo
+}
+function custoDe(p, t){
+  const ch = [normN('pizza ' + p.nome + ' ' + t.nome), normN(p.nome + ' ' + t.nome), normN(p.nome)];
+  for(const k of ch){ if(CUSTO[k] !== undefined) return CUSTO[k]; }
+  return null;
+}
+function seloCmv(custo, preco){
+  const pr = Number(preco); if(custo === null || !(pr > 0)) return null;
+  const pct = custo / pr * 100;
+  const s = el('span', 'chip ' + (pct <= 30 ? 'ok' : pct <= 35 ? 'am' : 'nao'), 'CMV ' + pct.toFixed(0) + '%');
+  s.title = 'Custo R$ ' + custo.toFixed(2).replace('.', ',') + ' de R$ ' + pr.toFixed(2).replace('.', ',');
+  return s;
 }
 async function recarregar(){ await tentar(async()=>{ await carregarTudo(); desenhar(); }); }
 
@@ -458,6 +490,9 @@ function cartaoProduto(p){
   const lin = el('div', 'linha'); const campos = {};
   p.produto_tamanhos.forEach(t=>{ const i = inputNum(t.preco); campos[t.id] = i; lin.appendChild(campo(t.nome + ' (R$)', i)); });
   card.appendChild(lin);
+  const cmvLin = el('div', 'dica'); cmvLin.style.margin = '4px 0';
+  p.produto_tamanhos.forEach(t=>{ const s = seloCmv(custoDe(p, t), t.preco); if(!s) return; cmvLin.appendChild(el('span', '', t.nome + ': ')); cmvLin.appendChild(s); cmvLin.appendChild(document.createTextNode('  ')); });
+  if(cmvLin.children.length) card.appendChild(cmvLin);
   const mais = el('details'); mais.appendChild(el('summary', '', 'Descrição, canais e pausa'));
   const desc = el('textarea'); desc.value = p.descricao || ''; mais.appendChild(campo('Ingredientes / descrição', desc));
   const cn = el('div', 'cheios'); cn.style.marginTop = '8px'; const marcas = CANAIS.map(x=>{ const m = marca(x, (p.canais||[]).indexOf(x) >= 0); cn.appendChild(m); return [x, m]; });
