@@ -484,6 +484,10 @@ async function carregar(){
     primeiraCarga = false;
     fiscal = (fc && fc[0]) ? {ativo: fc[0].ativo === true, etapa: fc[0].emitir_em || 'concluido'} : {ativo:false, etapa:'concluido'};
     atendimentos = at || [];
+    // quem saiu da fila (Atendido) é esquecido: se o mesmo cliente chamar de novo, vale como aviso NOVO (bipa na hora)
+    { const ids = new Set(atendimentos.map(c => c.id));
+      [...atendVistos].forEach(id => { if(!ids.has(id)) atendVistos.delete(id); });
+      [...atendSilenciados].forEach(id => { if(!ids.has(id)) atendSilenciados.delete(id); }); }
     const novosAtend = atendimentos.filter(c => !atendVistos.has(c.id));
     atendimentos.forEach(c => atendVistos.add(c.id));
     if(novosAtend.length) tocarAtendimento();      // ja toca na hora (tambem na primeira carga)
