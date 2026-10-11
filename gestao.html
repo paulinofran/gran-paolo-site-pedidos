@@ -549,11 +549,19 @@ let filtroContas = {status:'pendente', de:'', ate:''};
 
 // le o codigo do boleto (47 digitos da linha digitavel ou 44 do codigo de barras)
 function lerBoleto(txt){
-  const d = String(txt||'').replace(/\D/g,'');
+  let d = String(txt||'').replace(/\D/g,'');
+  // conta de consumo (energia, agua, telefone...): comeca com 8. A linha digitavel tem 48 numeros (4 blocos de 11 + 1 digito verificador cada); o codigo de barras tem 44.
+  if(d.length === 48 && d[0] === '8'){ d = [0,12,24,36].map(i=>d.slice(i, i+11)).join(''); }
+  if(d.length === 44 && d[0] === '8'){
+    const tipo = d[2], valorReal = '6789'.indexOf(tipo) >= 0;
+    const valor = valorReal ? parseInt(d.slice(4,15)) / 100 : null;
+    // nao existe um lugar padrao para o vencimento nas contas de consumo: voce digita
+    return {ok:true, valor, venc:null, digitos:d, consumo:true};
+  }
   let fator, cent;
   if(d.length === 47){ fator = parseInt(d.slice(33,37)); cent = parseInt(d.slice(37,47)); }
   else if(d.length === 44){ fator = parseInt(d.slice(5,9)); cent = parseInt(d.slice(9,19)); }
-  else return {ok:false, motivo:'O código precisa ter 44 ou 47 números. Encontrei ' + d.length + '.'};
+  else return {ok:false, motivo:'O código precisa ter 44, 47 ou 48 números. Encontrei ' + d.length + '.'};
   const valor = cent / 100; let venc = null;
   if(fator > 0){
     const base = fator >= 1000 ? new Date(Date.UTC(2025,1,22)) : new Date(Date.UTC(1997,9,7));   // desde 22/02/2025 o fator recomeça em 1000
@@ -605,10 +613,10 @@ async function telaContas(c){
   const obs = el('input'); obs.placeholder = 'Observação (opcional)';
   const cod = el('input'); cod.placeholder = 'Cole aqui o código do boleto (opcional)'; cod.inputMode = 'numeric';
   const dicaCod = el('div', 'dica', 'Se colar o código do boleto, o valor e o vencimento são preenchidos sozinhos.');
-  cod.oninput = ()=>{ const d = cod.value.replace(/\D/g,''); if(d.length !== 44 && d.length !== 47){ dicaCod.textContent = d.length ? 'Digitados ' + d.length + ' números (precisa de 44 ou 47).' : 'Se colar o código do boleto, o valor e o vencimento são preenchidos sozinhos.'; return; }
+  cod.oninput = ()=>{ const d = cod.value.replace(/\D/g,''); if(d.length !== 44 && d.length !== 47 && d.length !== 48){ dicaCod.textContent = d.length ? 'Digitados ' + d.length + ' números (precisa de 44, 47 ou 48).' : 'Se colar o código do boleto, o valor e o vencimento são preenchidos sozinhos.'; return; }
     const r = lerBoleto(d); if(!r.ok){ dicaCod.textContent = r.motivo; return; }
-    val.value = String(r.valor.toFixed(2)).replace('.', ','); if(r.venc) ven.value = r.venc;
-    dicaCod.textContent = 'Código lido: ' + money(r.valor) + (r.venc ? ', vence ' + dataBR(r.venc) : ' (sem vencimento no código)') + '. Confira antes de salvar.'; };
+    if(r.valor !== null) val.value = String(r.valor.toFixed(2)).replace('.', ','); if(r.venc) ven.value = r.venc;
+    dicaCod.textContent = 'Código lido' + (r.consumo ? ' (conta de consumo)' : '') + ': ' + (r.valor !== null ? money(r.valor) : 'sem valor no código, digite') + (r.venc ? ', vence ' + dataBR(r.venc) : (r.consumo ? '. Digite o vencimento, que está na conta.' : ' (sem vencimento no código)')) + '. Confira antes de salvar.'; };
   // leitura por camera ou foto (mesma biblioteca do app antigo, so carrega quando precisa)
   const aplicarCodigo = (d)=>{ cod.value = d; cod.oninput(); };
   const boxScan = el('div'); boxScan.style.display = 'none';
@@ -623,7 +631,7 @@ async function telaContas(c){
   bCam.onclick = ()=>tentar(async()=>{
     boxScan.style.display = 'block'; stScan.textContent = 'Abrindo a câmera...';
     leitor = await novoLeitor();
-    const achou = (r)=>{ if(!r) return; const d = String(r.getText()).replace(/\D/g,''); if(d.length !== 44 && d.length !== 47) return; fechaScan(); aplicarCodigo(d); aviso('Boleto lido!', 'ok'); };
+    const achou = (r)=>{ if(!r) return; const d = String(r.getText()).replace(/\D/g,''); if(d.length !== 44 && d.length !== 47 && d.length !== 48) return; fechaScan(); aplicarCodigo(d); aviso('Boleto lido!', 'ok'); };
     stScan.textContent = 'Aponte a câmera para as listras do boleto, com boa luz.';
     try{ await leitor.decodeFromConstraints({video:{facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080}}}, video, (r)=>achou(r)); }
     catch(e){ await leitor.decodeFromVideoDevice(null, video, (r)=>achou(r)); }
@@ -632,7 +640,7 @@ async function telaContas(c){
   const arq = el('input'); arq.type = 'file'; arq.accept = 'image/*'; arq.style.display = 'none'; bFoto.appendChild(arq);
   arq.onchange = ()=>tentar(async()=>{
     const f = arq.files[0]; if(!f) return; const u = URL.createObjectURL(f);
-    try{ const r = await (await novoLeitor()).decodeFromImageUrl(u); const d = String(r.getText()).replace(/\D/g,''); if(d.length !== 44 && d.length !== 47) throw new Error('Li uma imagem, mas não era um código de boleto.'); aplicarCodigo(d); }
+    try{ const r = await (await novoLeitor()).decodeFromImageUrl(u); const d = String(r.getText()).replace(/\D/g,''); if(d.length !== 44 && d.length !== 47 && d.length !== 48) throw new Error('Li uma imagem, mas não era um código de boleto.'); aplicarCodigo(d); }
     catch(e){ throw new Error(e && e.message && e.message.indexOf('boleto') >= 0 ? e.message : 'Não achei o código de barras nessa imagem. Tente uma foto mais de perto, ou cole o número.'); }
     finally{ URL.revokeObjectURL(u); arq.value = ''; }
   });
@@ -644,7 +652,7 @@ async function telaContas(c){
   bs.onclick = ()=>tentar(async()=>{
     const nome = fn.value.trim(); if(!nome) throw new Error('Falta o fornecedor.');
     const v = num(val.value); if(v === null || v < 0) throw new Error('Valor inválido.');
-    const d = cod.value.replace(/\D/g,''); if(d && d.length !== 44 && d.length !== 47) throw new Error('O código do boleto precisa de 44 ou 47 números.');
+    const d = cod.value.replace(/\D/g,''); if(d && d.length !== 44 && d.length !== 47 && d.length !== 48) throw new Error('O código precisa de 44, 47 ou 48 números.');
     if(!forn.some(x=>x.nome.toLowerCase() === nome.toLowerCase())) await inserir('fornecedores_pagar', {loja_id:LOJA, nome});
     await inserir('contas_pagar', {loja_id:LOJA, fornecedor:nome, valor:v, vencimento:ven.value || null, linha_digitavel:d || null, observacao:obs.value.trim() || null, forma_pagamento: d ? 'boleto' : null});
     desenhar();
