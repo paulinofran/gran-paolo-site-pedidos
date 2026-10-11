@@ -744,7 +744,7 @@ async function telaContas(c){
 
   const fc = el('select'); const o0 = el('option', '', 'Todas as categorias'); o0.value = ''; fc.appendChild(o0);
   Object.keys(CATS_CONTA).forEach(k=>{ const o = el('option', '', CATS_CONTA[k]); o.value = k; fc.appendChild(o); }); fc.value = filtroContas.cat;
-  fc.onchange = ()=>{ filtroContas.cat = fc.value; desenhar(); }; c.appendChild(campo('Categoria', fc));
+  fc.onchange = ()=>{ filtroContas.cat = fc.value; desenhar(); }; c.appendChild(campo('Filtrar a lista por categoria', fc));
   let lista = contas.filter(x=> filtroContas.status === 'todas' || (filtroContas.status === 'paga') === (x.status === 'paga'));
   const ref = (x) => (x.status === 'paga' ? (x.data_pagamento || x.vencimento) : x.vencimento) || '';
   if(filtroContas.cat) lista = lista.filter(x=>(x.categoria || 'outros') === filtroContas.cat);
