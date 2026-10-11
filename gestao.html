@@ -103,7 +103,7 @@ const CHAVE_SESSAO = "gp_painel_sessao";          // a mesma do painel de pedido
 const CANAIS = ['Entrega','Retirada','Vem comer','Drive-thru','Balcão'];
 const DIAS = ['D','S','T','Q','Q','S','S'];
 const NOME_DIA = ['domingo','segunda','terça','quarta','quinta','sexta','sábado'];
-const ABAS = [['hoje','Hoje'],['cardapio','Cardápio'],['promos','Promoções'],['taxas','Taxas'],['regras','Regras'],['clientes','Clientes'],['relatorios','Relatórios'],['notas','Notas'],['robo','Robô'],['estoque','Estoque']];
+const ABAS = [['hoje','Hoje'],['cardapio','Cardápio'],['promos','Promoções'],['taxas','Taxas'],['regras','Regras'],['clientes','Clientes'],['relatorios','Relatórios'],['notas','Notas'],['robo','Robô'],['estoque','Estoque'],['contas','Contas']];
 
 let sessao = null, aba = (location.hash === '#robo') ? 'robo' : 'hoje';
 let timerRobo = null;
@@ -242,7 +242,7 @@ function desenharAbas(){
 function desenhar(){
   desenharAbas();
   const c = $('conteudo'); c.innerHTML = '';
-  ({hoje:telaHoje, cardapio:telaCardapio, promos:telaPromos, taxas:telaTaxas, regras:telaRegras, clientes:telaClientes, relatorios:telaRelatorios, notas:telaNotas, robo:telaRobo, estoque:telaEstoque})[aba](c);
+  ({hoje:telaHoje, cardapio:telaCardapio, promos:telaPromos, taxas:telaTaxas, regras:telaRegras, clientes:telaClientes, relatorios:telaRelatorios, notas:telaNotas, robo:telaRobo, estoque:telaEstoque, contas:telaContas})[aba](c);
 }
 function campo(rotulo, input){ const w = el('label', 'campo'); w.appendChild(el('span', '', rotulo)); w.appendChild(input); return w; }
 function inputNum(v, passo){ const i = el('input', 'num'); i.type = 'text'; i.inputMode = (passo === '1') ? 'numeric' : 'decimal'; i.autocomplete = 'off'; i.value = v === null || v === undefined ? '' : String(v).replace('.', ','); return i; }
@@ -539,6 +539,170 @@ function formNovoProduto(){
     await carregarTudo(); desenhar();
   }, 'Produto criado');
   f.appendChild(b); return f;
+}
+
+
+/* ============================ CONTAS A PAGAR (Parte W) ============================ */
+const FORMAS_PAG = {dinheiro:'Dinheiro', cartao_debito:'Cartão débito', cartao_credito:'Cartão crédito', pix:'PIX', boleto:'Boleto'};
+const dataBR = (d) => d ? d.slice(8,10) + '/' + d.slice(5,7) + '/' + d.slice(0,4) : '';
+let filtroContas = {status:'pendente', de:'', ate:''};
+
+// le o codigo do boleto (47 digitos da linha digitavel ou 44 do codigo de barras)
+function lerBoleto(txt){
+  const d = String(txt||'').replace(/\D/g,'');
+  let fator, cent;
+  if(d.length === 47){ fator = parseInt(d.slice(33,37)); cent = parseInt(d.slice(37,47)); }
+  else if(d.length === 44){ fator = parseInt(d.slice(5,9)); cent = parseInt(d.slice(9,19)); }
+  else return {ok:false, motivo:'O código precisa ter 44 ou 47 números. Encontrei ' + d.length + '.'};
+  const valor = cent / 100; let venc = null;
+  if(fator > 0){
+    const base = fator >= 1000 ? new Date(Date.UTC(2025,1,22)) : new Date(Date.UTC(1997,9,7));   // desde 22/02/2025 o fator recomeça em 1000
+    base.setUTCDate(base.getUTCDate() + (fator >= 1000 ? fator - 1000 : fator));
+    venc = base.toISOString().slice(0,10);
+  }
+  return {ok:true, valor, venc, digitos:d};
+}
+
+
+let zxPromessa = null;
+function carregarZxing(){
+  if(window.ZXing) return Promise.resolve(window.ZXing);
+  if(!zxPromessa) zxPromessa = new Promise((ok, falha)=>{ const sc = document.createElement('script'); sc.src = 'https://unpkg.com/@zxing/library@0.20.0/umd/index.min.js'; sc.onload = ()=>window.ZXing ? ok(window.ZXing) : falha(new Error('A biblioteca de leitura não carregou.')); sc.onerror = ()=>{ zxPromessa = null; falha(new Error('Não consegui baixar o leitor. Confira a internet.')); }; document.head.appendChild(sc); });
+  return zxPromessa;
+}
+async function telaContas(c){
+  c.appendChild(el('h2', '', 'Contas a pagar'));
+  const topo = el('div'); c.appendChild(topo);
+  topo.appendChild(el('div', 'vazio', 'Carregando as contas...'));
+  let contas, forn;
+  try{
+    const f = 'loja_id=eq.' + LOJA;
+    [contas, forn] = await Promise.all([
+      api(`/rest/v1/contas_pagar?select=*&${f}&order=vencimento.asc.nullslast,id.desc&limit=2000`),
+      api(`/rest/v1/fornecedores_pagar?select=*&${f}&order=nome.asc&limit=500`),
+    ]);
+  }catch(e){ topo.innerHTML = ''; topo.appendChild(el('div', 'vazio', 'As contas ainda não foram instaladas no banco de dados (falta rodar a Parte W no Supabase).')); return; }
+  if(aba !== 'contas') return;
+  topo.remove();
+  const hoje = agoraLocal().data, mes = hoje.slice(0,7);
+  const pend = contas.filter(x=>x.status !== 'paga');
+  const soma = (l) => l.reduce((s,x)=>s + Number(x.valor || 0), 0);
+  const atras = pend.filter(x=>x.vencimento && x.vencimento < hoje);
+  const hojeL = pend.filter(x=>x.vencimento === hoje);
+  const pagasMes = contas.filter(x=>x.status === 'paga' && (x.data_pagamento || '').slice(0,7) === mes);
+  const resumo = el('div', 'cartao');
+  resumo.appendChild(el('div', '', pend.length + ' pendente(s): ' + money(soma(pend)) + ' a pagar'));
+  if(atras.length){ const l = el('div', '', atras.length + ' atrasada(s): ' + money(soma(atras))); l.style.color = 'var(--rd)'; l.style.fontWeight = '800'; resumo.appendChild(l); }
+  if(hojeL.length){ const l = el('div', '', 'Vencem hoje: ' + hojeL.length + ' (' + money(soma(hojeL)) + ')'); l.style.color = 'var(--am)'; l.style.fontWeight = '800'; resumo.appendChild(l); }
+  resumo.appendChild(el('div', 'dica', 'Pagas neste mês: ' + pagasMes.length + ' (' + money(soma(pagasMes)) + ')'));
+  c.appendChild(resumo);
+
+  // nova conta
+  const nova = el('details'); nova.appendChild(el('summary', '', '+ Nova conta'));
+  const fn = el('input'); fn.placeholder = 'Fornecedor'; fn.setAttribute('list', 'listaForn');
+  const dl = el('datalist'); dl.id = 'listaForn'; forn.forEach(x=>{ const o = el('option'); o.value = x.nome; dl.appendChild(o); });
+  const val = inputNum(''); const ven = el('input'); ven.type = 'date';
+  const obs = el('input'); obs.placeholder = 'Observação (opcional)';
+  const cod = el('input'); cod.placeholder = 'Cole aqui o código do boleto (opcional)'; cod.inputMode = 'numeric';
+  const dicaCod = el('div', 'dica', 'Se colar o código do boleto, o valor e o vencimento são preenchidos sozinhos.');
+  cod.oninput = ()=>{ const d = cod.value.replace(/\D/g,''); if(d.length !== 44 && d.length !== 47){ dicaCod.textContent = d.length ? 'Digitados ' + d.length + ' números (precisa de 44 ou 47).' : 'Se colar o código do boleto, o valor e o vencimento são preenchidos sozinhos.'; return; }
+    const r = lerBoleto(d); if(!r.ok){ dicaCod.textContent = r.motivo; return; }
+    val.value = String(r.valor.toFixed(2)).replace('.', ','); if(r.venc) ven.value = r.venc;
+    dicaCod.textContent = 'Código lido: ' + money(r.valor) + (r.venc ? ', vence ' + dataBR(r.venc) : ' (sem vencimento no código)') + '. Confira antes de salvar.'; };
+  // leitura por camera ou foto (mesma biblioteca do app antigo, so carrega quando precisa)
+  const aplicarCodigo = (d)=>{ cod.value = d; cod.oninput(); };
+  const boxScan = el('div'); boxScan.style.display = 'none';
+  const video = el('video'); video.muted = true; video.setAttribute('playsinline', ''); video.style.cssText = 'width:100%;border-radius:10px;background:#000';
+  const stScan = el('div', 'dica', ''); const bFecha = el('button', 'btn cinza', 'Cancelar leitura');
+  boxScan.appendChild(video); boxScan.appendChild(stScan); boxScan.appendChild(bFecha);
+  let leitor = null;
+  const fechaScan = ()=>{ try{ if(leitor) leitor.reset(); }catch(e){} leitor = null; boxScan.style.display = 'none'; };
+  bFecha.onclick = fechaScan;
+  const novoLeitor = async ()=>{ const Z = await carregarZxing(); const h = new Map(); h.set(Z.DecodeHintType.POSSIBLE_FORMATS, [Z.BarcodeFormat.ITF]); h.set(Z.DecodeHintType.TRY_HARDER, true); return new Z.BrowserMultiFormatReader(h); };
+  const bCam = el('button', 'btn verde', '📷 Escanear boleto com a câmera');
+  bCam.onclick = ()=>tentar(async()=>{
+    boxScan.style.display = 'block'; stScan.textContent = 'Abrindo a câmera...';
+    leitor = await novoLeitor();
+    const achou = (r)=>{ if(!r) return; const d = String(r.getText()).replace(/\D/g,''); if(d.length !== 44 && d.length !== 47) return; fechaScan(); aplicarCodigo(d); aviso('Boleto lido!', 'ok'); };
+    stScan.textContent = 'Aponte a câmera para as listras do boleto, com boa luz.';
+    try{ await leitor.decodeFromConstraints({video:{facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080}}}, video, (r)=>achou(r)); }
+    catch(e){ await leitor.decodeFromVideoDevice(null, video, (r)=>achou(r)); }
+  });
+  const bFoto = el('label', 'btn cinza', '🖼️ Ler de uma foto ou print'); bFoto.style.cursor = 'pointer';
+  const arq = el('input'); arq.type = 'file'; arq.accept = 'image/*'; arq.style.display = 'none'; bFoto.appendChild(arq);
+  arq.onchange = ()=>tentar(async()=>{
+    const f = arq.files[0]; if(!f) return; const u = URL.createObjectURL(f);
+    try{ const r = await (await novoLeitor()).decodeFromImageUrl(u); const d = String(r.getText()).replace(/\D/g,''); if(d.length !== 44 && d.length !== 47) throw new Error('Li uma imagem, mas não era um código de boleto.'); aplicarCodigo(d); }
+    catch(e){ throw new Error(e && e.message && e.message.indexOf('boleto') >= 0 ? e.message : 'Não achei o código de barras nessa imagem. Tente uma foto mais de perto, ou cole o número.'); }
+    finally{ URL.revokeObjectURL(u); arq.value = ''; }
+  });
+  const f1 = el('div', 'cartao'); f1.style.marginTop = '8px';
+  const lBot = el('div', 'linha'); lBot.appendChild(bCam); lBot.appendChild(bFoto); f1.appendChild(lBot); f1.appendChild(boxScan);
+  const l1 = el('div', 'linha'); l1.appendChild(campo('Fornecedor', fn)); l1.appendChild(campo('Valor (R$)', val)); l1.appendChild(campo('Vencimento', ven));
+  f1.appendChild(l1); f1.appendChild(dl); f1.appendChild(campo('Código do boleto', cod)); f1.appendChild(dicaCod); f1.appendChild(campo('Observação', obs));
+  const bs = el('button', 'btn verde', 'Salvar conta'); bs.style.marginTop = '8px';
+  bs.onclick = ()=>tentar(async()=>{
+    const nome = fn.value.trim(); if(!nome) throw new Error('Falta o fornecedor.');
+    const v = num(val.value); if(v === null || v < 0) throw new Error('Valor inválido.');
+    const d = cod.value.replace(/\D/g,''); if(d && d.length !== 44 && d.length !== 47) throw new Error('O código do boleto precisa de 44 ou 47 números.');
+    if(!forn.some(x=>x.nome.toLowerCase() === nome.toLowerCase())) await inserir('fornecedores_pagar', {loja_id:LOJA, nome});
+    await inserir('contas_pagar', {loja_id:LOJA, fornecedor:nome, valor:v, vencimento:ven.value || null, linha_digitavel:d || null, observacao:obs.value.trim() || null, forma_pagamento: d ? 'boleto' : null});
+    desenhar();
+  }, 'Conta salva');
+  f1.appendChild(bs); nova.appendChild(f1); c.appendChild(nova);
+
+  // filtros
+  const fil = el('div', 'linha'); fil.style.marginTop = '10px';
+  [['pendente','Pendentes'],['paga','Pagas'],['todas','Todas']].forEach(([k, r])=>{ const b = el('button', 'btn ' + (filtroContas.status === k ? 'verde' : 'cinza'), r); b.onclick = ()=>{ filtroContas.status = k; desenhar(); }; fil.appendChild(b); });
+  c.appendChild(fil);
+  const de = el('input'); de.type = 'date'; de.value = filtroContas.de; const ate = el('input'); ate.type = 'date'; ate.value = filtroContas.ate;
+  de.onchange = ()=>{ filtroContas.de = de.value; desenhar(); }; ate.onchange = ()=>{ filtroContas.ate = ate.value; desenhar(); };
+  const lf = el('div', 'linha'); lf.appendChild(campo('Vencimento de', de)); lf.appendChild(campo('até', ate)); c.appendChild(lf);
+
+  let lista = contas.filter(x=> filtroContas.status === 'todas' || (filtroContas.status === 'paga') === (x.status === 'paga'));
+  const ref = (x) => (x.status === 'paga' ? (x.data_pagamento || x.vencimento) : x.vencimento) || '';
+  if(filtroContas.de) lista = lista.filter(x=>ref(x) >= filtroContas.de);
+  if(filtroContas.ate) lista = lista.filter(x=>ref(x) && ref(x) <= filtroContas.ate);
+  if(!lista.length){ c.appendChild(el('div', 'vazio', contas.length ? 'Nenhuma conta com esse filtro.' : 'Nenhuma conta lançada ainda. Toque em "+ Nova conta".')); return; }
+  lista.forEach(x=>c.appendChild(cartaoConta(x, forn)));
+}
+
+function cartaoConta(x, forn){
+  const card = el('div', 'cartao'); const topo = el('div', 'topo');
+  topo.appendChild(el('span', 'nome', x.fornecedor));
+  const hoje = agoraLocal().data;
+  const st = x.status === 'paga' ? ['ok', 'Paga'] : (x.vencimento && x.vencimento < hoje ? ['nao', 'Atrasada'] : (x.vencimento === hoje ? ['am', 'Vence hoje'] : ['az', 'Em dia']));
+  topo.appendChild(el('span', 'chip ' + st[0], st[1])); card.appendChild(topo);
+  let det = money(x.valor);
+  if(x.status === 'paga') det += ' · pago em ' + dataBR(x.data_pagamento) + (x.forma_pagamento ? ' (' + FORMAS_PAG[x.forma_pagamento] + ')' : '');
+  else det += x.vencimento ? ' · vence ' + dataBR(x.vencimento) : ' · sem vencimento';
+  card.appendChild(el('div', 'dica', det));
+  if(x.observacao) card.appendChild(el('div', 'dica', 'Obs.: ' + x.observacao));
+  const lin = el('div', 'linha');
+  if(x.status !== 'paga'){
+    const sel = el('select'); Object.keys(FORMAS_PAG).forEach(k=>{ const o = el('option', '', FORMAS_PAG[k]); o.value = k; sel.appendChild(o); }); sel.value = x.forma_pagamento || 'pix';
+    const pagar = el('button', 'btn verde', 'Marcar paga');
+    pagar.onclick = ()=>tentar(async()=>{ await atualizar('contas_pagar', 'id=eq.' + x.id, {status:'paga', forma_pagamento:sel.value, data_pagamento:agoraLocal().data}); desenhar(); }, 'Conta marcada como paga');
+    lin.appendChild(campo('Pago com', sel)); lin.appendChild(pagar);
+  }else{
+    const des = el('button', 'btn cinza', 'Voltar para pendente');
+    des.onclick = ()=>tentar(async()=>{ await atualizar('contas_pagar', 'id=eq.' + x.id, {status:'pendente', data_pagamento:null}); desenhar(); });
+    lin.appendChild(des);
+  }
+  card.appendChild(lin);
+  const mais = el('details'); mais.appendChild(el('summary', '', 'Editar, copiar código ou excluir'));
+  const fn = el('input'); fn.value = x.fornecedor; const val = inputNum(x.valor); const ven = el('input'); ven.type = 'date'; ven.value = x.vencimento || ''; const obs = el('input'); obs.value = x.observacao || '';
+  const l2 = el('div', 'linha'); l2.appendChild(campo('Fornecedor', fn)); l2.appendChild(campo('Valor (R$)', val)); l2.appendChild(campo('Vencimento', ven)); mais.appendChild(l2); mais.appendChild(campo('Observação', obs));
+  const l3 = el('div', 'linha'); l3.style.marginTop = '8px';
+  const sv = el('button', 'btn verde', 'Salvar alterações');
+  sv.onclick = ()=>tentar(async()=>{ const n = fn.value.trim(); if(!n) throw new Error('Falta o fornecedor.'); const v = num(val.value); if(v === null || v < 0) throw new Error('Valor inválido.');
+    await atualizar('contas_pagar', 'id=eq.' + x.id, {fornecedor:n, valor:v, vencimento:ven.value || null, observacao:obs.value.trim() || null}); desenhar(); }, 'Conta atualizada');
+  l3.appendChild(sv);
+  if(x.linha_digitavel){ const cp = el('button', 'btn cinza', 'Copiar código'); cp.onclick = async()=>{ try{ await navigator.clipboard.writeText(x.linha_digitavel); aviso('Código copiado', 'ok'); }catch(e){ aviso('Não consegui copiar', 'erro'); } }; l3.appendChild(cp); }
+  const ex = el('button', 'btn cinza', 'Excluir');
+  ex.onclick = ()=>{ if(!confirm('Excluir a conta de ' + x.fornecedor + ' (' + money(x.valor) + ')?')) return; tentar(async()=>{ await api('/rest/v1/contas_pagar?id=eq.' + x.id, {method:'DELETE'}); desenhar(); }, 'Conta excluída'); };
+  l3.appendChild(ex); mais.appendChild(l3); card.appendChild(mais);
+  return card;
 }
 
 /* ============================ PROMOCOES ============================ */
