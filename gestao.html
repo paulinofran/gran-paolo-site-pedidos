@@ -1023,7 +1023,47 @@ function telaRegras(c){
 }
 
 /* ============================ CLIENTES ============================ */
+/* ---------- CRM simples: 4 números + lista de quem sumiu ---------- */
+let crmDias = 45, crmMin = 2;
+function csvReativar(lista){
+  const cab = ['nome','telefone','pedidos','total_gasto','ultima_compra','dias_sem_comprar','bairro'];
+  const dia = (iso) => iso ? iso.split('-').reverse().join('/') : '';
+  const linhas = lista.map(x=>[x.nome || '', x.telefone, x.pedidos, Number(x.total_gasto).toFixed(2).replace('.', ','), dia(x.ultima_compra), x.dias, x.bairro || ''].map(csvCampo).join(','));
+  return '﻿' + cab.join(',') + '\n' + linhas.join('\n') + (linhas.length ? '\n' : '');
+}
+async function desenharCrm(box){
+  box.textContent = 'Carregando clientes…';
+  const r = await tentar(()=>rpc('gestao_crm_resumo', {p_loja:LOJA, p_dias:crmDias}));
+  box.textContent = '';
+  if(!r){ box.appendChild(el('p', 'dica', 'Não consegui carregar o resumo dos clientes (a Parte AA do banco já foi rodada?).')); return; }
+  box.appendChild(el('h2', '', 'Clientes que já compraram'));
+  const sd = el('div', 'saldo');
+  [[r.compradores || 0, 'compradores'], [r.ativos || 0, 'compraram nos últimos ' + crmDias + ' dias'], [r.sumidos || 0, 'sumiram (+' + crmDias + ' dias)'], [money(r.ticket_medio), 'ticket médio']].forEach(([n, t])=>{ const d = el('div'); d.appendChild(document.createTextNode(String(n))); d.appendChild(el('small', '', t)); sd.appendChild(d); });
+  box.appendChild(sd);
+  box.appendChild(el('h2', '', 'Reativar: quem sumiu'));
+  box.appendChild(el('p', 'dica', 'Clientes que não compram há mais de ' + crmDias + ' dias, do que mais gastou para o que menos gastou. Quem pediu SAIR no WhatsApp nunca aparece.'));
+  const sel = el('select'); [[2, 'Compraram 2 vezes ou mais (' + (r.sumidos_2mais || 0) + ')'], [1, 'Todos que sumiram (' + (r.sumidos || 0) + ')']].forEach(([v, t])=>{ const o = el('option', '', t); o.value = v; if(v === crmMin) o.selected = true; sel.appendChild(o); });
+  box.appendChild(sel);
+  const dados = el('div'); dados.style.marginTop = '10px'; box.appendChild(dados);
+  const carregar = ()=>tentar(async()=>{
+    crmMin = Number(sel.value);
+    const lista = await rpc('gestao_crm_lista', {p_loja:LOJA, p_dias:crmDias, p_min_pedidos:crmMin});
+    dados.textContent = '';
+    const b1 = el('button', 'btn verde', 'Baixar lista (' + lista.length + ')');
+    b1.onclick = ()=>{ if(!lista.length){ aviso('Ninguém na lista.', 'erro'); return; } baixarCsv('clientes-sumidos-' + agoraLocal().data + '.csv', csvReativar(lista)); };
+    const b2 = el('button', 'btn cinza', 'Baixar só telefones (Meta Ads)');
+    b2.onclick = ()=>{ const t = [...new Set(lista.map(x=>telMeta(x.telefone)).filter(Boolean))]; if(!t.length){ aviso('Ninguém na lista.', 'erro'); return; } baixarCsv('meta-sumidos-' + agoraLocal().data + '.csv', 'phone\n' + t.join('\n') + '\n'); };
+    const lin = el('div', 'linha'); lin.appendChild(b1); lin.appendChild(b2); dados.appendChild(lin);
+    const tb = el('table'); const th = el('tr'); ['Cliente', 'Pedidos', 'Gastou', 'Sumiu há'].forEach(t=>th.appendChild(el('th', '', t))); tb.appendChild(th);
+    lista.slice(0, 15).forEach(x=>{ const tr = el('tr'); tr.appendChild(el('td', '', (x.nome || '—'))); tr.appendChild(el('td', '', String(x.pedidos))); tr.appendChild(el('td', '', money(x.total_gasto))); tr.appendChild(el('td', '', x.dias + ' dias')); tb.appendChild(tr); });
+    dados.appendChild(tb);
+    if(lista.length > 15) dados.appendChild(el('p', 'dica', 'Mostrando os 15 que mais gastaram. A lista completa vem no arquivo.'));
+  });
+  sel.onchange = carregar; carregar();
+}
 function telaClientes(c){
+  const crm = el('div'); c.appendChild(crm); desenharCrm(crm);
+  c.appendChild(el('h2', '', 'Saldo de um cliente'));
   c.appendChild(el('p', 'dica', 'Veja o saldo de um cliente, o extrato e faça ajustes (cortesia, correção, saldo importado).'));
   const tel = el('input', 'busca'); tel.type = 'tel'; tel.placeholder = 'WhatsApp do cliente (84 99999-0000)'; c.appendChild(tel);
   const btn = el('button', 'btn verde', 'Buscar'); c.appendChild(btn);
