@@ -103,7 +103,7 @@ const CHAVE_SESSAO = "gp_painel_sessao";          // a mesma do painel de pedido
 const CANAIS = ['Entrega','Retirada','Vem comer','Drive-thru','Balcão'];
 const DIAS = ['D','S','T','Q','Q','S','S'];
 const NOME_DIA = ['domingo','segunda','terça','quarta','quinta','sexta','sábado'];
-const ABAS = [['hoje','Hoje'],['cardapio','Cardápio'],['promos','Promoções'],['taxas','Taxas'],['regras','Regras'],['clientes','Clientes'],['relatorios','Relatórios'],['notas','Notas'],['robo','Robô'],['estoque','Estoque'],['contas','Contas']];
+const ABAS = [['hoje','Hoje'],['cardapio','Cardápio'],['promos','Promoções'],['taxas','Taxas'],['regras','Regras'],['horarios','Horários'],['clientes','Clientes'],['relatorios','Relatórios'],['notas','Notas'],['robo','Robô'],['estoque','Estoque'],['contas','Contas']];
 
 let sessao = null, aba = (location.hash === '#robo') ? 'robo' : 'hoje';
 let timerRobo = null;
@@ -242,7 +242,7 @@ function desenharAbas(){
 function desenhar(){
   desenharAbas();
   const c = $('conteudo'); c.innerHTML = '';
-  ({hoje:telaHoje, cardapio:telaCardapio, promos:telaPromos, taxas:telaTaxas, regras:telaRegras, clientes:telaClientes, relatorios:telaRelatorios, notas:telaNotas, robo:telaRobo, estoque:telaEstoque, contas:telaContas})[aba](c);
+  ({hoje:telaHoje, cardapio:telaCardapio, promos:telaPromos, taxas:telaTaxas, regras:telaRegras, horarios:telaHorarios, clientes:telaClientes, relatorios:telaRelatorios, notas:telaNotas, robo:telaRobo, estoque:telaEstoque, contas:telaContas})[aba](c);
 }
 function campo(rotulo, input){ const w = el('label', 'campo'); w.appendChild(el('span', '', rotulo)); w.appendChild(input); return w; }
 function inputNum(v, passo){ const i = el('input', 'num'); i.type = 'text'; i.inputMode = (passo === '1') ? 'numeric' : 'decimal'; i.autocomplete = 'off'; i.value = v === null || v === undefined ? '' : String(v).replace('.', ','); return i; }
@@ -250,6 +250,75 @@ function marca(rotulo, marcado){ const l = el('label', 'marca'); const i = el('i
 function catNome(p){ const c = D.categorias.find(x=>x.id === p.categoria_id); return c ? c.nome : ''; }
 const nomeProd = (p) => (D.categorias.find(c=>c.id===p.categoria_id)||{}).tipo === 'pizza' ? 'Pizza ' + p.nome : p.nome;
 
+
+/* ============================ HORÁRIOS (Parte Z) ============================ */
+// Horário da semana + abrir/fechar só num dia (feriado). Valem para o site e para o robô.
+const ORDEM_SEMANA = [1,2,3,4,5,6,0];   // segunda primeiro; no banco 0 = domingo
+function dataComDia(iso){ const [a,m,d] = iso.split('-').map(Number); return String(d).padStart(2,'0') + '/' + String(m).padStart(2,'0') + '/' + a + ' (' + NOME_DIA[new Date(a, m-1, d).getDay()] + ')'; }
+function inputHora(v){ const i = el('input'); i.type = 'time'; i.value = v || ''; return i; }
+
+async function telaHorarios(c){
+  c.appendChild(el('h2', '', 'Horários da loja'));
+  c.appendChild(el('p', 'dica', 'É o horário em que o site e o robô aceitam pedidos. Para a loja ficar aberta também precisa estar com o botão "Fechar loja" (loja aberta) no painel de pedidos, e o painel aberto.'));
+  const corpo = el('div'); corpo.appendChild(el('div', 'vazio', 'Carregando...')); c.appendChild(corpo);
+  let dados;
+  try{ dados = await rpc('gestao_horarios_ler', {p_loja:LOJA}); }
+  catch(e){ corpo.innerHTML = ''; corpo.appendChild(el('div', 'vazio', 'Não consegui carregar os horários. ' + msgErro(e).slice(0,140))); return; }
+  corpo.innerHTML = '';
+  const sem = dados.horarios || {}, exc = dados.excecoes || {};
+
+  // ----- semana -----
+  const card = el('div', 'cartao'); card.appendChild(el('div', 'nome', 'Horário da semana'));
+  const linhas = ORDEM_SEMANA.map(k=>{
+    const h = Array.isArray(sem[String(k)]) ? sem[String(k)] : null;
+    const aberto = marca(NOME_DIA[k].charAt(0).toUpperCase() + NOME_DIA[k].slice(1), !!h);
+    const a = inputHora(h ? h[0] : '18:00'), f = inputHora(h ? h[1] : '22:00');
+    const l = el('div', 'linha'); l.appendChild(aberto); l.appendChild(campo('Abre', a)); l.appendChild(campo('Fecha', f)); card.appendChild(l);
+    const sync = ()=>{ a.disabled = f.disabled = !aberto.input.checked; }; aberto.input.onchange = sync; sync();
+    return {k, aberto, a, f};
+  });
+  const salvar = el('button', 'btn verde', 'Salvar horário da semana'); salvar.style.marginTop = '12px';
+  salvar.onclick = ()=>tentar(async()=>{
+    const novo = {};
+    linhas.forEach(({k, aberto, a, f})=>{
+      if(!aberto.input.checked){ novo[String(k)] = null; return; }
+      if(!a.value || !f.value) throw new Error('Preencha abre e fecha de ' + NOME_DIA[k] + '.');
+      if(f.value <= a.value) throw new Error('Em ' + NOME_DIA[k] + ' o horário de fechar precisa ser depois do de abrir.');
+      novo[String(k)] = [a.value, f.value];
+    });
+    await rpc('gestao_horarios_salvar', {p_loja:LOJA, p_horarios:novo});
+  }, 'Horário da semana salvo');
+  card.appendChild(salvar);
+  corpo.appendChild(card);
+
+  // ----- exceção por dia -----
+  const ex = el('div', 'cartao'); ex.appendChild(el('div', 'nome', 'Abrir ou fechar só num dia (feriado)'));
+  ex.appendChild(el('div', 'dica', 'Vale só para o dia escolhido. No dia seguinte volta sozinho ao horário da semana.'));
+  const dt = el('input'); dt.type = 'date'; dt.value = agoraLocal().data;
+  const ea = inputHora('18:00'), ef = inputHora('22:00');
+  const l = el('div', 'linha'); l.appendChild(campo('Dia', dt)); l.appendChild(campo('Abre', ea)); l.appendChild(campo('Fecha', ef)); ex.appendChild(l);
+  const bs = el('div', 'linha');
+  const bAbrir = el('button', 'btn verde', 'Abrir neste dia');
+  bAbrir.onclick = ()=>tentar(async()=>{ if(!dt.value) throw new Error('Escolha o dia.'); if(!ea.value || !ef.value) throw new Error('Preencha abre e fecha.'); await rpc('gestao_horarios_excecao', {p_loja:LOJA, p_data:dt.value, p_modo:'abrir', p_abre:ea.value, p_fecha:ef.value}); desenhar(); }, 'Dia aberto');
+  const bFechar = el('button', 'btn vermelho', 'Fechar neste dia');
+  bFechar.onclick = ()=>tentar(async()=>{ if(!dt.value) throw new Error('Escolha o dia.'); await rpc('gestao_horarios_excecao', {p_loja:LOJA, p_data:dt.value, p_modo:'fechar'}); desenhar(); }, 'Dia fechado');
+  bs.appendChild(bAbrir); bs.appendChild(bFechar); ex.appendChild(bs);
+  corpo.appendChild(ex);
+
+  // ----- exceções marcadas -----
+  const chaves = Object.keys(exc).sort();
+  const lista = el('div', 'cartao'); lista.appendChild(el('div', 'nome', 'Dias com horário especial'));
+  if(!chaves.length) lista.appendChild(el('div', 'dica', 'Nenhum por enquanto.'));
+  chaves.forEach(k=>{
+    const v = exc[k]; const linha = el('div', 'linha');
+    linha.appendChild(el('span', 'nome', dataComDia(k)));
+    linha.appendChild(el('span', 'chip ' + (Array.isArray(v) ? 'ok' : 'nao'), Array.isArray(v) ? 'Aberto ' + v[0] + ' às ' + v[1] : 'Fechado'));
+    const rm = el('button', 'btn cinza peq', 'Voltar ao normal');
+    rm.onclick = ()=>tentar(async()=>{ await rpc('gestao_horarios_excecao', {p_loja:LOJA, p_data:k, p_modo:'remover'}); desenhar(); }, 'Voltou ao horário da semana');
+    linha.appendChild(rm); lista.appendChild(linha);
+  });
+  corpo.appendChild(lista);
+}
 
 /* ============================ ESTOQUE (Parte J) ============================ */
 // Quantidades: insumo em gramas aparece em kg na tela; ovo e manjericao ficam em unidades.
