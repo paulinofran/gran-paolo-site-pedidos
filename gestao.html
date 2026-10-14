@@ -1212,6 +1212,76 @@ async function desenharVisitasDia(box){
   corpo.appendChild(b);
 }
 
+const num2r = v=>Number(v || 0).toFixed(2).replace('.', ',');
+const DIAS_SEMANA = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+function erroRelNovo(e, parte, o_que){
+  return /PGRST202|Could not find|404|does not exist/i.test(String(e.message || e)) ? 'Este relatório ainda não foi instalado no banco (falta rodar a Parte ' + parte + ' no Supabase).' : 'Não consegui carregar ' + o_que + ' agora. Tente de novo.';
+}
+async function desenharDiaHora(box){
+  box.textContent = '';
+  box.appendChild(el('h2', '', 'Pedidos por dia da semana e hora'));
+  box.appendChild(el('p', 'dica', 'Em que dias e horários os pedidos entram (horário da loja). Só pedidos finalizados, sem testes. Quanto mais escura a casinha, mais pedidos naquele horário. Serve para decidir quando reforçar a cozinha e quando soltar promoção.'));
+  const corpo = el('div'); corpo.appendChild(el('div', 'vazio', 'Calculando...')); box.appendChild(corpo);
+  let dados;
+  try{ dados = await rpc('rel_dia_hora', {p_loja:LOJA, p_ini:relPeriodo.ini, p_fim:relPeriodo.fim}); }
+  catch(e){ corpo.textContent = ''; corpo.appendChild(el('div', 'vazio', erroRelNovo(e, 'AE', 'os pedidos por dia e hora'))); return; }
+  corpo.textContent = '';
+  if(!dados.length){ corpo.appendChild(el('div', 'vazio', 'Nenhum pedido finalizado neste período.')); return; }
+  const g = {}, dia = DIAS_SEMANA.map(()=>({n:0, v:0})), hr = {};
+  let max = 0, hmin = 23, hmax = 0, total = 0;
+  dados.forEach(x=>{
+    const d = Number(x.dow), h = Number(x.hora), n = Number(x.pedidos) || 0, v = Number(x.faturamento) || 0;
+    g[d + '_' + h] = n; dia[d].n += n; dia[d].v += v; hr[h] = (hr[h] || 0) + n; total += n;
+    if(n > max) max = n; if(h < hmin) hmin = h; if(h > hmax) hmax = h;
+  });
+  // Resumo em uma frase
+  const melhorDia = dia.map((x, i)=>[i, x.n]).sort((a, b)=>b[1] - a[1])[0];
+  const melhorHora = Object.keys(hr).map(h=>[Number(h), hr[h]]).sort((a, b)=>b[1] - a[1])[0];
+  corpo.appendChild(el('p', '', 'Mais pedidos: ' + DIAS_SEMANA[melhorDia[0]] + ' (' + melhorDia[1] + ' de ' + total + ') e o horário das ' + melhorHora[0] + 'h (' + melhorHora[1] + ' pedidos).'));
+  // Quadro dia x hora
+  const t = el('table', 'extrato'); const cab = el('tr'); cab.appendChild(el('th', '', ''));
+  for(let h = hmin; h <= hmax; h++) cab.appendChild(el('th', '', h + 'h'));
+  cab.appendChild(el('th', '', 'Total')); t.appendChild(cab);
+  for(let d = 0; d < 7; d++){
+    const tr = el('tr'); tr.appendChild(el('td', '', DIAS_SEMANA[d].slice(0, 3)));
+    for(let h = hmin; h <= hmax; h++){
+      const n = g[d + '_' + h] || 0, td = el('td', '', n ? String(n) : '·');
+      td.style.textAlign = 'center';
+      if(n){ td.style.background = 'rgba(2,52,27,' + (0.12 + 0.78 * n / max).toFixed(2) + ')'; td.style.color = n / max > 0.45 ? '#fff' : '#2A1D15'; td.style.fontWeight = '700'; }
+      else td.style.color = '#b8a99a';
+      tr.appendChild(td);
+    }
+    tr.appendChild(el('td', '', String(dia[d].n))); t.appendChild(tr);
+  }
+  const w = el('div'); w.style.overflowX = 'auto'; w.appendChild(t); corpo.appendChild(w);
+  corpo.appendChild(el('div', 'dica', 'Por dia da semana'));
+  corpo.appendChild(tabelaSimples(['Dia', 'Pedidos', 'Faturamento', 'Ticket médio'], dia.map((x, i)=>[DIAS_SEMANA[i], x.n, money(x.v), x.n ? money(x.v / x.n) : '—'])));
+  const b = el('button', 'btn cinza peq', 'Exportar planilha');
+  b.onclick = ()=>baixarCsv('pedidos-dia-hora-' + relPeriodo.ini + '_a_' + relPeriodo.fim + '.csv', '﻿' + ['Dia da semana', 'Hora', 'Pedidos', 'Faturamento'].join(',') + '\n' + dados.map(x=>[DIAS_SEMANA[Number(x.dow)], x.hora, x.pedidos, num2r(x.faturamento)].map(csvCampo).join(',')).join('\n') + '\n');
+  corpo.appendChild(b);
+}
+async function desenharNovosRecorrentes(box){
+  box.textContent = '';
+  box.appendChild(el('h2', '', 'Primeiro pedido x cliente recorrente, por origem'));
+  box.appendChild(el('p', 'dica', 'Mostra se cada origem traz cliente novo ou cliente que já comprou antes. "Novo" é quem nunca tinha comprado, nem no site novo nem no histórico do Suitable (pelo telefone). Pedidos de teste não entram.'));
+  const corpo = el('div'); corpo.appendChild(el('div', 'vazio', 'Calculando...')); box.appendChild(corpo);
+  let dados;
+  try{ dados = await rpc('rel_novos_recorrentes', {p_loja:LOJA, p_ini:relPeriodo.ini, p_fim:relPeriodo.fim}); }
+  catch(e){ corpo.textContent = ''; corpo.appendChild(el('div', 'vazio', erroRelNovo(e, 'AE', 'o relatório de novos e recorrentes'))); return; }
+  corpo.textContent = '';
+  if(!dados.length){ corpo.appendChild(el('div', 'vazio', 'Nenhuma venda neste período.')); return; }
+  const S = k=>dados.reduce((a, x)=>a + (Number(x[k]) || 0), 0);
+  const pc = (a, b)=>b > 0 ? ' (' + Math.round(a * 100 / b) + '%)' : '';
+  const tk = (v, n)=>n > 0 ? money(v / n) : '—';
+  const lin = x=>[x.origem, x.pedidos, x.novos + pc(x.novos, x.pedidos), x.recorrentes + pc(x.recorrentes, x.pedidos), tk(x.fat_novos, x.novos), tk(x.fat_recorrentes, x.recorrentes)];
+  const linhas = dados.map(x=>lin({origem:x.origem, pedidos:Number(x.pedidos), novos:Number(x.novos), recorrentes:Number(x.recorrentes), fat_novos:Number(x.fat_novos), fat_recorrentes:Number(x.fat_recorrentes)}));
+  linhas.push(lin({origem:'TOTAL', pedidos:S('pedidos'), novos:S('novos'), recorrentes:S('recorrentes'), fat_novos:S('fat_novos'), fat_recorrentes:S('fat_recorrentes')}));
+  corpo.appendChild(tabelaSimples(['Origem', 'Pedidos', 'Primeiro pedido', 'Recorrentes', 'Ticket (novos)', 'Ticket (recorrentes)'], linhas));
+  const b = el('button', 'btn cinza peq', 'Exportar planilha');
+  b.onclick = ()=>baixarCsv('novos-recorrentes-' + relPeriodo.ini + '_a_' + relPeriodo.fim + '.csv', '﻿' + ['Origem', 'Pedidos', 'Primeiro pedido', 'Recorrentes', 'Faturamento novos', 'Faturamento recorrentes'].join(',') + '\n' + dados.map(x=>[x.origem, x.pedidos, x.novos, x.recorrentes, num2r(x.fat_novos), num2r(x.fat_recorrentes)].map(csvCampo).join(',')).join('\n') + '\n');
+  corpo.appendChild(b);
+}
+
 async function telaRelatorios(c){
   const barra = el('div', 'cartao'); barra.appendChild(el('div', 'nome', 'Período'));
   const chips = el('div', 'cheios'); chips.style.marginTop = '8px';
@@ -1256,6 +1326,8 @@ async function telaRelatorios(c){
   secaoRel(corpo, 'bairros', 'Entregas por bairro', 'bairros', tabelaSimples(['Bairro', 'Pedidos', 'Faturamento', 'Ticket médio', 'Taxas'], relDados.bairros.map(x=>[x.bairro, x.pedidos, money(x.faturamento), money(x.ticket_medio), money(x.taxas)]), 'Nenhuma entrega neste período.'));
   corpo.appendChild(el('p', 'dica', 'Origem das vendas: quanto cada campanha, link ou anúncio vendeu. Pedidos sem origem vieram direto do site.'));
   secaoRel(corpo, 'origem', 'Origem das vendas', 'origem', tabelaSimples(['Origem', 'Pedidos', 'Faturamento', 'Ticket médio'], relDados.origem.map(x=>[x.origem, x.pedidos, money(x.faturamento), money(x.ticket_medio)]), 'Nenhuma venda neste período.'));
+  const novosBox = el('div'); corpo.appendChild(novosBox); desenharNovosRecorrentes(novosBox);
+  const horaBox = el('div'); corpo.appendChild(horaBox); desenharDiaHora(horaBox);
   const funilBox = el('div'); corpo.appendChild(funilBox); desenharFunil(funilBox);
   const diaBox = el('div'); corpo.appendChild(diaBox); desenharVisitasDia(diaBox);
   const linksBox = el('div'); corpo.appendChild(linksBox); montarGeradorLinks(linksBox);
