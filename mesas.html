@@ -244,7 +244,10 @@ function desenharMesa(c){
     const box = el('div','ped'); if(cancelado) box.style.opacity = .45;
     const cab = el('div','cab'); cab.appendChild(el('span','','#' + (p.numero||p.id) + ' · ' + new Date(p.quando).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}) + (cancelado?' · cancelado':'')));
     cab.appendChild(el('span','',money(p.total))); box.appendChild(cab);
-    (p.itens||[]).forEach(i=>{ const l = el('div','linha'); const t = el('div'); t.textContent = (i.qtd||1) + 'x ' + i.nome; t.appendChild(el('small','',i.tamanho||'')); l.appendChild(t); l.appendChild(el('span','',money((i.qtd||1)*(i.precoUnit||0)))); box.appendChild(l); });
+    (p.itens||[]).forEach((i, ix)=>{ const l = el('div','linha'); const t = el('div'); t.textContent = (i.qtd||1) + 'x ' + i.nome; t.appendChild(el('small','',i.tamanho||'')); l.appendChild(t);
+      const d = el('div'); d.style.textAlign = 'right'; d.appendChild(el('div','',money((i.qtd||1)*(i.precoUnit||0))));
+      if(!cancelado){ const bt = el('button','btn peq','Transferir'); bt.style.marginTop = '4px'; bt.onclick = ()=>abrirTransferirItem(p, ix, i); d.appendChild(bt); }
+      l.appendChild(d); box.appendChild(l); });
     if(p.obs) box.appendChild(el('small','dica',p.obs));
     if(!cancelado){ const bx = el('button','btn peq','Cancelar este pedido'); bx.style.marginTop = '6px'; bx.onclick = ()=>cancelarPedido(p); box.appendChild(bx); }
     bl.appendChild(box);
@@ -349,6 +352,36 @@ async function cancelarPedido(p){
   try{ await rpc('mesa_cancelar_pedido',{p_loja:LOJA,p_pedido:p.id,p_motivo:'Cancelado na mesa'}); await atualizarContas(); await carregarDetalhe(); desenhar(); }
   catch(e){ aviso('Não consegui cancelar: ' + e.message); }
 }
+function abrirTransferirItem(p, ix, item){
+  const atual = contas.find(x=>x.mesa===mesaAtual && x.comanda===comandaAtual);
+  const j = janela(); j.appendChild(el('h3','','Transferir item'));
+  j.appendChild(el('div','sub', (item.qtd||1) + 'x ' + item.nome + ' · de ' + rotMesa(mesaAtual) + ' para:'));
+  let qtd = Number(item.qtd||1);
+  if(qtd > 1){
+    j.appendChild(el('div','rot','Quantas unidades levar?'));
+    const q = el('div','qtd'); const m = el('button','','−'), mais = el('button','','+'), v = el('span','',String(qtd));
+    m.onclick = ()=>{ if(qtd>1){ qtd--; v.textContent = qtd; } }; mais.onclick = ()=>{ if(qtd < Number(item.qtd)){ qtd++; v.textContent = qtd; } };
+    q.appendChild(m); q.appendChild(v); q.appendChild(mais); j.appendChild(q);
+  }
+  const o = el('div','opcoes');
+  MESAS.forEach(m=>{
+    const cs = contasDaMesa(m).filter(c=>!(atual && c.conta_id === atual.conta_id));
+    const opcoes = cs.length ? cs.map(c=>[c.comanda, true]) : (contasDaMesa(m).length ? [] : [['Comanda 1', false]]);
+    opcoes.forEach(([com, aberta])=>{
+      const b = el('button','opc', rotMesa(m) + (com !== 'Comanda 1' ? ' · ' + com : '') + (aberta ? ' (aberta)' : ''));
+      b.onclick = async ()=>{
+        b.disabled = true;
+        try{ await rpc('mesa_transferir_item',{p_loja:LOJA,p_pedido:p.id,p_idx:ix,p_qtd:qtd,p_dest_mesa:m,p_dest_comanda:com});
+             fechar(); aviso('Item transferido para ' + rotMesa(m) + '.'); await atualizarContas(); await carregarDetalhe();
+             if(!contas.some(c=>c.mesa===mesaAtual)){ tela = 'grade'; } desenhar(); }
+        catch(e){ b.disabled = false; aviso('Não consegui transferir: ' + e.message); }
+      };
+      o.appendChild(b);
+    });
+  });
+  j.appendChild(o);
+  const bv = el('button','btn','Voltar'); bv.onclick = fechar; j.appendChild(bv);
+}
 function abrirTroca(){
   const c = contas.find(x=>x.mesa===mesaAtual && x.comanda===comandaAtual);
   if(!c){ aviso('Esta comanda ainda não tem pedidos para trocar.'); return; }
@@ -386,20 +419,42 @@ function abrirConta(){
   const tf = el('div','total'); j.appendChild(tf);
   const recalcula = ()=>{ const f = Math.max(arred(sub - num(iDesc.value) + num(iAcr.value) + taxa), 0); tf.innerHTML = ''; tf.appendChild(el('span','','Total')); tf.appendChild(el('span','',money(f))); return f; };
   iDesc.oninput = iAcr.oninput = recalcula; recalcula();
-  j.appendChild(el('div','rot','Forma de pagamento'));
-  let forma = null; const of = el('div','opcoes'); FORMAS.forEach(f=>{ const b = el('button','opc',f); b.onclick = ()=>{ forma = f; of.querySelectorAll('.opc').forEach(x=>x.classList.remove('sel')); b.classList.add('sel'); }; of.appendChild(b); }); j.appendChild(of);
+  // ---- pagamentos (pode dividir: cada parte numa forma) ----
+  const pagos = (detalhe.pagamentos || []), recebido = pagos.reduce((a,g)=>a+Number(g.valor),0);
+  const bpg = el('div','bloco'); bpg.style.marginTop = '12px'; bpg.appendChild(el('h3','','Pagamento'));
+  pagos.forEach(g=>{ const l = el('div','linha'); l.appendChild(el('span','', g.forma)); const d = el('div'); d.style.cssText = 'display:flex;gap:8px;align-items:center';
+    d.appendChild(el('span','',money(g.valor))); const x = el('button','btn peq','Desfazer'); x.onclick = async ()=>{ try{ await rpc('mesa_desfazer_pagamento',{p_loja:LOJA,p_pagamento:g.id}); await carregarDetalhe(); fechar(); abrirConta(); }catch(e){ aviso(e.message); } }; d.appendChild(x); l.appendChild(d); bpg.appendChild(l); });
+  const tfalta = el('div','total'); bpg.appendChild(tfalta);
+  bpg.appendChild(el('div','rot','Valor que o cliente vai pagar agora'));
+  const iVal = el('input'); iVal.type = 'text'; iVal.inputMode = 'decimal'; iVal.style.width = '100%'; bpg.appendChild(iVal);
+  bpg.appendChild(el('div','rot','Forma de pagamento'));
+  let forma = null; const of = el('div','opcoes'); FORMAS.forEach(f=>{ const b = el('button','opc',f); b.onclick = ()=>{ forma = f; of.querySelectorAll('.opc').forEach(x=>x.classList.remove('sel')); b.classList.add('sel'); }; of.appendChild(b); }); bpg.appendChild(of);
+  const bRec = el('button','btn verde'); bRec.style.width = '100%'; bpg.appendChild(bRec);
+  j.appendChild(bpg);
+  const falta = ()=> arred(recalcula() - recebido);
+  function atualizaPag(){ const f = falta(); tfalta.innerHTML = ''; tfalta.appendChild(el('span','', f > 0.009 ? 'Falta receber' : 'Tudo recebido')); tfalta.appendChild(el('span','', money(Math.max(f,0))));
+    const v = num(iVal.value); bRec.textContent = f <= 0.009 ? 'Fechar conta' : (v >= f - 0.005 ? 'Receber e fechar conta' : 'Receber este valor (parcial)'); }
+  iVal.value = String(Math.max(falta(),0).toFixed(2)).replace('.',','); iDesc.addEventListener('input', ()=>{ iVal.value = String(Math.max(falta(),0).toFixed(2)).replace('.',','); atualizaPag(); }); iAcr.addEventListener('input', ()=>{ iVal.value = String(Math.max(falta(),0).toFixed(2)).replace('.',','); atualizaPag(); });
+  tx.addEventListener('click', ()=>setTimeout(()=>{ iVal.value = String(Math.max(falta(),0).toFixed(2)).replace('.',','); atualizaPag(); },0));
+  iVal.oninput = atualizaPag; atualizaPag();
+  bRec.onclick = async ()=>{
+    const f = falta(), v = num(iVal.value), fecha = f <= 0.009 || v >= f - 0.005;
+    if(f > 0.009 && !forma){ aviso('Escolha a forma de pagamento.'); return; }
+    if(f > 0.009 && v <= 0){ aviso('Informe o valor.'); return; }
+    if(fecha && !confirm('Fechar a conta de ' + rotMesa(mesaAtual) + ' em ' + money(recalcula()) + '?')) return;
+    bRec.disabled = true;
+    try{
+      const dados = {desconto:num(iDesc.value),acrescimo:num(iAcr.value),taxa_servico:taxa};
+      await rpc('mesa_atualizar',{p_loja:LOJA,p_conta:conta.id,p_dados:dados});
+      if(f > 0.009) await rpc('mesa_receber',{p_loja:LOJA,p_conta:conta.id,p_valor:Math.min(v, f),p_forma:forma});
+      if(fecha){ await rpc('mesa_fechar',{p_loja:LOJA,p_conta:conta.id,p_forma:forma,p_desconto:dados.desconto,p_acrescimo:dados.acrescimo,p_taxa:taxa}); fechar(); aviso('Conta fechada. Mesa livre.'); tela='grade'; carrinho = []; await atualizarContas(); desenhar(); }
+      else{ await carregarDetalhe(); fechar(); aviso('Recebido ' + money(v) + ' em ' + forma + '.'); abrirConta(); }
+    }catch(e){ bRec.disabled = false; aviso('Não consegui: ' + e.message); }
+  };
   const ac = el('div','acoes');
   const bv = el('button','btn','Voltar'); bv.onclick = fechar;
-  const bp = el('button','btn','Pedir conta / Imprimir'); bp.onclick = async ()=>{ try{ await rpc('mesa_atualizar',{p_loja:LOJA,p_conta:conta.id,p_dados:{desconto:num(iDesc.value),acrescimo:num(iAcr.value),taxa_servico:taxa,pedir_conta:'true'}}); await atualizarContas(); window.print(); }catch(e){ aviso(e.message); } };
-  const bf = el('button','btn verde','Fechar conta');
-  bf.onclick = async ()=>{
-    if(!forma){ aviso('Escolha a forma de pagamento.'); return; }
-    if(!confirm('Fechar a conta de ' + rotMesa(mesaAtual) + ' em ' + money(recalcula()) + ' (' + forma + ')?')) return;
-    bf.disabled = true;
-    try{ await rpc('mesa_fechar',{p_loja:LOJA,p_conta:conta.id,p_forma:forma,p_desconto:num(iDesc.value),p_acrescimo:num(iAcr.value),p_taxa:taxa}); fechar(); aviso('Conta fechada. Mesa livre.'); tela='grade'; carrinho = []; await atualizarContas(); desenhar(); }
-    catch(e){ bf.disabled = false; aviso('Não consegui fechar: ' + e.message); }
-  };
-  ac.appendChild(bv); ac.appendChild(bp); ac.appendChild(bf); j.appendChild(ac);
+  const bp = el('button','btn','Cliente pediu a conta'); bp.onclick = async ()=>{ try{ await rpc('mesa_atualizar',{p_loja:LOJA,p_conta:conta.id,p_dados:{desconto:num(iDesc.value),acrescimo:num(iAcr.value),taxa_servico:taxa,pedir_conta:'true'}}); await atualizarContas(); fechar(); aviso('Marcado: o cliente pediu a conta. A conta imprime quando você fechar.'); }catch(e){ aviso(e.message); } };
+  ac.appendChild(bv); ac.appendChild(bp); j.appendChild(ac);
 }
 
 /* ---------- início ---------- */
