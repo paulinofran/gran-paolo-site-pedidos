@@ -86,6 +86,7 @@ details>summary{cursor:pointer;color:var(--azul);font-weight:700;font-size:13px;
     <h1>Gran Paolo · Gestão</h1>
     <div class="barra">
       <a class="btn claro peq" href="painel.html">Pedidos</a>
+      <a class="btn claro peq" href="mesas.html">Mesas</a>
       <a class="btn claro peq" href="./" target="_blank" rel="noopener">Ver o site</a>
       <button id="btnSair" class="btn claro peq">Sair</button>
     </div>
@@ -109,6 +110,7 @@ const NOME_DIA = ['domingo','segunda','terça','quarta','quinta','sexta','sábad
 const ABAS = [['hoje','Hoje'],['cardapio','Cardápio'],['promos','Promoções'],['taxas','Taxas'],['regras','Regras'],['horarios','Horários'],['clientes','Clientes'],['relatorios','Relatórios'],['notas','Notas'],['robo','Robô'],['estoque','Estoque'],['contas','Contas']];
 
 let sessao = null, aba = (location.hash === '#robo') ? 'robo' : 'hoje';
+let PAPEL = 'dono';   // 'leitor' = acesso so de leitura (Marketing): ve apenas os Relatorios
 let timerRobo = null;
 let D = {categorias:[], produtos:[], promocoes:[], bairros:[], regras:null, perfis:[]};
 let clienteBusca = null;
@@ -240,9 +242,10 @@ async function recarregar(){ await tentar(async()=>{ await carregarTudo(); desen
 /* ---------- abas ---------- */
 function desenharAbas(){
   const box = $('abas'); box.innerHTML = '';
-  ABAS.forEach(([id, rot])=>{ const b = el('button', id === aba ? 'ativa' : '', rot); b.dataset.aba = id; b.onclick = ()=>{ aba = id; desenhar(); window.scrollTo(0,0); }; box.appendChild(b); });
+  ABAS.filter(([id])=>PAPEL !== 'leitor' || id === 'relatorios').forEach(([id, rot])=>{ const b = el('button', id === aba ? 'ativa' : '', rot); b.dataset.aba = id; b.onclick = ()=>{ aba = id; desenhar(); window.scrollTo(0,0); }; box.appendChild(b); });
 }
 function desenhar(){
+  if(PAPEL === 'leitor') aba = 'relatorios';
   desenharAbas();
   const c = $('conteudo'); c.innerHTML = '';
   ({hoje:telaHoje, cardapio:telaCardapio, promos:telaPromos, taxas:telaTaxas, regras:telaRegras, horarios:telaHorarios, clientes:telaClientes, relatorios:telaRelatorios, notas:telaNotas, robo:telaRobo, estoque:telaEstoque, contas:telaContas})[aba](c);
@@ -1297,7 +1300,53 @@ async function desenharConsentimentos(box){
   corpo.appendChild(el('p', 'dica', 'Histórico importado do Suitable: ' + d.historico_suitable + ' clientes, sem aceite registrado.'));
 }
 
+async function desenharRoboNumeros(box){
+  box.textContent = '';
+  box.appendChild(el('h2', '', 'Robô de WhatsApp: contatos por origem'));
+  box.appendChild(el('p', 'dica', 'Só números, sem nome, telefone nem conversa. Mostra quantas pessoas chamaram o robô pela primeira vez no período, de qual origem vieram, quantas já compraram e quantas pararam de receber promoções (responderam SAIR).'));
+  const corpo = el('div'); corpo.appendChild(el('div', 'vazio', 'Calculando...')); box.appendChild(corpo);
+  let dados;
+  try{ dados = await rpc('rel_robo_numeros', {p_loja:LOJA, p_ini:relPeriodo.ini, p_fim:relPeriodo.fim}); }
+  catch(e){ corpo.textContent = ''; corpo.appendChild(el('div', 'vazio', erroRelNovo(e, 'AG', 'os números do robô'))); return; }
+  corpo.textContent = '';
+  if(!dados.length){ corpo.appendChild(el('div', 'vazio', 'Nenhum contato novo no robô neste período.')); return; }
+  const S = k=>dados.reduce((a, x)=>a + (Number(x[k]) || 0), 0);
+  const linhas = dados.map(x=>[x.origem, x.contatos, x.compraram, x.sairam]);
+  linhas.push(['TOTAL', S('contatos'), S('compraram'), S('sairam')]);
+  corpo.appendChild(tabelaSimples(['Origem do contato', 'Contatos novos', 'Já compraram', 'Saíram da lista'], linhas));
+  const b = el('button', 'btn cinza peq', 'Exportar planilha');
+  b.onclick = ()=>baixarCsv('robo-contatos-' + relPeriodo.ini + '_a_' + relPeriodo.fim + '.csv', '﻿' + ['Origem', 'Contatos novos', 'Ja compraram', 'Sairam da lista'].join(',') + '\n' + dados.map(x=>[x.origem, x.contatos, x.compraram, x.sairam].map(csvCampo).join(',')).join('\n') + '\n');
+  corpo.appendChild(b);
+}
+
+const SEGMENTOS_PROMO = [['ativos', 'Pediram nos últimos 30 dias'], ['parados_30', 'Sem pedir há 30 a 59 dias'], ['parados_60', 'Sem pedir há 60 a 89 dias'], ['parados_90', 'Sem pedir há 90 dias ou mais'], ['novos', 'Só 1 pedido (novos)'], ['recorrentes', '2 ou mais pedidos (recorrentes)']];
+async function desenharSegmentos(box){
+  box.textContent = '';
+  box.appendChild(el('h2', '', 'Segmentos para campanhas (só quem aceitou)'));
+  box.appendChild(el('p', 'dica', 'Quantas pessoas de cada grupo poderiam receber uma promoção agora. Entram só quem marcou a caixinha e não respondeu SAIR. Os grupos de tempo e os de frequência são duas formas de olhar as mesmas pessoas, então os números se repetem entre eles. Esta tela não envia nada.'));
+  const corpo = el('div'); corpo.appendChild(el('div', 'vazio', 'Calculando...')); box.appendChild(corpo);
+  let d;
+  try{ d = await rpc('rel_segmentos', {p_loja:LOJA}); }
+  catch(e){ corpo.textContent = ''; corpo.appendChild(el('div', 'vazio', erroRelNovo(e, 'AH', 'os segmentos'))); return; }
+  corpo.textContent = '';
+  if(!Number(d.elegiveis)){ corpo.appendChild(el('div', 'vazio', 'Ninguém aceitou receber promoções ainda. Os grupos aparecem aqui conforme os clientes marcarem a caixinha ao pedir no site.')); return; }
+  const linhas = [['Total que pode receber', d.elegiveis, '']].concat(SEGMENTOS_PROMO.map(([k, r])=>[r, d[k], '']));
+  const t = tabelaSimples(['Grupo', 'Pessoas', PAPEL === 'leitor' ? '' : 'Lista'], linhas.map(x=>[x[0], x[1], '']));
+  corpo.appendChild(t);
+  if(PAPEL !== 'leitor'){
+    const trs = t.querySelectorAll('tr');
+    SEGMENTOS_PROMO.forEach(([k, r], i)=>{
+      const td = trs[i + 2] && trs[i + 2].lastChild; if(!td || !Number(d[k])) return;
+      const b = el('button', 'btn cinza peq', 'Baixar planilha');
+      b.onclick = async ()=>{ try{ const l = await rpc('gestao_segmento_lista', {p_loja:LOJA, p_segmento:k}); baixarCsv('segmento-' + k + '.csv', '﻿' + ['Nome', 'Telefone', 'Pedidos', 'Ultimo pedido'].join(',') + '\n' + l.map(x=>[x.nome, x.telefone, x.pedidos, x.ultimo_pedido].map(csvCampo).join(',')).join('\n') + '\n'); }catch(e){ aviso('Não consegui baixar a lista agora.', 'erro'); } };
+      td.appendChild(b);
+    });
+    corpo.appendChild(el('p', 'dica', 'A planilha tem nome e telefone: use só para campanhas autorizadas e não compartilhe fora da loja.'));
+  }
+}
+
 async function telaRelatorios(c){
+  if(PAPEL === 'leitor') c.appendChild(el('p', 'dica', 'Acesso somente de leitura: você vê os relatórios e os números do robô, sem dados pessoais de clientes, e não consegue alterar nada.'));
   const barra = el('div', 'cartao'); barra.appendChild(el('div', 'nome', 'Período'));
   const chips = el('div', 'cheios'); chips.style.marginTop = '8px';
   const mk = (id, rot)=>{ const b = el('button', 'btn peq ' + (relPeriodo.preset === id ? 'verde' : 'cinza'), rot); b.dataset.preset = id; b.onclick = ()=>{ relPeriodo = {preset:id, ...periodoDoPreset(id)}; desenhar(); }; chips.appendChild(b); };
@@ -1343,7 +1392,9 @@ async function telaRelatorios(c){
   secaoRel(corpo, 'origem', 'Origem das vendas', 'origem', tabelaSimples(['Origem', 'Pedidos', 'Faturamento', 'Ticket médio'], relDados.origem.map(x=>[x.origem, x.pedidos, money(x.faturamento), money(x.ticket_medio)]), 'Nenhuma venda neste período.'));
   const novosBox = el('div'); corpo.appendChild(novosBox); desenharNovosRecorrentes(novosBox);
   const horaBox = el('div'); corpo.appendChild(horaBox); desenharDiaHora(horaBox);
+  const roboBox = el('div'); corpo.appendChild(roboBox); desenharRoboNumeros(roboBox);
   const consBox = el('div'); corpo.appendChild(consBox); desenharConsentimentos(consBox);
+  const segBox = el('div'); corpo.appendChild(segBox); desenharSegmentos(segBox);
   const funilBox = el('div'); corpo.appendChild(funilBox); desenharFunil(funilBox);
   const diaBox = el('div'); corpo.appendChild(diaBox); desenharVisitasDia(diaBox);
   const linksBox = el('div'); corpo.appendChild(linksBox); montarGeradorLinks(linksBox);
@@ -1765,6 +1816,8 @@ async function telaRobo(c){
 /* ---------- inicio ---------- */
 async function iniciar(){
   $('login').classList.add('oculto'); $('app').classList.remove('oculto');
+  try{ PAPEL = (await rpc('gestao_meu_papel', {p_loja:LOJA})) === 'leitor' ? 'leitor' : 'dono'; }catch(e){ PAPEL = 'dono'; }   // sem a Parte AG instalada, segue como antes
+  if(PAPEL === 'leitor'){ aba = 'relatorios'; await tentar(async()=>{ desenhar(); }); return; }   // leitor nao carrega cardapio, clientes etc.
   await tentar(async()=>{ await carregarTudo(); desenhar(); });
 }
 $('formLogin').addEventListener('submit', async (e)=>{
