@@ -448,6 +448,14 @@ body.com-barra #app{padding-bottom:150px;}
       <textarea id="campoObs" placeholder="Ex: sem cebola, troco para R$100, etc."></textarea>
     </div>
 
+    <div class="field" id="blocoPromo">
+      <label style="display:flex;gap:10px;align-items:flex-start;font-weight:400;cursor:pointer">
+        <input type="checkbox" id="campoPromo" style="width:20px;height:20px;margin-top:2px;flex:none">
+        <span id="textoPromo">Quero receber promoções e novidades da Gran Paolo pelo WhatsApp (opcional).</span>
+      </label>
+      <small>Você pode sair quando quiser, é só responder SAIR. Seu pedido não depende disso. <a href="privacidade.html" target="_blank" rel="noopener">Política de privacidade</a></small>
+    </div>
+
     <div id="blocoSaldo" class="bloco-saldo hidden"></div>
 
     <div style="background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin:16px 0;">
@@ -636,6 +644,7 @@ const SUPABASE_KEY = "sb_publishable_qpfP7hAj0tmvwVEEqkqluA_iKzPYFUJ";
 // o caminho principal e garantido.
 async function salvarPedidoNoCRM({nome, telefone, endereco, modalidade, bairro, taxa, itens, total, pagamento, obs}){
   enviarOrigemDoPedido(telefone);
+  enviarConsentimentoDoPedido(telefone);
   try{
     // Chama a função segura "registrar_pedido" do banco (ela cadastra/atualiza o
     // cliente e grava o pedido). keepalive deixa o envio terminar mesmo que o
@@ -778,6 +787,20 @@ function textoOrigem(){
   return [o.utm_source || o.origem, o.utm_medium, o.utm_campaign, o.utm_content].filter(Boolean).join(' / ');
 }
 // Manda a origem pro banco numa funcao separada: se falhar, o pedido nao e afetado.
+// Só manda se a pessoa MARCOU a caixinha (padrão: desmarcada). Quem não marca não é cadastrado para promoções.
+function enviarConsentimentoDoPedido(telefone){
+  try{
+    const cx = document.getElementById('campoPromo');
+    if(!cx || !cx.checked) return;
+    const txt = document.getElementById('textoPromo');
+    fetch(`${SUPABASE_URL}/rest/v1/rpc/registrar_consentimento`, {
+      method: "POST",
+      headers: {"apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json"},
+      keepalive: true,
+      body: JSON.stringify({p_loja: LOJA_ID, p_telefone: telefone, p_origem: origemParaPedido() || null, p_texto: txt ? txt.textContent.trim() : null}),
+    }).catch(()=>{});
+  }catch(e){}
+}
 function enviarOrigemDoPedido(telefone){
   try{
     const origem = origemParaPedido();
