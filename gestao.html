@@ -1156,6 +1156,33 @@ function secaoRel(c, id, titulo, qual, conteudo){
   b.onclick = ()=>baixarCsv('relatorio-' + qual + '-' + relPeriodo.ini + '_a_' + relPeriodo.fim + '.csv', csvRelatorio(qual, relDados));
   h.appendChild(b); c.appendChild(h); c.appendChild(conteudo);
 }
+const FUNIL_COLS = [['visita','Entraram'],['produto','Viram produto'],['carrinho','Carrinho'],['checkout','Checkout'],['tentou','Tentaram enviar'],['pedido','Enviaram']];
+function somaFunil(linhas, chave){ return linhas.reduce((a, x)=>a + (Number(x[chave]) || 0), 0); }
+async function desenharFunil(box){
+  box.textContent = '';
+  box.appendChild(el('h2', '', 'Funil das visitas por origem'));
+  box.appendChild(el('p', 'dica', 'De onde a pessoa veio e até onde chegou no site. Conta visitas, não pessoas: cada etapa vale 1 por visita. Não guarda nome nem telefone. Só começa a contar depois que o site novo foi atualizado.'));
+  const corpo = el('div'); corpo.appendChild(el('div', 'vazio', 'Calculando...')); box.appendChild(corpo);
+  let dados;
+  try{ dados = await rpc('rel_funil', {p_loja:LOJA, p_ini:relPeriodo.ini, p_fim:relPeriodo.fim}); }
+  catch(e){ corpo.textContent = ''; corpo.appendChild(el('div', 'vazio', /PGRST202|Could not find|404|does not exist/i.test(String(e.message || e)) ? 'O funil ainda não foi instalado no banco (falta rodar a Parte AB no Supabase).' : 'Não consegui carregar o funil agora. Tente de novo.')); return; }
+  corpo.textContent = '';
+  if(!dados.length){ corpo.appendChild(el('div', 'vazio', 'Nenhuma visita registrada neste período.')); return; }
+  const pct = (a, b)=> b > 0 ? Math.round(a * 100 / b) + '%' : '—';
+  const linhaDe = (rot, L)=>[rot, ...FUNIL_COLS.map(([k])=>somaFunil(L, k)), pct(somaFunil(L, 'pedido'), somaFunil(L, 'visita'))];
+  const cab = ['Origem', ...FUNIL_COLS.map(([, r])=>r), 'Viraram pedido'];
+  const porOrigem = {}; dados.forEach(x=>{ (porOrigem[x.origem] = porOrigem[x.origem] || []).push(x); });
+  const linhasOrigem = Object.keys(porOrigem).map(o=>linhaDe(o, porOrigem[o])).sort((a, b)=>b[1] - a[1]);
+  linhasOrigem.push(linhaDe('TOTAL', dados));
+  corpo.appendChild(tabelaSimples(cab, linhasOrigem));
+  const anuncios = dados.filter(x=>x.anuncio).map(x=>[x.origem + ' | ' + x.anuncio, ...FUNIL_COLS.map(([k])=>x[k]), pct(x.pedido, x.visita)]).sort((a, b)=>b[1] - a[1]);
+  if(anuncios.length){ corpo.appendChild(el('div', 'dica', 'Por anúncio (utm_content)')); corpo.appendChild(tabelaSimples(['Campanha | anúncio', ...FUNIL_COLS.map(([, r])=>r), 'Viraram pedido'], anuncios)); }
+  const trava = [['Loja fechada na hora de enviar', 'loja_fechada'], ['Esqueceu o nome', 'faltou_nome'], ['Esqueceu o WhatsApp', 'faltou_telefone'], ['Esqueceu o endereço (entrega)', 'faltou_endereco'], ['Esqueceu o bairro (entrega)', 'faltou_bairro']].map(([r, k])=>[r, somaFunil(dados, k)]).filter(x=>x[1] > 0);
+  if(trava.length){ corpo.appendChild(el('div', 'dica', 'O que travou na hora de enviar o pedido (visitas)')); corpo.appendChild(tabelaSimples(['Motivo', 'Visitas'], trava)); }
+  const b = el('button', 'btn cinza peq', 'Exportar planilha');
+  b.onclick = ()=>baixarCsv('funil-' + relPeriodo.ini + '_a_' + relPeriodo.fim + '.csv', '\ufeff' + ['Origem', 'Anuncio', ...FUNIL_COLS.map(([, r])=>r), 'Loja fechada', 'Faltou nome', 'Faltou WhatsApp', 'Faltou endereco', 'Faltou bairro'].join(',') + '\n' + dados.map(x=>[x.origem, x.anuncio, ...FUNIL_COLS.map(([k])=>x[k]), x.loja_fechada, x.faltou_nome, x.faltou_telefone, x.faltou_endereco, x.faltou_bairro].map(csvCampo).join(',')).join('\n') + '\n');
+  corpo.appendChild(b);
+}
 async function telaRelatorios(c){
   const barra = el('div', 'cartao'); barra.appendChild(el('div', 'nome', 'Período'));
   const chips = el('div', 'cheios'); chips.style.marginTop = '8px';
@@ -1199,6 +1226,7 @@ async function telaRelatorios(c){
   secaoRel(corpo, 'bairros', 'Entregas por bairro', 'bairros', tabelaSimples(['Bairro', 'Pedidos', 'Faturamento', 'Ticket médio', 'Taxas'], relDados.bairros.map(x=>[x.bairro, x.pedidos, money(x.faturamento), money(x.ticket_medio), money(x.taxas)]), 'Nenhuma entrega neste período.'));
   corpo.appendChild(el('p', 'dica', 'Origem das vendas: quanto cada campanha, link ou anúncio vendeu. Pedidos sem origem vieram direto do site.'));
   secaoRel(corpo, 'origem', 'Origem das vendas', 'origem', tabelaSimples(['Origem', 'Pedidos', 'Faturamento', 'Ticket médio'], relDados.origem.map(x=>[x.origem, x.pedidos, money(x.faturamento), money(x.ticket_medio)]), 'Nenhuma venda neste período.'));
+  const funilBox = el('div'); corpo.appendChild(funilBox); desenharFunil(funilBox);
 }
 
 /* ============================ PIX PELO QR CODE ============================ */

@@ -684,9 +684,31 @@ let meioBordaSelecionada = BORDAS[0];
 
 /* Dispara evento no pixel da Meta (e do TikTok quando ativado) sem nunca travar o site */
 function pixel(evento, dados){
+  try{ const etapa = {ViewContent:'produto', AddToCart:'carrinho', InitiateCheckout:'checkout', Purchase:'pedido'}[evento]; if(etapa) funil(etapa); }catch(e){}
   try{ if(window.fbq) fbq('track', evento, dados || {}); }catch(e){}
 }
 let ultimaCompraPixel = {assinatura:'', quando:0};
+
+/* ---------- Funil das visitas: de onde veio e em que etapa saiu (anonimo: sem nome nem telefone) ---------- */
+const FUNIL_SESSAO = (function(){
+  const novo = ()=> (window.crypto && crypto.randomUUID ? crypto.randomUUID().replace(/-/g,'') : (Date.now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2))).slice(0, 32);
+  try{ let s = sessionStorage.getItem('gp_sessao'); if(!s){ s = novo(); sessionStorage.setItem('gp_sessao', s); } return s; }catch(e){ return novo(); }
+})();
+const funilFeitos = {};
+function funil(etapa){
+  try{
+    if(funilFeitos[etapa]) return;          // cada etapa conta uma vez por visita
+    funilFeitos[etapa] = 1;
+    const o = origemAtual && (origemAtual.primeira || origemAtual.ultima);
+    const origem = o ? {utm_source:o.utm_source, utm_medium:o.utm_medium, utm_campaign:o.utm_campaign, utm_content:o.utm_content, origem:o.origem} : null;
+    fetch(`${SUPABASE_URL}/rest/v1/rpc/registrar_funil`, {
+      method: "POST",
+      headers: {"apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json"},
+      keepalive: true,
+      body: JSON.stringify({p_loja: LOJA_ID, p_sessao: FUNIL_SESSAO, p_etapa: etapa, p_origem: origem}),
+    }).catch(()=>{});
+  }catch(e){}
+}
 
 /* ---------- Links de campanha: produto, meio a meio e origem (UTM) ---------- */
 let origemAtual = null;          // {primeira:{...}, ultima:{...}} guardada por 7 dias
@@ -1298,6 +1320,12 @@ function init(){
   const params = new URLSearchParams(window.location.search);
   origemCampanha = params.get('origem');
   try{ atualizarOrigemGuardada(params); }catch(e){}
+  funil('visita');
+  try{
+    const ct = document.getElementById('campoTelefone'), ce = document.getElementById('campoEndereco');
+    ct.addEventListener('change', ()=>{ if(ct.value.replace(/\D/g,'').length >= 10) funil('contato'); });
+    ce.addEventListener('change', ()=>{ if(ce.value.trim()) funil('endereco'); });
+  }catch(e){}
   montarTabs();
   mostrarCategoria(CATEGORIAS_ORDEM[0]);
   popularSelectsMeio();
@@ -2055,7 +2083,8 @@ function enviarCpfDoPedido(telefone, cpf){
 
 function enviarPedidoWhatsapp(){
   if(carrinho.length===0) return;
-  if(lojaBloqueando()){ mostrarAvisoLoja(); alert('No momento não estamos recebendo pedidos. Veja o aviso no topo da tela.'); return; }
+  if(lojaBloqueando()){ funil('loja_fechada'); mostrarAvisoLoja(); alert('No momento não estamos recebendo pedidos. Veja o aviso no topo da tela.'); return; }
+  funil('tentou');
   const nome = document.getElementById('campoNome').value.trim();
   const telefone = document.getElementById('campoTelefone').value.trim();
   const endereco = document.getElementById('campoEndereco').value.trim();
@@ -2066,10 +2095,10 @@ function enviarPedidoWhatsapp(){
   const bairro = bairroIdx!=='' ? BAIRROS_TAXA[bairroIdx] : null;
   const taxa = bairro ? bairro.taxa : 0;
 
-  if(!nome){ alert('Por favor, preencha seu nome.'); return; }
-  if(!telefone){ alert('Por favor, preencha seu WhatsApp.'); return; }
-  if(modalidadeAtual==='Entrega' && !endereco){ alert('Por favor, preencha o endereço de entrega.'); return; }
-  if(modalidadeAtual==='Entrega' && !bairro){ alert('Por favor, selecione seu bairro.'); return; }
+  if(!nome){ funil('faltou_nome'); alert('Por favor, preencha seu nome.'); return; }
+  if(!telefone){ funil('faltou_telefone'); alert('Por favor, preencha seu WhatsApp.'); return; }
+  if(modalidadeAtual==='Entrega' && !endereco){ funil('faltou_endereco'); alert('Por favor, preencha o endereço de entrega.'); return; }
+  if(modalidadeAtual==='Entrega' && !bairro){ funil('faltou_bairro'); alert('Por favor, selecione seu bairro.'); return; }
   if(modalidadeAtual==='Entrega' && endereco.includes('___')){ alert('Complete o número do seu endereço, onde aparece ___'); return; }
   const campoCpf = document.getElementById('campoCpf'), cpfDigitos = (campoCpf && !document.getElementById('blocoCpf').classList.contains('hidden')) ? campoCpf.value.replace(/\D/g, '') : '';
   if(cpfDigitos && !cpfValido(cpfDigitos)){
