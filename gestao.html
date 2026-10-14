@@ -1164,7 +1164,7 @@ function somaFunil(linhas, chave){ return linhas.reduce((a, x)=>a + (Number(x[ch
 async function desenharFunil(box){
   box.textContent = '';
   box.appendChild(el('h2', '', 'Funil das visitas por origem'));
-  box.appendChild(el('p', 'dica', 'De onde a pessoa veio e até onde chegou no site. Conta visitas, não pessoas: cada etapa vale 1 por visita. O número entre parênteses é a % que seguiu da etapa anterior. Visitas e pedidos de teste (campanha começando com "teste") ficam de fora. Não guarda nome nem telefone. Só começa a contar depois que o site novo foi atualizado.'));
+  box.appendChild(el('p', 'dica', 'De onde a pessoa veio e até onde chegou no site. Conta visitas, não pessoas: cada etapa vale 1 por visita. O número entre parênteses é a % que seguiu da etapa anterior. Visitas e pedidos de teste (qualquer origem ou campanha com a palavra "teste") ficam de fora. Não guarda nome nem telefone. Só começa a contar depois que o site novo foi atualizado.'));
   const corpo = el('div'); corpo.appendChild(el('div', 'vazio', 'Calculando...')); box.appendChild(corpo);
   let dados;
   try{ dados = await rpc('rel_funil', {p_loja:LOJA, p_ini:relPeriodo.ini, p_fim:relPeriodo.fim}); }
@@ -1192,6 +1192,26 @@ async function desenharFunil(box){
   b.onclick = ()=>baixarCsv('funil-' + relPeriodo.ini + '_a_' + relPeriodo.fim + '.csv', '\ufeff' + ['Origem', 'Anuncio', ...FUNIL_COLS.map(([, r])=>r), 'Loja fechada', 'Faltou nome', 'Faltou WhatsApp', 'Faltou endereco', 'Faltou bairro'].join(',') + '\n' + dados.map(x=>[x.origem, x.anuncio, ...FUNIL_COLS.map(([k])=>x[k]), x.loja_fechada, x.faltou_nome, x.faltou_telefone, x.faltou_endereco, x.faltou_bairro].map(csvCampo).join(',')).join('\n') + '\n');
   corpo.appendChild(b);
 }
+async function desenharVisitasDia(box){
+  box.textContent = '';
+  box.appendChild(el('h2', '', 'Visitas por dia'));
+  box.appendChild(el('p', 'dica', 'Quantas visitas o site recebeu em cada dia (horário da loja), para comparar com os cliques do Meta. "Vindas de anúncio" são as visitas com meio paid, pago ou cpc no link. Costuma ficar um pouco abaixo dos cliques do Meta: parte das pessoas sai antes de a página carregar. Não entram visitas de teste.'));
+  const corpo = el('div'); corpo.appendChild(el('div', 'vazio', 'Calculando...')); box.appendChild(corpo);
+  let dados;
+  try{ dados = await rpc('rel_funil_dia', {p_loja:LOJA, p_ini:relPeriodo.ini, p_fim:relPeriodo.fim}); }
+  catch(e){ corpo.textContent = ''; corpo.appendChild(el('div', 'vazio', /PGRST202|Could not find|404|does not exist/i.test(String(e.message || e)) ? 'As visitas por dia ainda não foram instaladas no banco (falta rodar a Parte AD no Supabase).' : 'Não consegui carregar as visitas por dia agora. Tente de novo.')); return; }
+  corpo.textContent = '';
+  if(!dados.length){ corpo.appendChild(el('div', 'vazio', 'Nenhuma visita registrada neste período.')); return; }
+  const S = k=>dados.reduce((a, x)=>a + (Number(x[k]) || 0), 0);
+  const cab = ['Dia', 'Visitas', 'Vindas de anúncio', 'Viram produto', 'Carrinho', 'Tentaram enviar', 'Pedidos'];
+  const linhas = dados.map(x=>[brData(x.dia), x.visita, x.visita_anuncio, x.produto, x.carrinho, x.tentou, x.pedido]);
+  linhas.push(['TOTAL', S('visita'), S('visita_anuncio'), S('produto'), S('carrinho'), S('tentou'), S('pedido')]);
+  corpo.appendChild(tabelaSimples(cab, linhas));
+  const b = el('button', 'btn cinza peq', 'Exportar planilha');
+  b.onclick = ()=>baixarCsv('visitas-por-dia-' + relPeriodo.ini + '_a_' + relPeriodo.fim + '.csv', '﻿' + ['Dia', 'Visitas', 'Visitas de anuncio', 'Viram produto', 'Carrinho', 'Tentaram enviar', 'Pedidos'].join(',') + '\n' + dados.map(x=>[x.dia, x.visita, x.visita_anuncio, x.produto, x.carrinho, x.tentou, x.pedido].map(csvCampo).join(',')).join('\n') + '\n');
+  corpo.appendChild(b);
+}
+
 async function telaRelatorios(c){
   const barra = el('div', 'cartao'); barra.appendChild(el('div', 'nome', 'Período'));
   const chips = el('div', 'cheios'); chips.style.marginTop = '8px';
@@ -1211,7 +1231,7 @@ async function telaRelatorios(c){
   if(relDados.erro){ corpo.appendChild(el('div', 'vazio', 'Não consegui carregar os relatórios agora. Tente de novo.')); return; }
   const R = relDados.resumo;
   corpo.appendChild(el('p', 'dica', 'Considera só pedidos finalizados, pelo valor que o cliente pagou (com frete e descontos), no horário da loja. Período: ' + brData(relPeriodo.ini) + ' a ' + brData(relPeriodo.fim) + '.'));
-  if(Number(R.testes_ignorados) > 0) corpo.appendChild(el('p', 'dica', R.testes_ignorados + ' pedido(s) de teste ignorado(s) nas contas abaixo (campanha começando com "teste").'));
+  if(Number(R.testes_ignorados) > 0) corpo.appendChild(el('p', 'dica', R.testes_ignorados + ' pedido(s) de teste ignorado(s) nas contas abaixo (origem ou campanha com a palavra "teste").'));
   const sd = el('div', 'saldo');
   [[money(R.faturamento), 'faturamento'], [String(R.pedidos), 'pedidos'], [money(R.ticket_medio), 'ticket médio'], [String(R.cancelados), 'cancelados']].forEach(([n, r])=>{ const d = el('div'); d.appendChild(document.createTextNode(n)); d.appendChild(el('small', '', r)); sd.appendChild(d); });
   corpo.appendChild(sd);
@@ -1237,6 +1257,7 @@ async function telaRelatorios(c){
   corpo.appendChild(el('p', 'dica', 'Origem das vendas: quanto cada campanha, link ou anúncio vendeu. Pedidos sem origem vieram direto do site.'));
   secaoRel(corpo, 'origem', 'Origem das vendas', 'origem', tabelaSimples(['Origem', 'Pedidos', 'Faturamento', 'Ticket médio'], relDados.origem.map(x=>[x.origem, x.pedidos, money(x.faturamento), money(x.ticket_medio)]), 'Nenhuma venda neste período.'));
   const funilBox = el('div'); corpo.appendChild(funilBox); desenharFunil(funilBox);
+  const diaBox = el('div'); corpo.appendChild(diaBox); desenharVisitasDia(diaBox);
   const linksBox = el('div'); corpo.appendChild(linksBox); montarGeradorLinks(linksBox);
 }
 

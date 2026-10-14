@@ -1581,6 +1581,7 @@ function selecionarTipoMeio(tipo){
   atualizarModalMeio();
 }
 function abrirModalMeio(){
+  funil('produto');   // meio a meio tambem conta como "viu produto" no funil (nao dispara evento no pixel)
   meioTamanhoSel = null; meioQtdAtual = 1; meioBordaSelecionada = BORDAS[0]; meioTipoAtual = 'salgada';
   document.getElementById('meioQtd').textContent = 1;
   document.querySelectorAll('#meioTamanhos button').forEach(b=>b.classList.remove('selected'));
