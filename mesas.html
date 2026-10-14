@@ -425,15 +425,18 @@ function abrirConta(){
   pagos.forEach(g=>{ const l = el('div','linha'); l.appendChild(el('span','', g.forma)); const d = el('div'); d.style.cssText = 'display:flex;gap:8px;align-items:center';
     d.appendChild(el('span','',money(g.valor))); const x = el('button','btn peq','Desfazer'); x.onclick = async ()=>{ try{ await rpc('mesa_desfazer_pagamento',{p_loja:LOJA,p_pagamento:g.id}); await carregarDetalhe(); fechar(); abrirConta(); }catch(e){ aviso(e.message); } }; d.appendChild(x); l.appendChild(d); bpg.appendChild(l); });
   const tfalta = el('div','total'); bpg.appendChild(tfalta);
-  bpg.appendChild(el('div','rot','Valor que o cliente vai pagar agora'));
+  bpg.appendChild(el('div','rot','Valor que o cliente entregou agora'));
   const iVal = el('input'); iVal.type = 'text'; iVal.inputMode = 'decimal'; iVal.style.width = '100%'; bpg.appendChild(iVal);
+  const tTroco = el('div','total'); tTroco.style.cssText = 'display:none;background:#fff3cd;color:#7a4b00;margin-top:8px;font-size:1.15em'; bpg.appendChild(tTroco);
   bpg.appendChild(el('div','rot','Forma de pagamento'));
-  let forma = null; const of = el('div','opcoes'); FORMAS.forEach(f=>{ const b = el('button','opc',f); b.onclick = ()=>{ forma = f; of.querySelectorAll('.opc').forEach(x=>x.classList.remove('sel')); b.classList.add('sel'); }; of.appendChild(b); }); bpg.appendChild(of);
+  let forma = null; const of = el('div','opcoes'); FORMAS.forEach(f=>{ const b = el('button','opc',f); b.onclick = ()=>{ forma = f; of.querySelectorAll('.opc').forEach(x=>x.classList.remove('sel')); b.classList.add('sel'); atualizaPag(); }; of.appendChild(b); }); bpg.appendChild(of);
   const bRec = el('button','btn verde'); bRec.style.width = '100%'; bpg.appendChild(bRec);
   j.appendChild(bpg);
   const falta = ()=> arred(recalcula() - recebido);
   function atualizaPag(){ const f = falta(); tfalta.innerHTML = ''; tfalta.appendChild(el('span','', f > 0.009 ? 'Falta receber' : 'Tudo recebido')); tfalta.appendChild(el('span','', money(Math.max(f,0))));
-    const v = num(iVal.value); bRec.textContent = f <= 0.009 ? 'Fechar conta' : (v >= f - 0.005 ? 'Receber e fechar conta' : 'Receber este valor (parcial)'); }
+    const v = num(iVal.value); bRec.textContent = f <= 0.009 ? 'Fechar conta' : (v >= f - 0.005 ? 'Receber e fechar conta' : 'Receber este valor (parcial)');
+    const tr = trocoAtual(); tTroco.innerHTML = ''; if(tr > 0.009){ tTroco.style.display = 'flex'; tTroco.appendChild(el('span','','Troco a devolver')); tTroco.appendChild(el('span','',money(tr))); } else tTroco.style.display = 'none'; }
+  function trocoAtual(){ const f = falta(), v = num(iVal.value); return (forma === 'Dinheiro' && f > 0.009 && v > f + 0.005) ? arred(v - f) : 0; }
   iVal.value = String(Math.max(falta(),0).toFixed(2)).replace('.',','); iDesc.addEventListener('input', ()=>{ iVal.value = String(Math.max(falta(),0).toFixed(2)).replace('.',','); atualizaPag(); }); iAcr.addEventListener('input', ()=>{ iVal.value = String(Math.max(falta(),0).toFixed(2)).replace('.',','); atualizaPag(); });
   tx.addEventListener('click', ()=>setTimeout(()=>{ iVal.value = String(Math.max(falta(),0).toFixed(2)).replace('.',','); atualizaPag(); },0));
   iVal.oninput = atualizaPag; atualizaPag();
@@ -441,13 +444,14 @@ function abrirConta(){
     const f = falta(), v = num(iVal.value), fecha = f <= 0.009 || v >= f - 0.005;
     if(f > 0.009 && !forma){ aviso('Escolha a forma de pagamento.'); return; }
     if(f > 0.009 && v <= 0){ aviso('Informe o valor.'); return; }
-    if(fecha && !confirm('Fechar a conta de ' + rotMesa(mesaAtual) + ' em ' + money(recalcula()) + '?')) return;
+    const troco = trocoAtual();
+    if(fecha && !confirm('Fechar a conta de ' + rotMesa(mesaAtual) + ' em ' + money(recalcula()) + '?' + (troco > 0 ? '\n\nTROCO A DEVOLVER: ' + money(troco) : ''))) return;
     bRec.disabled = true;
     try{
       const dados = {desconto:num(iDesc.value),acrescimo:num(iAcr.value),taxa_servico:taxa};
       await rpc('mesa_atualizar',{p_loja:LOJA,p_conta:conta.id,p_dados:dados});
       if(f > 0.009) await rpc('mesa_receber',{p_loja:LOJA,p_conta:conta.id,p_valor:Math.min(v, f),p_forma:forma});
-      if(fecha){ await rpc('mesa_fechar',{p_loja:LOJA,p_conta:conta.id,p_forma:forma,p_desconto:dados.desconto,p_acrescimo:dados.acrescimo,p_taxa:taxa}); fechar(); aviso('Conta fechada. Mesa livre.'); tela='grade'; carrinho = []; await atualizarContas(); desenhar(); }
+      if(fecha){ await rpc('mesa_fechar',{p_loja:LOJA,p_conta:conta.id,p_forma:forma,p_desconto:dados.desconto,p_acrescimo:dados.acrescimo,p_taxa:taxa}); fechar(); aviso('Conta fechada. Mesa livre.' + (troco > 0 ? ' Troco: ' + money(troco) : '')); if(troco > 0){ clearTimeout(aviso.t); aviso.t = setTimeout(()=>$('aviso').classList.add('oculto'), 9000); } tela='grade'; carrinho = []; await atualizarContas(); desenhar(); }
       else{ await carregarDetalhe(); fechar(); aviso('Recebido ' + money(v) + ' em ' + forma + '.'); abrirConta(); }
     }catch(e){ bRec.disabled = false; aviso('Não consegui: ' + e.message); }
   };
