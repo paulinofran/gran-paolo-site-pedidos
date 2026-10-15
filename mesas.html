@@ -588,8 +588,8 @@ function abrirRapido(tipo){
   j.appendChild(el('div','rot','Telefone (com DDD) · para cashback e pontos'));
   const iTel = el('input'); iTel.type = 'tel'; iTel.inputMode = 'tel'; iTel.placeholder = '(84) 9 9999-9999'; iTel.style.width = '100%'; j.appendChild(iTel);
   const info = el('div','dica'); info.style.marginTop = '6px'; j.appendChild(info);
-  j.appendChild(el('div','rot','Nome'));
-  const iNome = el('input'); iNome.type = 'text'; iNome.placeholder = 'Nome do cliente'; iNome.style.width = '100%'; j.appendChild(iNome);
+  j.appendChild(el('div','rot','Nome (opcional)'));
+  const iNome = el('input'); iNome.type = 'text'; iNome.placeholder = 'Deixe em branco se o cliente não quiser informar'; iNome.style.width = '100%'; j.appendChild(iNome);
   let busca = 0;
   iTel.oninput = async ()=>{
     const d = iTel.value.replace(/\D/g,''); info.textContent = '';
@@ -603,10 +603,15 @@ function abrirRapido(tipo){
   const ac = el('div','acoes'); const bv = el('button','btn','Voltar'); bv.onclick = fechar;
   const bo = el('button','btn verm','Começar pedido');
   bo.onclick = async ()=>{
-    if(!iNome.value.trim()){ aviso('Digite o nome do cliente.'); iNome.focus(); return; }
     bo.disabled = true;
+    let nome = iNome.value.trim();
+    if(!nome){   // cliente que não quer dar nome: o sistema numera (Carro 1, Carro 2... / Cliente 1, Cliente 2...)
+      const pref = tipo === 'Drive' ? 'Carro ' : 'Cliente ', usados = contasDaMesa(tipo).map(x=>String(x.comanda||'')), re = new RegExp('^' + pref + '(\\d+)');
+      let k = 1; usados.forEach(n=>{ const m = n.match(re); if(m && Number(m[1]) >= k) k = Number(m[1]) + 1; });
+      nome = pref + k;
+    }
     try{
-      const r = await rpc('pdv_abrir_atendimento',{p_loja:LOJA,p_tipo:tipo,p_nome:iNome.value,p_telefone:iTel.value.trim() || null});
+      const r = await rpc('pdv_abrir_atendimento',{p_loja:LOJA,p_tipo:tipo,p_nome:nome,p_telefone:iTel.value.trim() || null});
       fechar(); await atualizarContas(); await abrirMesa(tipo, r.comanda);
     }catch(e){ bo.disabled = false; aviso(e.message); }
   };
@@ -626,8 +631,8 @@ function abrirEntrega(){
   const iTel = el('input'); iTel.type = 'tel'; iTel.inputMode = 'tel'; iTel.placeholder = '(84) 9 9999-9999'; iTel.style.flex = '1'; iTel.value = d.telefone || ''; lt.appendChild(iTel);
   const bb = el('button','btn','Buscar'); lt.appendChild(bb); j.appendChild(lt);
   const info = el('div','dica'); info.style.marginTop = '6px'; j.appendChild(info);
-  j.appendChild(el('div','rot','Nome'));
-  const iNome = el('input'); iNome.type = 'text'; iNome.placeholder = 'Nome do cliente'; iNome.style.width = '100%'; iNome.value = d.nome || ''; j.appendChild(iNome);
+  j.appendChild(el('div','rot','Nome (opcional)'));
+  const iNome = el('input'); iNome.type = 'text'; iNome.placeholder = 'Deixe em branco se o cliente não quiser informar'; iNome.style.width = '100%'; iNome.value = d.nome || ''; j.appendChild(iNome);
   j.appendChild(el('div','rot','Bairro'));
   let iBairro;
   const iTaxa = el('input'); iTaxa.type = 'text'; iTaxa.inputMode = 'decimal'; iTaxa.style.width = '100%';
