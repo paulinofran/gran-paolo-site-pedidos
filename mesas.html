@@ -721,10 +721,10 @@ function abrirConta(){
   const mk = (rot, val)=>{ const w = el('label','',rot); const i = el('input'); i.type = 'text'; i.inputMode = 'decimal'; i.value = val ? String(val).replace('.',',') : ''; i.placeholder = '0,00'; w.appendChild(i); g.appendChild(w); return i; };
   const iDesc = mk('Desconto (R$)', conta.desconto > 0 ? conta.desconto : ''), iAcr = mk('Acréscimo (R$)', conta.acrescimo > 0 ? conta.acrescimo : '');
   j.appendChild(g);
-  const tx = el('div','opcoes'); tx.style.marginTop = '8px'; tx.appendChild(el('span','rot','Taxa de serviço:'));
-  let taxa = Number(conta.taxa_servico) || 0;
-  [['Sem',0],['10%',0.10]].forEach(([r,pct])=>{ const b = el('button','opc' + ((pct===0 && taxa===0) || (pct>0 && taxa>0) ? ' sel':''), r); b.onclick = ()=>{ taxa = pct ? arred(sub*pct) : 0; tx.querySelectorAll('.opc').forEach(x=>x.classList.remove('sel')); b.classList.add('sel'); recalcula(); }; tx.appendChild(b); });
-  j.appendChild(tx);
+
+  const taxa = 0;   // a Gran Paolo não cobra taxa de serviço
+
+
   const cbU = Number(conta.cb_usado) || 0, dfU = Number(conta.desc_fidelidade) || 0, ptU = Number(conta.pontos_usados) || 0;
   if(cbU > 0){ const l = el('div','linha'); l.appendChild(el('span','','Cashback usado')); l.appendChild(el('span','','-' + money(cbU))); j.appendChild(l); }
   if(dfU > 0){ const l = el('div','linha'); l.appendChild(el('span','','Pontos usados (' + ptU + ' pts)')); l.appendChild(el('span','','-' + money(dfU))); j.appendChild(l); }
@@ -790,7 +790,6 @@ function abrirConta(){
     const tr = trocoAtual(); tTroco.innerHTML = ''; if(tr > 0.009){ tTroco.style.display = 'flex'; tTroco.appendChild(el('span','','Troco a devolver')); tTroco.appendChild(el('span','',money(tr))); } else tTroco.style.display = 'none'; }
   function trocoAtual(){ const f = falta(), v = num(iVal.value); return (forma === 'Dinheiro' && f > 0.009 && v > f + 0.005) ? arred(v - f) : 0; }
   iVal.value = String(Math.max(falta(),0).toFixed(2)).replace('.',','); iDesc.addEventListener('input', ()=>{ iVal.value = String(Math.max(falta(),0).toFixed(2)).replace('.',','); atualizaPag(); }); iAcr.addEventListener('input', ()=>{ iVal.value = String(Math.max(falta(),0).toFixed(2)).replace('.',','); atualizaPag(); });
-  tx.addEventListener('click', ()=>setTimeout(()=>{ iVal.value = String(Math.max(falta(),0).toFixed(2)).replace('.',','); atualizaPag(); },0));
   iVal.oninput = atualizaPag; atualizaPag();
   bRec.onclick = async ()=>{
     const f = falta(), v = num(iVal.value), fecha = f <= 0.009 || v >= f - 0.005;
