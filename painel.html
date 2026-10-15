@@ -107,7 +107,7 @@ main{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;padding:14px 16px
       <button id="btnLoja" class="btn vermelho">Abrir loja</button>
       <button id="btnSom" class="btn claro">Ativar som</button>
       <button id="btnFeitos" class="btn claro">Concluídos hoje</button>
-      <a class="btn claro" href="mesas.html" target="mesas" rel="noopener" style="text-decoration:none">Mesas</a>
+      <a class="btn claro" href="mesas.html" target="mesas" rel="noopener" style="text-decoration:none">PDV / Mesas</a>
       <a class="btn claro" href="gestao.html" target="gestao" rel="noopener" style="text-decoration:none">Gestão</a>
       <button id="btnSair" class="btn claro">Sair</button>
     </div>
@@ -386,7 +386,7 @@ function cartao(p){
   const meta = el('div', 'meta');
   meta.appendChild(el('span', 'tipo ' + classeTipo(p.modalidade), p.modalidade || ''));
   meta.appendChild(el('span', '', money(p.total)));
-  meta.appendChild(el('span', '', 'cobrar: ' + (p.pagamento || '—')));
+  meta.appendChild(el('span', '', 'cobrar: ' + (p.pagamento || (p.conta_id ? 'no PDV (ainda não pago)' : '—'))));
   meta.appendChild(el('span', '', 'há ' + Math.floor(t.m) + ' min'));
   c.appendChild(meta);
   const pixPend = p.pix_retido === true;
