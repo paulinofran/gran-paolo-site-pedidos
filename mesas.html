@@ -296,11 +296,19 @@ function desenharMesa(c){
   if(ent) c.appendChild(el('p','dica', entrega.bairro + ' · ' + entrega.endereco + ' · Taxa de entrega ' + money(entrega.taxa) + ' · ' + entrega.telefone));
 
   const cats = categorias(); const chips = el('div','chips');
+  const promos = promosDisponiveis();
+  if(promos.length){ const b = el('button','chip' + (catAtiva==='__promo'?' ativa':''), '🔥 Promoções'); b.onclick = ()=>{ catAtiva = '__promo'; desenhar(); }; chips.appendChild(b); }
   cats.forEach(ct=>{ const b = el('button','chip' + (ct.slug===catAtiva?' ativa':''), ct.nome); b.onclick = ()=>{ catAtiva = ct.slug; desenhar(); }; chips.appendChild(b); });
+  if(pizzasDoPdv().length > 1){ const b = el('button','chip','🍕 Meio a meio'); b.onclick = ()=>abrirMeio(); chips.appendChild(b); }
   c.appendChild(chips);
-  const cat = cats.find(x=>x.slug===catAtiva) || cats[0];
+  const cat = (catAtiva==='__promo' && promos.length) ? null : (cats.find(x=>x.slug===catAtiva) || cats[0]);
   const gp = el('div','prods');
-  if(!cat) gp.appendChild(el('p','dica','Cardápio não carregou. Toque em Atualizar.'));
+  if(catAtiva==='__promo' && promos.length){
+    promos.forEach(pm=>{ const ap = promoAPartirDe(pm), b = el('button','prod' + (ap===null?' esgotado':'')); b.appendChild(el('b','','🔥 ' + pm.nome));
+      b.appendChild(el('span','', ap===null ? 'Indisponível' : 'a partir de ' + money(ap)));
+      if(ap!==null) b.onclick = ()=>abrirPromo(pm); gp.appendChild(b); });
+  }
+  else if(!cat) gp.appendChild(el('p','dica','Cardápio não carregou. Toque em Atualizar.'));
   else cat.produtos.forEach(p=>{
     const precos = p.tamanhos.map(t=>Number(t.preco)), b = el('button','prod' + (p.esgotado?' esgotado':''));
     b.appendChild(el('b','',p.nome));
@@ -399,6 +407,91 @@ function abrirProduto(cat, p){
     ac.appendChild(bc); ac.appendChild(ba); area.appendChild(ac);
   }
   redesenhar();
+}
+
+/* ---------- Promoções e Meio a meio (mesmas regras do site) ---------- */
+function canalAtual(){ return mesaAtual==='Drive' ? 'Drive-thru' : mesaAtual==='Retirada' ? 'Retirada' : mesaAtual==='Entrega' ? 'Entrega' : 'Vem comer'; }
+function promosDisponiveis(){ const ca = canalAtual(); return ((MENU && MENU.promocoes) || []).filter(pm=>pm.disponivel && (!pm.canais || !pm.canais.length || pm.canais.indexOf(ca) >= 0) && (pm.etapas||[]).length); }
+function pizzasDoPdv(){ const l = []; categorias().filter(ehPizza).forEach(c=>c.produtos.forEach(x=>{ if(!x.esgotado) l.push(x); })); return l; }
+function precoTam(x, tam){ const t = (x.tamanhos||[]).find(y=>y.nome===tam); return t ? Number(t.preco) : null; }
+function opcoesEtapa(et){
+  if(et.tipo === 'borda'){ return ((MENU && MENU.bordas)||[]).filter(b=>(et.opcoes||[]).indexOf(b.nome) >= 0).map(b=>({id:b.nome, nome:'Borda ' + b.nome, preco:Number(b.preco)})); }
+  const pz = pizzasDoPdv();
+  const lista = et.qualquer_pizza ? pz : (et.opcoes||[]).map(sl=>pz.find(x=>x.slug===sl)).filter(Boolean);
+  return lista.map(x=>{ const pr = precoTam(x, et.tamanho); return pr===null ? null : {id:x.slug, nome:'Pizza ' + x.nome, preco:pr}; }).filter(Boolean);
+}
+function precoEtapa(et, esc){ if(!esc.length) return {normal:0, final:0}; const n = esc.reduce((a,o)=>a+o.preco,0)/esc.length; return {normal:arred(n), final:arred(n*(100-Number(et.desconto_pct||0))/100)}; }
+function promoAPartirDe(pm){ let t = 0; for(const et of pm.etapas){ const ops = opcoesEtapa(et); if(!ops.length) return null; t += precoEtapa(et, [ops.reduce((m,o)=>o.preco<m.preco?o:m, ops[0])]).final; } return arred(t); }
+function abrirPromo(pm){
+  const j = janela(), area = el('div'); j.appendChild(area);
+  const esc = pm.etapas.map(et=>{ const ops = opcoesEtapa(et); return (ops.length===1 && Number(et.min)===1 && Number(et.max)===1) ? [ops[0]] : []; });
+  let qtd = 1;
+  const completa = ()=>pm.etapas.every((et,k)=>esc[k].length >= (Number(et.min)||1));
+  const total = ()=>arred(pm.etapas.reduce((a,et,k)=>a + precoEtapa(et, esc[k]).final, 0));
+  function desenhar2(){
+    area.innerHTML = ''; area.appendChild(el('h3','','🔥 ' + pm.nome)); if(pm.descricao) area.appendChild(el('div','sub',pm.descricao));
+    pm.etapas.forEach((et,k)=>{
+      const ops = opcoesEtapa(et), mx = Number(et.max)||1, mn = Number(et.min)||1, fixa = ops.length===1 && mn===1 && mx===1;
+      area.appendChild(el('div','rot', (k+1) + '. ' + et.titulo + (fixa ? '' : (mx>1 ? '  (escolha ' + (mn===mx ? mx : 'até ' + mx) + ', meio a meio)' : '  (escolha 1)'))));
+      if(fixa){ area.appendChild(el('div','sub', ops[0].nome + ' · incluso')); }
+      else if(!ops.length){ area.appendChild(el('div','sub','Sem opções disponíveis no momento.')); }
+      else { const o = el('div','opcoes'); ops.forEach(op=>{ const b = el('button','opc' + (esc[k].some(x=>x.id===op.id)?' sel':''), op.nome.replace(/^Pizza /,'') + ' · ' + money(op.preco));
+        b.onclick = ()=>{ const i = esc[k].findIndex(x=>x.id===op.id); if(i>=0) esc[k].splice(i,1); else { esc[k].push(op); while(esc[k].length > mx) esc[k].shift(); } desenhar2(); }; o.appendChild(b); }); area.appendChild(o); }
+      if(esc[k].length >= mn){ const pr = precoEtapa(et, esc[k]); area.appendChild(el('div','sub', pr.final < pr.normal ? 'De ' + money(pr.normal) + ' por ' + money(pr.final) + (pr.final===0 ? ' (GRÁTIS)' : '') : money(pr.final))); }
+    });
+    area.appendChild(el('div','rot','Observações (vai para a cozinha)'));
+    const ob = el('input'); ob.type = 'text'; ob.style.width = '100%'; ob.value = pm._obs || ''; ob.oninput = ()=>{ pm._obs = ob.value; }; area.appendChild(ob);
+    const q = el('div','qtd'); const m = el('button','','−'), mais = el('button','','+'), v = el('span','',String(qtd));
+    m.onclick = ()=>{ if(qtd>1){ qtd--; desenhar2(); } }; mais.onclick = ()=>{ qtd++; desenhar2(); }; q.appendChild(m); q.appendChild(v); q.appendChild(mais); area.appendChild(q);
+    const tot = el('div','total'); tot.appendChild(el('span','','Total')); tot.appendChild(el('span','',completa() ? money(total()*qtd) : '—')); area.appendChild(tot);
+    const ac = el('div','acoes'); const bc = el('button','btn','Cancelar'); bc.onclick = fechar; const ba = el('button','btn verm','Adicionar ao carrinho');
+    ba.onclick = ()=>{
+      if(!completa()){ aviso('Escolha os sabores de todas as etapas.'); return; }
+      const obs = (pm._obs||'').trim(); let ultimo = null;
+      pm.etapas.forEach((et,k)=>{
+        const e = esc[k]; if(!e.length) return; const pr = precoEtapa(et, e);
+        if(et.tipo === 'borda'){ if(ultimo){ ultimo.tamanho += ' • Borda: ' + e[0].nome.replace(/^Borda /,'') + (pr.final===0 ? ' (grátis)' : ''); ultimo.precoUnit = arred(ultimo.precoUnit + pr.final); } return; }
+        const nome = e.length===1 ? e[0].nome : 'Meio a Meio: ' + e.map(o=>o.nome).join(' / ');
+        ultimo = {nome, tamanho:et.tamanho + (pr.final===0 ? ' (grátis)' : '') + ' — ' + pm.nome, qtd, precoUnit:pr.final}; carrinho.push(ultimo);
+      });
+      if(obs && ultimo) ultimo.tamanho += ' • Obs: ' + obs;
+      pm._obs = ''; fechar(); desenharCarrinho();
+    };
+    ac.appendChild(bc); ac.appendChild(ba); area.appendChild(ac);
+  }
+  desenhar2();
+}
+function abrirMeio(){
+  const pz = pizzasDoPdv(); const tams = []; pz.forEach(x=>x.tamanhos.forEach(t=>{ if(tams.indexOf(t.nome)<0) tams.push(t.nome); }));
+  const ORD = ['Grande','Pequena']; tams.sort((a,b)=>((ORD.indexOf(a)+1)||99)-((ORD.indexOf(b)+1)||99));
+  const bordas = [{nome:'Sem borda',preco:0}].concat(((MENU && MENU.bordas)||[]).map(b=>({nome:b.nome,preco:Number(b.preco)})));
+  const st = {tam:tams[0], s1:null, s2:null, borda:bordas[0], qtd:1, obs:''};
+  const j = janela(), area = el('div'); j.appendChild(area);
+  function seletor(rot, atual, fnSet, excl){
+    area.appendChild(el('div','rot',rot)); const s = el('select'); s.style.width = '100%'; const o0 = el('option','','Escolher o sabor...'); o0.value = ''; s.appendChild(o0);
+    pz.filter(x=>precoTam(x, st.tam)!==null && (!excl || x.slug!==excl.slug)).forEach(x=>{ const o = el('option','',x.nome + ' · ' + money(precoTam(x, st.tam))); o.value = x.slug; if(atual && atual.slug===x.slug) o.selected = true; s.appendChild(o); });
+    s.onchange = ()=>{ fnSet(pz.find(x=>x.slug===s.value) || null); desenhar3(); }; area.appendChild(s);
+  }
+  const unit = ()=>arred(((precoTam(st.s1, st.tam)||0) + (precoTam(st.s2, st.tam)||0))/2 + st.borda.preco);
+  function desenhar3(){
+    area.innerHTML = ''; area.appendChild(el('h3','','🍕 Meio a meio'));
+    area.appendChild(el('div','rot','Tamanho')); const o = el('div','opcoes'); tams.forEach(t=>{ const b = el('button','opc' + (t===st.tam?' sel':''), t); b.onclick = ()=>{ st.tam = t; if(st.s1 && precoTam(st.s1,t)===null) st.s1 = null; if(st.s2 && precoTam(st.s2,t)===null) st.s2 = null; desenhar3(); }; o.appendChild(b); }); area.appendChild(o);
+    seletor('1ª metade', st.s1, v=>{ st.s1 = v; if(st.s2 && v && st.s2.slug===v.slug) st.s2 = null; }, st.s2);
+    seletor('2ª metade', st.s2, v=>{ st.s2 = v; }, st.s1);
+    if(bordas.length > 1){ area.appendChild(el('div','rot','Borda')); const ob2 = el('div','opcoes'); bordas.forEach(b=>{ const bt = el('button','opc' + (b.nome===st.borda.nome?' sel':''), b.nome + (b.preco>0?' +' + money(b.preco):'')); bt.onclick = ()=>{ st.borda = b; desenhar3(); }; ob2.appendChild(bt); }); area.appendChild(ob2); }
+    area.appendChild(el('div','rot','Observações (vai para a cozinha)')); const ob = el('input'); ob.type = 'text'; ob.style.width = '100%'; ob.value = st.obs; ob.oninput = ()=>{ st.obs = ob.value; }; area.appendChild(ob);
+    const q = el('div','qtd'); const m = el('button','','−'), mais = el('button','','+'), v = el('span','',String(st.qtd));
+    m.onclick = ()=>{ if(st.qtd>1){ st.qtd--; desenhar3(); } }; mais.onclick = ()=>{ st.qtd++; desenhar3(); }; q.appendChild(m); q.appendChild(v); q.appendChild(mais); area.appendChild(q);
+    const tot = el('div','total'); tot.appendChild(el('span','','Total')); tot.appendChild(el('span','', (st.s1 && st.s2) ? money(unit()*st.qtd) : '—')); area.appendChild(tot);
+    const ac = el('div','acoes'); const bc = el('button','btn','Cancelar'); bc.onclick = fechar; const ba = el('button','btn verm','Adicionar ao carrinho');
+    ba.onclick = ()=>{
+      if(!st.s1 || !st.s2){ aviso('Escolha os dois sabores do meio a meio.'); return; }
+      let tam = st.tam; if(st.borda.preco > 0) tam += ' • Borda: ' + st.borda.nome; if(st.obs.trim()) tam += ' • Obs: ' + st.obs.trim();
+      carrinho.push({nome:'Meio a Meio: Pizza ' + st.s1.nome + ' / Pizza ' + st.s2.nome, tamanho:tam, qtd:st.qtd, precoUnit:unit()}); fechar(); desenharCarrinho();
+    };
+    ac.appendChild(bc); ac.appendChild(ba); area.appendChild(ac);
+  }
+  desenhar3();
 }
 
 function abrirCarrinho(){
