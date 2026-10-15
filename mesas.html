@@ -101,6 +101,7 @@ select,input[type=text],input[type=number],textarea{font-family:inherit;font-siz
   <header>
     <h1>Gran Paolo · Mesas</h1>
     <div class="barra">
+      <button class="btn peq" id="btnSite">Pedidos do site</button>
       <button class="btn peq" id="btnAtualizar">Atualizar</button>
       <a class="btn peq" href="painel.html" target="painel" rel="noopener" style="text-decoration:none">Painel</a>
       <button class="btn peq" id="btnSair">Sair</button>
@@ -121,7 +122,7 @@ const QTD_MESAS = 10;
 const MESAS = ['Balcao'].concat(Array.from({length:QTD_MESAS}, (_,i)=>String(i+1)));
 const FORMAS = ['Pix','Dinheiro','Débito','Crédito'];
 
-let sessao = null, MENU = null, contas = [], timer = null;
+let sessao = null, MENU = null, contas = [], pedSite = [], timer = null;
 let tela = 'grade', mesaAtual = null, comandaAtual = 'Comanda 1', detalhe = null, catAtiva = null, carrinho = [];
 
 const $ = (id)=>document.getElementById(id);
@@ -164,7 +165,37 @@ async function carregarMenu(){
 const ehPizza = (c)=> c.tipo === 'pizza';
 const nomeProd = (c,p)=> ehPizza(c) ? 'Pizza ' + p.nome : p.nome;
 function categorias(){ return ((MENU && MENU.categorias) || []).map(c=>({...c, produtos:(c.produtos||[]).filter(p=>(p.disponivel||p.esgotado) && (p.tamanhos||[]).length)})).filter(c=>c.produtos.length); }
-async function atualizarContas(){ try{ contas = await rpc('mesas_estado',{p_loja:LOJA}) || []; }catch(e){ if(sessao) aviso('Não consegui atualizar as mesas.'); } }
+async function atualizarContas(){
+  try{ contas = await rpc('mesas_estado',{p_loja:LOJA}) || []; }catch(e){ if(sessao) aviso('Não consegui atualizar as mesas.'); }
+  try{ pedSite = await rpc('mesa_pedidos_do_site',{p_loja:LOJA}) || []; }catch(e){ pedSite = []; }   // sem a Parte AN, a lista fica vazia
+  marcaSite();
+}
+function marcaSite(){ const b = $('btnSite'); if(!b) return; b.textContent = 'Pedidos do site' + (pedSite.length ? ' (' + pedSite.length + ')' : ''); b.style.background = pedSite.length ? '#fff3cd' : ''; b.style.borderColor = pedSite.length ? '#e0a800' : ''; }
+/* ---------- pedidos "Vem comer" feitos no site: mandar para a mesa do cliente ---------- */
+function abrirPedidosSite(){
+  const j = janela(); j.appendChild(el('h3','','Pedidos do site · Vem comer'));
+  if(!pedSite.length){ j.appendChild(el('p','dica','Nenhum pedido "Vem comer" do site esperando mesa.')); }
+  pedSite.forEach(p=>{
+    const bl = el('div','bloco'); bl.style.marginBottom = '10px';
+    const t = el('div','linha'); t.appendChild(el('span','','#' + p.numero + ' · ' + (p.nome || 'Cliente'))); t.appendChild(el('span','',money(p.total))); bl.appendChild(t);
+    (Array.isArray(p.itens) ? p.itens : []).forEach(i=>{ const d = el('div','dica', (i.qtd||1) + 'x ' + i.nome + (i.tamanho ? ' (' + i.tamanho + ')' : '')); bl.appendChild(d); });
+    bl.appendChild(el('div','dica', p.pix_pendente ? '⚠️ Pix ainda não conferido: confira no painel antes.' : (p.pago ? '✅ Já pago no Pix' : 'Cobrar na mesa: ' + (p.pagamento || '—'))));
+    if(p.obs) bl.appendChild(el('div','dica','Obs: ' + p.obs));
+    if(!p.pix_pendente){
+      bl.appendChild(el('div','rot','Mandar para qual mesa?'));
+      const ops = el('div','opcoes');
+      MESAS.forEach(m=>{ const ocup = contas.some(c=>c.mesa===m); const b = el('button','opc', rotMesa(m) + (ocup ? ' •' : ''));
+        b.onclick = async ()=>{ if(!confirm('Mandar o pedido #' + p.numero + ' (' + (p.nome||'') + ') para ' + rotMesa(m) + '?')) return;
+          try{ const r = await rpc('mesa_anexar_pedido',{p_loja:LOJA,p_pedido:p.id,p_mesa:m,p_comanda:'Comanda 1'}); await atualizarContas(); if(tela==='mesa') await carregarDetalhe(); desenhar(); fechar(); aviso('Pedido #' + p.numero + ' está na ' + rotMesa(m) + (r && r.ja_pago ? ' (já pago no Pix).' : '.')); if(pedSite.length) abrirPedidosSite(); }
+          catch(e){ aviso(e.message); } };
+        ops.appendChild(b); });
+      bl.appendChild(ops);
+    }
+    j.appendChild(bl);
+  });
+  j.appendChild(el('p','dica','• = mesa com conta aberta (o pedido entra na conta que já está lá).'));
+  const ac = el('div','acoes'); const bv = el('button','btn','Fechar'); bv.onclick = fechar; ac.appendChild(bv); j.appendChild(ac);
+}
 async function carregarDetalhe(){
   detalhe = null;
   const c = contas.find(x=>x.mesa===mesaAtual && x.comanda===comandaAtual);
@@ -416,9 +447,52 @@ function abrirConta(){
   let taxa = Number(conta.taxa_servico) || 0;
   [['Sem',0],['10%',0.10]].forEach(([r,pct])=>{ const b = el('button','opc' + ((pct===0 && taxa===0) || (pct>0 && taxa>0) ? ' sel':''), r); b.onclick = ()=>{ taxa = pct ? arred(sub*pct) : 0; tx.querySelectorAll('.opc').forEach(x=>x.classList.remove('sel')); b.classList.add('sel'); recalcula(); }; tx.appendChild(b); });
   j.appendChild(tx);
+  const cbU = Number(conta.cb_usado) || 0, dfU = Number(conta.desc_fidelidade) || 0, ptU = Number(conta.pontos_usados) || 0;
+  if(cbU > 0){ const l = el('div','linha'); l.appendChild(el('span','','Cashback usado')); l.appendChild(el('span','','-' + money(cbU))); j.appendChild(l); }
+  if(dfU > 0){ const l = el('div','linha'); l.appendChild(el('span','','Pontos usados (' + ptU + ' pts)')); l.appendChild(el('span','','-' + money(dfU))); j.appendChild(l); }
   const tf = el('div','total'); j.appendChild(tf);
-  const recalcula = ()=>{ const f = Math.max(arred(sub - num(iDesc.value) + num(iAcr.value) + taxa), 0); tf.innerHTML = ''; tf.appendChild(el('span','','Total')); tf.appendChild(el('span','',money(f))); return f; };
+  const recalcula = ()=>{ const f = Math.max(arred(sub - num(iDesc.value) + num(iAcr.value) + taxa - cbU - dfU), 0); tf.innerHTML = ''; tf.appendChild(el('span','','Total')); tf.appendChild(el('span','',money(f))); return f; };
   iDesc.oninput = iAcr.oninput = recalcula; recalcula();
+  // ---- cliente: cashback e pontos ----
+  const bcl = el('div','bloco'); bcl.style.marginTop = '12px'; bcl.appendChild(el('h3','','Cliente · cashback e pontos'));
+  const salvaCampos = ()=> rpc('mesa_atualizar',{p_loja:LOJA,p_conta:conta.id,p_dados:{desconto:num(iDesc.value),acrescimo:num(iAcr.value),taxa_servico:taxa}});
+  const reabrir = async ()=>{ await carregarDetalhe(); fechar(); abrirConta(); };
+  const tentar = async (fn)=>{ try{ await fn(); }catch(e){ aviso(e.message); } };
+  if(conta.cliente_telefone){
+    const sd = detalhe.saldo || {}, saldoCb = Number(sd.cashback) || 0, saldoPts = Number(sd.pontos) || 0, porRes = Number(sd.pontos_por_resgate) || 10, valRes = Number(sd.valor_do_resgate) || 0;
+    const lc = el('div','linha'); lc.appendChild(el('span','','👤 ' + (conta.cliente_nome || 'Cliente') + ' · ' + conta.cliente_telefone));
+    const bx = el('button','btn peq','Trocar cliente'); bx.onclick = ()=>tentar(async ()=>{ await salvaCampos(); await rpc('mesa_desvincular_cliente',{p_loja:LOJA,p_conta:conta.id}); await reabrir(); }); lc.appendChild(bx); bcl.appendChild(lc);
+    const l1 = el('div','linha'); l1.appendChild(el('span','','Cashback disponível')); l1.appendChild(el('span','',money(saldoCb))); bcl.appendChild(l1);
+    const l2 = el('div','linha'); l2.appendChild(el('span','','Pontos')); l2.appendChild(el('span','',saldoPts + ' pts')); bcl.appendChild(l2);
+    if(saldoCb > 0.009){
+      bcl.appendChild(el('div','rot','Usar cashback (R$)'));
+      const iCb = el('input'); iCb.type = 'text'; iCb.inputMode = 'decimal'; iCb.style.width = '100%'; iCb.value = String((cbU > 0 ? cbU : Math.min(saldoCb, Math.max(arred(sub - num(iDesc.value) + num(iAcr.value) + taxa - dfU), 0))).toFixed(2)).replace('.',','); bcl.appendChild(iCb);
+      const b1 = el('button','btn',cbU > 0 ? 'Atualizar cashback' : 'Usar cashback'); b1.style.width = '100%'; b1.style.marginTop = '6px';
+      b1.onclick = ()=>tentar(async ()=>{ await salvaCampos(); await rpc('mesa_aplicar_saldo',{p_loja:LOJA,p_conta:conta.id,p_cashback:num(iCb.value),p_pontos:ptU}); await reabrir(); }); bcl.appendChild(b1);
+      if(cbU > 0){ const b1x = el('button','btn','Não usar cashback'); b1x.style.cssText = 'width:100%;margin-top:6px'; b1x.onclick = ()=>tentar(async ()=>{ await salvaCampos(); await rpc('mesa_aplicar_saldo',{p_loja:LOJA,p_conta:conta.id,p_cashback:0,p_pontos:ptU}); await reabrir(); }); bcl.appendChild(b1x); }
+    }
+    const blocos = Math.floor(saldoPts / porRes);
+    if(ptU > 0){
+      const b2x = el('button','btn','Não usar pontos (' + ptU + ' pts = -' + money(dfU) + ')'); b2x.style.cssText = 'width:100%;margin-top:8px'; b2x.onclick = ()=>tentar(async ()=>{ await salvaCampos(); await rpc('mesa_aplicar_saldo',{p_loja:LOJA,p_conta:conta.id,p_cashback:cbU,p_pontos:0}); await reabrir(); }); bcl.appendChild(b2x);
+    } else if(blocos > 0){
+      const b2 = el('button','btn','Usar ' + (blocos*porRes) + ' pontos (-' + money(blocos*valRes) + ')'); b2.style.cssText = 'width:100%;margin-top:8px'; b2.onclick = ()=>tentar(async ()=>{ await salvaCampos(); await rpc('mesa_aplicar_saldo',{p_loja:LOJA,p_conta:conta.id,p_cashback:cbU,p_pontos:blocos*porRes}); await reabrir(); }); bcl.appendChild(b2);
+    } else bcl.appendChild(el('p','dica','Faltam pontos para resgatar (a cada ' + porRes + ' pts = ' + money(valRes) + ').'));
+  } else {
+    bcl.appendChild(el('p','dica','Informe o telefone (com DDD) para o cliente ganhar e usar cashback e pontos.'));
+    const iTel = el('input'); iTel.type = 'tel'; iTel.inputMode = 'tel'; iTel.placeholder = '(84) 9 9999-9999'; iTel.style.width = '100%'; bcl.appendChild(iTel);
+    const res = el('div'); res.style.marginTop = '8px'; bcl.appendChild(res);
+    const bb = el('button','btn','Buscar cliente'); bb.style.cssText = 'width:100%;margin-top:6px'; bcl.appendChild(bb);
+    bb.onclick = ()=>tentar(async ()=>{
+      const r = await rpc('mesa_cliente_buscar',{p_loja:LOJA,p_telefone:iTel.value}); res.innerHTML = ''; const sd = r.saldo || {};
+      let iNome = null;
+      if(r.existe){ res.appendChild(el('div','linha','')); res.lastChild.appendChild(el('span','','👤 ' + (r.nome || 'Cliente'))); res.lastChild.appendChild(el('span','','Cashback ' + money(Number(sd.cashback)||0) + ' · ' + (Number(sd.pontos)||0) + ' pts')); }
+      else { res.appendChild(el('p','dica','Cliente novo. Digite o nome para cadastrar.')); iNome = el('input'); iNome.type = 'text'; iNome.placeholder = 'Nome do cliente'; iNome.style.width = '100%'; res.appendChild(iNome); }
+      const bv = el('button','btn verde', r.existe ? 'Vincular a esta conta' : 'Cadastrar e vincular'); bv.style.cssText = 'width:100%;margin-top:6px';
+      bv.onclick = ()=>tentar(async ()=>{ await salvaCampos(); await rpc('mesa_vincular_cliente',{p_loja:LOJA,p_conta:conta.id,p_telefone:r.telefone,p_nome:iNome ? iNome.value : null}); await reabrir(); });
+      res.appendChild(bv);
+    });
+  }
+  j.appendChild(bcl);
   // ---- pagamentos (pode dividir: cada parte numa forma) ----
   const pagos = (detalhe.pagamentos || []), recebido = pagos.reduce((a,g)=>a+Number(g.valor),0);
   const bpg = el('div','bloco'); bpg.style.marginTop = '12px'; bpg.appendChild(el('h3','','Pagamento'));
@@ -451,7 +525,9 @@ function abrirConta(){
       const dados = {desconto:num(iDesc.value),acrescimo:num(iAcr.value),taxa_servico:taxa};
       await rpc('mesa_atualizar',{p_loja:LOJA,p_conta:conta.id,p_dados:dados});
       if(f > 0.009) await rpc('mesa_receber',{p_loja:LOJA,p_conta:conta.id,p_valor:Math.min(v, f),p_forma:forma});
-      if(fecha){ await rpc('mesa_fechar',{p_loja:LOJA,p_conta:conta.id,p_forma:forma,p_desconto:dados.desconto,p_acrescimo:dados.acrescimo,p_taxa:taxa}); fechar(); aviso('Conta fechada. Mesa livre.' + (troco > 0 ? ' Troco: ' + money(troco) : '')); if(troco > 0){ clearTimeout(aviso.t); aviso.t = setTimeout(()=>$('aviso').classList.add('oculto'), 9000); } tela='grade'; carrinho = []; await atualizarContas(); desenhar(); }
+      if(fecha){ const rf = await rpc('mesa_fechar',{p_loja:LOJA,p_conta:conta.id,p_forma:forma,p_desconto:dados.desconto,p_acrescimo:dados.acrescimo,p_taxa:taxa}) || {};
+        const ganhou = (Number(rf.cashback_ganho) > 0 || Number(rf.pontos_ganhos) > 0) ? ' Cliente ganhou ' + (Number(rf.cashback_ganho) > 0 ? money(Number(rf.cashback_ganho)) + ' de cashback' : '') + (Number(rf.cashback_ganho) > 0 && Number(rf.pontos_ganhos) > 0 ? ' e ' : '') + (Number(rf.pontos_ganhos) > 0 ? rf.pontos_ganhos + ' ponto(s)' : '') + '.' : '';
+        fechar(); aviso('Conta fechada. Mesa livre.' + (troco > 0 ? ' Troco: ' + money(troco) + '.' : '') + ganhou); if(troco > 0 || ganhou){ clearTimeout(aviso.t); aviso.t = setTimeout(()=>$('aviso').classList.add('oculto'), 9000); } tela='grade'; carrinho = []; await atualizarContas(); desenhar(); }
       else{ await carregarDetalhe(); fechar(); aviso('Recebido ' + money(v) + ' em ' + forma + '.'); abrirConta(); }
     }catch(e){ bRec.disabled = false; aviso('Não consegui: ' + e.message); }
   };
@@ -471,6 +547,7 @@ async function iniciar(){
 $('formLogin').addEventListener('submit', async e=>{ e.preventDefault(); $('erroLogin').textContent = '';
   if(await entrar($('email').value.trim(), $('senha').value)){ $('senha').value = ''; iniciar(); } else $('erroLogin').textContent = 'E-mail ou senha não conferem.'; });
 $('btnSair').onclick = sair;
+$('btnSite').onclick = async ()=>{ await atualizarContas(); abrirPedidosSite(); };
 $('btnAtualizar').onclick = async ()=>{ await Promise.all([carregarMenu(), atualizarContas()]); if(tela==='mesa') await carregarDetalhe(); desenhar(); aviso('Atualizado.'); };
 (function retomar(){
   try{ const s = JSON.parse(localStorage.getItem(CHAVE_SESSAO) || 'null'); if(s && s.refresh_token){ sessao = s; renovar().then(ok=>{ if(ok === false) sair(); else iniciar(); }); } }catch(e){}

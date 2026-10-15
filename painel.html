@@ -350,6 +350,14 @@ async function reimprimir(p){
   try{ await rpc('painel_reimprimir', {p_pedido: p.id}); await carregar(); }
   catch(e){ avisoErro('Não consegui pedir a reimpressão do #' + p.numero + '.'); }
 }
+async function mandarParaMesa(p){
+  const r = (prompt('Mandar o pedido #' + p.numero + ' (' + (p.nome || '') + ') para qual mesa?\nDigite o número da mesa (1 a 10) ou Balcao:') || '').trim();
+  if(!r) return;
+  const mesa = /^balc/i.test(r) ? 'Balcao' : r.replace(/\D/g, '');
+  if(!mesa){ avisoErro('Mesa inválida. Digite só o número (1 a 10) ou Balcao.'); return; }
+  try{ await rpc('mesa_anexar_pedido', {p_loja: LOJA, p_pedido: p.id, p_mesa: mesa, p_comanda: 'Comanda 1'}); await carregar(); }
+  catch(e){ avisoErro('Não consegui mandar para a mesa: ' + ((e && e.message) || 'tente de novo') + '. (A Parte AN precisa estar instalada no Supabase.)'); }
+}
 function rotuloFinal(p){
   if(p.modalidade === 'Entrega') return 'Saiu para entrega';
   if(p.modalidade === 'Vem comer') return 'Levei na mesa';
@@ -414,6 +422,9 @@ function cartao(p){
   };
   mini.appendChild(voltar); mini.appendChild(re); mini.appendChild(canc);
   c.appendChild(mini);
+  if(p.modalidade === 'Vem comer' && !p.conta_id && !pixPend){
+    const bm = el('button', 'acao', '🍽 Mandar para a mesa'); bm.style.marginTop = '8px'; bm.onclick = () => mandarParaMesa(p); c.appendChild(bm);
+  } else if(p.conta_id && p.mesa){ c.appendChild(el('div', 'extra', '🍽 ' + (p.mesa === 'Balcao' ? 'Balcão' : 'Mesa ' + p.mesa))); }
   return c;
 }
 function desenhar(){
