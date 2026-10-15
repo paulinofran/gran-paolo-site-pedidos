@@ -149,7 +149,14 @@ const money = (v)=>'R$ ' + Number(v||0).toLocaleString('pt-BR',{minimumFractionD
 const rotMesa = (m)=> m === 'Balcao' ? 'Balcão' : RAPIDOS[m] ? RAPIDOS[m].rot : m === 'Entrega' ? 'Entrega' : 'Mesa ' + m;
 const telaBase = ()=> (ehRapido(mesaAtual) || mesaAtual === 'Entrega') ? 'inicio' : 'grade';
 const arred = (v)=>Math.round(v*100)/100;
-function num(v){ const n = parseFloat(String(v||'').replace(/\./g,'').replace(',','.')); return isFinite(n) ? n : 0; }
+function num(v){   // aceita 60,00 | 60.00 | 59.9 | 1.234,56 | 1,234.56 | 1.000
+  let t = String(v||'').trim().replace(/[^0-9.,]/g,''); if(!t) return 0;
+  const ic = t.lastIndexOf(','), ip = t.lastIndexOf('.');
+  if(ic >= 0 && ip >= 0){ if(ic > ip) t = t.replace(/\./g,'').replace(',','.'); else t = t.replace(/,/g,''); }   // o último símbolo é o decimal
+  else if(ic >= 0){ t = (t.split(',').length > 2) ? t.replace(/,/g,'') : t.replace(',','.'); }
+  else if(ip >= 0){ const partes = t.split('.'); if(partes.length > 2 || (partes.length === 2 && partes[1].length === 3 && partes[0].length >= 1 && partes[0] !== '0')) t = t.replace(/\./g,''); }   // 1.000 = mil; 60.00 e 59.9 = decimal
+  const n = parseFloat(t); return isFinite(n) ? n : 0;
+}
 function aviso(t){ const a = $('aviso'); a.textContent = t; a.classList.remove('oculto'); clearTimeout(aviso.t); aviso.t = setTimeout(()=>a.classList.add('oculto'), 3500); }
 
 /* ---------- acesso (igual ao painel) ---------- */
