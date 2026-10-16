@@ -235,7 +235,7 @@ function gpAutocompleteEndereco(cfg){
 }
 
 
-const el = (tag, cls, txt)=>{ const e = document.createElement(tag); if(cls) e.className = cls; if(txt !== undefined) e.textContent = txt; return e; };
+const el = (tag, cls, txt)=>{ const e = document.createElement(tag); if(cls) e.className = cls; if(txt !== undefined) e.textContent = txt; if(tag === 'input'){ e.setAttribute('autocomplete','nope'); e.setAttribute('name','gp-' + Math.random().toString(36).slice(2,8)); } return e; };   // campos do PDV sem autopreenchimento do Chrome
 const money = (v)=>'R$ ' + Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
 const rotMesa = (m)=> m === 'Balcao' ? 'Balcão' : RAPIDOS[m] ? RAPIDOS[m].rot : m === 'Entrega' ? 'Entrega' : 'Mesa ' + m;
 const telaBase = ()=> (ehRapido(mesaAtual) || mesaAtual === 'Entrega') ? 'inicio' : 'grade';
