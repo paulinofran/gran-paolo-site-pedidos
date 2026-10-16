@@ -105,6 +105,14 @@ select,input[type=text],input[type=number],textarea{font-family:inherit;font-siz
 #lateral .rodape{border-top:2px solid var(--line);padding-top:8px}
 body.comLateral main{margin:0;max-width:none;padding-right:366px}
 @media print{header,#barraCarrinho,.acoes,.fundo .btn{display:none}.fundo{position:static;background:none}.janela{max-height:none;box-shadow:none}}
+.ac-lista{position:absolute;left:0;right:0;top:100%;z-index:60;background:#fff;border:1px solid #d9d2c3;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.18);margin-top:4px;max-height:260px;overflow:auto;display:none;-webkit-overflow-scrolling:touch}
+.ac-item{padding:11px 14px;cursor:pointer;border-bottom:1px solid #f0ebe0;line-height:1.25;color:#222}
+.ac-item:last-of-type{border-bottom:0}
+.ac-item:hover,.ac-item:active{background:#fff3e6}
+.ac-item b{display:block;font-size:15px}
+.ac-item span{font-size:12.5px;color:#7a7468}
+.ac-rodape{padding:6px 14px;font-size:11px;color:#8a8478;text-align:right;background:#faf7f0}
+
 </style>
 </head>
 <body>
@@ -155,6 +163,78 @@ let sessao = null, MENU = null, contas = [], pedSite = [], timer = null, entrega
 let tela = 'inicio', mesaAtual = null, comandaAtual = 'Comanda 1', detalhe = null, catAtiva = null, carrinho = [];
 
 const $ = (id)=>document.getElementById(id);
+// ---- Sugestões de endereço (Google Places API New, direto do navegador) ----
+// A chave só funciona nos sites da Gran Paolo (trava por endereço no Google Cloud). Se o Google falhar, o campo segue livre.
+const GMAPS_KEY = 'AIzaSyBYkjOgBGF31vPY43qop_N3sUCiOEg0vTE';
+function gpSemAcento(s){ return String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/\s+/g,' ').trim(); }
+function gpAutocompleteEndereco(cfg){
+  const inp = cfg.input; if(!inp || !GMAPS_KEY || !window.fetch) return;
+  const pai = inp.parentNode; if(getComputedStyle(pai).position === 'static') pai.style.position = 'relative';
+  const lista = document.createElement('div'); lista.className = 'ac-lista'; pai.appendChild(lista);
+  const novoToken = ()=> (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now().toString(16) + Math.random().toString(16).slice(2));
+  let token = novoToken(), timer = null, ctrl = null, seq = 0, falhas = 0, chamadas = 0;
+  const fechar = ()=>{ lista.style.display = 'none'; lista.innerHTML = ''; };
+  const HDR = {'Content-Type':'application/json','X-Goog-Api-Key':GMAPS_KEY};
+  async function buscar(q){
+    if(falhas >= 3 || chamadas >= 20) return;
+    const meu = ++seq; chamadas++;
+    try{
+      if(ctrl) ctrl.abort(); ctrl = new AbortController();
+      const r = await fetch('https://places.googleapis.com/v1/places:autocomplete', {method:'POST', signal:ctrl.signal, headers:HDR,
+        body: JSON.stringify({input:q, sessionToken:token, languageCode:'pt-BR', regionCode:'br', includedRegionCodes:['br'],
+          locationBias:{circle:{center:{latitude:-5.8674,longitude:-35.2039}, radius:30000}}})});
+      if(!r.ok) throw new Error('HTTP ' + r.status);
+      const j = await r.json(); if(meu !== seq) return; falhas = 0;
+      const sug = (j.suggestions || []).filter(s=>s.placePrediction).slice(0,6);
+      lista.innerHTML = '';
+      if(!sug.length){ fechar(); return; }
+      sug.forEach(s=>{
+        const p = s.placePrediction, sf = p.structuredFormat || {};
+        const it = document.createElement('div'); it.className = 'ac-item';
+        const b = document.createElement('b'); b.textContent = (sf.mainText && sf.mainText.text) || (p.text && p.text.text) || '';
+        const sp = document.createElement('span'); sp.textContent = (sf.secondaryText && sf.secondaryText.text) || '';
+        it.appendChild(b); it.appendChild(sp);
+        it.addEventListener('mousedown', ev=>{ ev.preventDefault(); escolher(p.placeId); });   // mousedown: roda antes do campo perder o foco
+        it.addEventListener('touchend', ev=>{ ev.preventDefault(); escolher(p.placeId); });
+        lista.appendChild(it);
+      });
+      const rod = document.createElement('div'); rod.className = 'ac-rodape'; rod.textContent = 'powered by Google'; lista.appendChild(rod);
+      lista.style.display = 'block';
+    }catch(e){ if(e && e.name === 'AbortError') return; falhas++; fechar(); try{ console.warn('Sugestões de endereço indisponíveis:', e.message || e); }catch(_){} }
+  }
+  let escolhendo = false;
+  async function escolher(id){
+    if(escolhendo) return; escolhendo = true; setTimeout(()=>{ escolhendo = false; }, 800);
+    fechar();
+    try{
+      const r = await fetch('https://places.googleapis.com/v1/places/' + encodeURIComponent(id) + '?languageCode=pt-BR&sessionToken=' + encodeURIComponent(token),
+        {headers:{'X-Goog-Api-Key':GMAPS_KEY, 'X-Goog-FieldMask':'addressComponents,formattedAddress,location'}});
+      if(!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      const comp = t => { const c = (d.addressComponents||[]).find(x=>(x.types||[]).includes(t)); return c ? c.longText : ''; };
+      const rua = comp('route'), num = comp('street_number');
+      const bairro = comp('sublocality_level_1') || comp('sublocality') || comp('neighborhood');
+      const cidade = comp('administrative_area_level_2') || comp('locality');
+      let texto = rua || String(d.formattedAddress||'').split(' - ')[0];
+      texto += num ? ', ' + num : (cfg.semNumero ? ', ' + cfg.semNumero : ', ');
+      inp.value = texto;
+      inp.dispatchEvent(new Event('change', {bubbles:true}));
+      if(cfg.onEscolhido) cfg.onEscolhido({rua, numero:num, bairro, cidade, formatado:d.formattedAddress||'', lat:d.location && d.location.latitude, lng:d.location && d.location.longitude});
+      inp.focus(); try{ inp.setSelectionRange(inp.value.length, inp.value.length); }catch(_){}
+    }catch(e){ falhas++; try{ console.warn('Não consegui os detalhes do endereço:', e.message || e); }catch(_){} }
+    token = novoToken(); chamadas = 0;    // sessão nova a cada endereço escolhido
+  }
+  inp.setAttribute('autocomplete', 'off');
+  inp.addEventListener('input', ()=>{
+    clearTimeout(timer); const q = inp.value.trim();
+    if(q.length < 4){ fechar(); return; }
+    timer = setTimeout(()=>buscar(q), 320);
+  });
+  inp.addEventListener('blur', ()=>setTimeout(fechar, 180));
+  inp.addEventListener('keydown', ev=>{ if(ev.key === 'Escape') fechar(); });
+}
+
+
 const el = (tag, cls, txt)=>{ const e = document.createElement(tag); if(cls) e.className = cls; if(txt !== undefined) e.textContent = txt; return e; };
 const money = (v)=>'R$ ' + Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
 const rotMesa = (m)=> m === 'Balcao' ? 'Balcão' : RAPIDOS[m] ? RAPIDOS[m].rot : m === 'Entrega' ? 'Entrega' : 'Mesa ' + m;
@@ -726,7 +806,17 @@ function abrirEntrega(){
   } else { iBairro = el('input'); iBairro.type = 'text'; iBairro.placeholder = 'Bairro'; iBairro.style.width = '100%'; iBairro.value = d.bairro || ''; }
   j.appendChild(iBairro);
   j.appendChild(el('div','rot','Endereço (rua e número)'));
-  const iEnd = el('input'); iEnd.type = 'text'; iEnd.style.width = '100%'; iEnd.value = d.endereco || ''; j.appendChild(iEnd);
+  const iEnd = el('input'); iEnd.type = 'text'; iEnd.style.width = '100%'; iEnd.value = d.endereco || ''; iEnd.placeholder = 'Digite a rua e escolha na lista';
+  const wEnd = el('div'); wEnd.style.position = 'relative'; wEnd.appendChild(iEnd); j.appendChild(wEnd);
+  gpAutocompleteEndereco({input:iEnd, semNumero:'', onEscolhido:function(a){
+    try{
+      if(!a.bairro) return;
+      const alvo = gpSemAcento(a.bairro);
+      let b = bairros.find(x=>gpSemAcento(x.nome) === alvo) || bairros.find(x=>{ const n = gpSemAcento(x.nome); return n.length > 3 && (alvo.includes(n) || n.includes(alvo)); });
+      if(b && iBairro.tagName === 'SELECT'){ iBairro.value = b.nome; iBairro.onchange(); }
+      else if(!b && iBairro.tagName !== 'SELECT' && !iBairro.value) iBairro.value = a.bairro;
+    }catch(e){}
+  }});
   j.appendChild(el('div','rot','Complemento (apto, bloco, casa, ponto de referência)'));
   const iComp = el('input'); iComp.type = 'text'; iComp.style.width = '100%'; iComp.placeholder = 'opcional'; iComp.value = d.complemento || ''; j.appendChild(iComp);
   j.appendChild(el('div','rot','Taxa de entrega (R$)'));

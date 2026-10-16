@@ -225,6 +225,14 @@ nav.bottom button.active{color:var(--accent);}
 .repetir-msg{font-size:12.5px;color:var(--ink-soft);margin:10px 0 0;}
 .btn-full:disabled{opacity:.5;}
 .dica-endereco{display:block;font-size:12px;color:#B23A2F;margin-top:6px;}
+.ac-lista{position:absolute;left:0;right:0;top:100%;z-index:60;background:#fff;border:1px solid #d9d2c3;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.18);margin-top:4px;max-height:260px;overflow:auto;display:none;-webkit-overflow-scrolling:touch}
+.ac-item{padding:11px 14px;cursor:pointer;border-bottom:1px solid #f0ebe0;line-height:1.25;color:#222}
+.ac-item:last-of-type{border-bottom:0}
+.ac-item:hover,.ac-item:active{background:#fff3e6}
+.ac-item b{display:block;font-size:15px}
+.ac-item span{font-size:12.5px;color:#7a7468}
+.ac-rodape{padding:6px 14px;font-size:11px;color:#8a8478;text-align:right;background:#faf7f0}
+
 .hidden{display:none !important;}
 .sugestao{margin-top:16px;padding:12px 14px;background:var(--gold-soft);border:1px solid var(--line);border-radius:12px;}
 .sugestao h4{font-size:13.5px;font-weight:700;margin:0 0 4px;color:var(--accent-dark);}
@@ -422,9 +430,13 @@ body.com-barra #app{padding-bottom:150px;}
         </select>
       </div>
       <div class="field">
-        <label>Endereço completo</label>
-        <input type="text" id="campoEndereco" placeholder="Rua, número, ponto de referência">
+        <label>Endereço (rua e número)</label>
+        <input type="text" id="campoEndereco" placeholder="Comece a digitar a rua e escolha na lista">
         <small class="dica-endereco hidden" id="dicaEndereco"></small>
+      </div>
+      <div class="field">
+        <label>Complemento (apto, bloco, casa, ponto de referência)</label>
+        <input type="text" id="campoComplemento" placeholder="Ex.: bloco B, apto 302 · portão azul" maxlength="120">
       </div>
     </div>
 
@@ -2095,7 +2107,9 @@ function enviarPedidoWhatsapp(){
   funil('tentou');
   const nome = document.getElementById('campoNome').value.trim();
   const telefone = document.getElementById('campoTelefone').value.trim();
-  const endereco = document.getElementById('campoEndereco').value.trim();
+  const endBase = document.getElementById('campoEndereco').value.trim();
+  const endCompl = (document.getElementById('campoComplemento') || {value:''}).value.trim();
+  const endereco = endBase && endCompl ? endBase + ' - ' + endCompl : endBase;
   let pagamento = document.getElementById('campoPagamento').value;
   const obs = document.getElementById('campoObs').value.trim();
   const bairroSel = document.getElementById('campoBairro');
@@ -2260,6 +2274,92 @@ async function copiarPix(){
 }
 
 init();
+</script>
+<script>
+// ---- Sugestões de endereço (Google Places API New, direto do navegador) ----
+// A chave só funciona nos sites da Gran Paolo (trava por endereço no Google Cloud). Se o Google falhar, o campo segue livre.
+const GMAPS_KEY = 'AIzaSyBYkjOgBGF31vPY43qop_N3sUCiOEg0vTE';
+function gpSemAcento(s){ return String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/\s+/g,' ').trim(); }
+function gpAutocompleteEndereco(cfg){
+  const inp = cfg.input; if(!inp || !GMAPS_KEY || !window.fetch) return;
+  const pai = inp.parentNode; if(getComputedStyle(pai).position === 'static') pai.style.position = 'relative';
+  const lista = document.createElement('div'); lista.className = 'ac-lista'; pai.appendChild(lista);
+  const novoToken = ()=> (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now().toString(16) + Math.random().toString(16).slice(2));
+  let token = novoToken(), timer = null, ctrl = null, seq = 0, falhas = 0, chamadas = 0;
+  const fechar = ()=>{ lista.style.display = 'none'; lista.innerHTML = ''; };
+  const HDR = {'Content-Type':'application/json','X-Goog-Api-Key':GMAPS_KEY};
+  async function buscar(q){
+    if(falhas >= 3 || chamadas >= 20) return;
+    const meu = ++seq; chamadas++;
+    try{
+      if(ctrl) ctrl.abort(); ctrl = new AbortController();
+      const r = await fetch('https://places.googleapis.com/v1/places:autocomplete', {method:'POST', signal:ctrl.signal, headers:HDR,
+        body: JSON.stringify({input:q, sessionToken:token, languageCode:'pt-BR', regionCode:'br', includedRegionCodes:['br'],
+          locationBias:{circle:{center:{latitude:-5.8674,longitude:-35.2039}, radius:30000}}})});
+      if(!r.ok) throw new Error('HTTP ' + r.status);
+      const j = await r.json(); if(meu !== seq) return; falhas = 0;
+      const sug = (j.suggestions || []).filter(s=>s.placePrediction).slice(0,6);
+      lista.innerHTML = '';
+      if(!sug.length){ fechar(); return; }
+      sug.forEach(s=>{
+        const p = s.placePrediction, sf = p.structuredFormat || {};
+        const it = document.createElement('div'); it.className = 'ac-item';
+        const b = document.createElement('b'); b.textContent = (sf.mainText && sf.mainText.text) || (p.text && p.text.text) || '';
+        const sp = document.createElement('span'); sp.textContent = (sf.secondaryText && sf.secondaryText.text) || '';
+        it.appendChild(b); it.appendChild(sp);
+        it.addEventListener('mousedown', ev=>{ ev.preventDefault(); escolher(p.placeId); });   // mousedown: roda antes do campo perder o foco
+        it.addEventListener('touchend', ev=>{ ev.preventDefault(); escolher(p.placeId); });
+        lista.appendChild(it);
+      });
+      const rod = document.createElement('div'); rod.className = 'ac-rodape'; rod.textContent = 'powered by Google'; lista.appendChild(rod);
+      lista.style.display = 'block';
+    }catch(e){ if(e && e.name === 'AbortError') return; falhas++; fechar(); try{ console.warn('Sugestões de endereço indisponíveis:', e.message || e); }catch(_){} }
+  }
+  let escolhendo = false;
+  async function escolher(id){
+    if(escolhendo) return; escolhendo = true; setTimeout(()=>{ escolhendo = false; }, 800);
+    fechar();
+    try{
+      const r = await fetch('https://places.googleapis.com/v1/places/' + encodeURIComponent(id) + '?languageCode=pt-BR&sessionToken=' + encodeURIComponent(token),
+        {headers:{'X-Goog-Api-Key':GMAPS_KEY, 'X-Goog-FieldMask':'addressComponents,formattedAddress,location'}});
+      if(!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      const comp = t => { const c = (d.addressComponents||[]).find(x=>(x.types||[]).includes(t)); return c ? c.longText : ''; };
+      const rua = comp('route'), num = comp('street_number');
+      const bairro = comp('sublocality_level_1') || comp('sublocality') || comp('neighborhood');
+      const cidade = comp('administrative_area_level_2') || comp('locality');
+      let texto = rua || String(d.formattedAddress||'').split(' - ')[0];
+      texto += num ? ', ' + num : (cfg.semNumero ? ', ' + cfg.semNumero : ', ');
+      inp.value = texto;
+      inp.dispatchEvent(new Event('change', {bubbles:true}));
+      if(cfg.onEscolhido) cfg.onEscolhido({rua, numero:num, bairro, cidade, formatado:d.formattedAddress||'', lat:d.location && d.location.latitude, lng:d.location && d.location.longitude});
+      inp.focus(); try{ inp.setSelectionRange(inp.value.length, inp.value.length); }catch(_){}
+    }catch(e){ falhas++; try{ console.warn('Não consegui os detalhes do endereço:', e.message || e); }catch(_){} }
+    token = novoToken(); chamadas = 0;    // sessão nova a cada endereço escolhido
+  }
+  inp.setAttribute('autocomplete', 'off');
+  inp.addEventListener('input', ()=>{
+    clearTimeout(timer); const q = inp.value.trim();
+    if(q.length < 4){ fechar(); return; }
+    timer = setTimeout(()=>buscar(q), 320);
+  });
+  inp.addEventListener('blur', ()=>setTimeout(fechar, 180));
+  inp.addEventListener('keydown', ev=>{ if(ev.key === 'Escape') fechar(); });
+}
+
+// liga as sugestões no campo Endereço do checkout; ao escolher, já seleciona o bairro (e a taxa)
+(function(){
+  const campo = document.getElementById('campoEndereco'); if(!campo) return;
+  gpAutocompleteEndereco({input:campo, semNumero:'___', onEscolhido:function(a){
+    try{
+      const sel = document.getElementById('campoBairro'); if(!sel || !a.bairro) return;
+      const alvo = gpSemAcento(a.bairro);
+      let ix = BAIRROS_TAXA.findIndex(b=>gpSemAcento(b.nome) === alvo);
+      if(ix < 0) ix = BAIRROS_TAXA.findIndex(b=>{ const n = gpSemAcento(b.nome); return n.length > 3 && (alvo.includes(n) || n.includes(alvo)); });
+      if(ix >= 0){ sel.value = String(ix); if(typeof atualizarTotalCheckout === 'function') atualizarTotalCheckout(); }
+    }catch(e){}
+  }});
+})();
 </script>
 </body>
 </html>
