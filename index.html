@@ -169,6 +169,10 @@ header.top .sub{font-size:12px;color:rgba(255,255,255,.85);margin-top:3px;}
 .btn-primary{background:var(--accent);color:#fff;}
 .btn-ghost{background:var(--accent-soft);color:var(--accent-dark);}
 
+.grupo-titulo{font-size:12.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-soft);margin:14px 4px 6px;}
+.grupo-titulo:first-child{margin-top:4px;}
+.busca-sabor{width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:12px;font-size:14px;background:#fff;margin-top:6px;box-sizing:border-box;}
+.sabores-lista{display:block;margin-top:2px;line-height:1.45;}
 .select-sabor{width:100%;padding:12px;border:1.5px solid var(--line);border-radius:12px;font-size:14px;background:#fff;margin-top:6px;}
 .meio-label{font-size:12.5px;font-weight:600;color:var(--ink-soft);margin-top:14px;display:block;}
 
@@ -558,8 +562,10 @@ body.com-barra #app{padding-bottom:150px;}
     </div>
 
     <span class="meio-label">1º sabor</span>
+    <input type="search" class="busca-sabor" id="meioBusca1" placeholder="🔍 Buscar sabor (ex.: frango)" autocomplete="off" oninput="filtrarSaboresMeio(1)">
     <select class="select-sabor" id="meioSabor1"></select>
     <span class="meio-label">2º sabor</span>
+    <input type="search" class="busca-sabor" id="meioBusca2" placeholder="🔍 Buscar sabor (ex.: calabresa)" autocomplete="off" oninput="filtrarSaboresMeio(2)">
     <select class="select-sabor" id="meioSabor2"></select>
 
     <div style="font-size:13.5px;font-weight:600;color:var(--ink-soft);margin:12px 2px 8px;">Borda recheada</div>
@@ -590,9 +596,9 @@ const CATALOGO = [{"nome": "Suco De Laranja 300ml", "categoria": "Bebida", "tama
 const FOTOS = {"Pizza Bacon": "img/bacon.webp?v=1", "Pizza Banana Com Chocolate": "img/banana-com-chocolate.webp?v=1", "Pizza Banana Nevada": "img/banana-nevada.webp?v=1", "Pizza Calabresa": "img/calabresa.webp?v=1", "Pizza Chocolate": "img/chocolate.webp?v=1", "Pizza Carne De Sol Com Catupiry": "img/carne-de-sol-com-catupiry.webp?v=1", "Pizza Camarão Com Catupiry": "img/camarao-com-catupiry.webp?v=1", "Pizza Camarão": "img/camarao.webp?v=1", "Pizza Frango Com Bacon": "img/frango-com-bacon.webp?v=1", "Pizza Lombo Com Catupiry": "img/lombo-com-catupiry.webp?v=1", "Pizza Chocolate Mesclado": "img/chocolate-mesclado.webp?v=1", "Pizza Frango Ao Milho": "img/frango-ao-milho.webp?v=1", "Pizza Lombo": "img/lombo.webp?v=1", "Pizza Marguerita Especial": "img/marguerita-especial.webp?v=1", "Pizza Mista": "img/mista.webp?v=1", "Pizza Marguerita": "img/marguerita.webp?v=1", "Pizza Pepperoni C/ Catupiry": "img/pepperoni-com-catupiry.webp?v=1", "Pizza Pepperoni": "img/pepperoni.webp?v=1", "Pizza Morango Com Chocolate": "img/morango-com-chocolate.webp?v=1", "Pizza Peito De Perú Com Catupiry": "img/peito-de-peru-com-catupiry.webp?v=1", "Pizza Portuguesa": "img/portuguesa.webp?v=1", "Pizza Carne De Sol": "img/carne-de-sol.webp?v=1", "Pizza Frango C/ Cream Cheese": "img/frango-com-cream-cheese.webp?v=1", "Pizza Frango Com Catupiry": "img/frango-com-catupiry.webp?v=1", "Pizza Gorgonzola Especial": "img/gorgonzola-especial.webp?v=1", "Pizza Muçarela": "img/mucarela.webp?v=1", "Pizza Napolitana": "img/napolitana.webp?v=1", "Pizza Quatro Queijos": "img/quatro-queijos.webp?v=1", "Pizza Siciliana": "img/siciliana.webp?v=1"};
 const SABORES_MEIO = [{"nome": "Pizza Calabresa Com Catupiry", "grande": 75.9, "pequena": 47.9}, {"nome": "Pizza Camarão", "grande": 79.9, "pequena": 52.9}, {"nome": "Pizza Camarão Com Catupiry", "grande": 94.9, "pequena": 54.9}, {"nome": "Pizza Carne De Sol", "grande": 75.9, "pequena": 47.9}, {"nome": "Pizza Carne De Sol C/ Queijo Coalho", "grande": 77.9, "pequena": 49.9}, {"nome": "Pizza Carne De Sol Com Catupiry", "grande": 79.9, "pequena": 52.9}, {"nome": "Pizza Frango C/ Cream Cheese", "grande": 75.9, "pequena": 45.9}, {"nome": "Pizza Frango Com Catupiry", "grande": 75.9, "pequena": 45.9}, {"nome": "Pizza Gorgonzola Especial", "grande": 75.9, "pequena": 47.9}, {"nome": "Pizza Gran Paolo Especial", "grande": 83.9, "pequena": 55.9}, {"nome": "Pizza Lombo", "grande": 73.9, "pequena": 45.9}, {"nome": "Pizza Lombo Com Catupiry", "grande": 84.9, "pequena": 47.9}, {"nome": "Pizza Marguerita Especial", "grande": 75.9, "pequena": 47.9}, {"nome": "Pizza Peito De Peru", "grande": 73.9, "pequena": 45.9}, {"nome": "Pizza Peito De Perú Com Catupiry", "grande": 75.9, "pequena": 47.9}, {"nome": "Pizza Pepperoni", "grande": 75.9, "pequena": 47.9}, {"nome": "Pizza Pepperoni C/ Catupiry", "grande": 89.9, "pequena": 49.9}, {"nome": "Pizza Pepperoni C/ Cream Cheese", "grande": 89.9, "pequena": 49.9}, {"nome": "Pizza Quatro Queijos", "grande": 73.9, "pequena": 45.9}, {"nome": "Pizza Bacon", "grande": 69.9, "pequena": 40.9}, {"nome": "Pizza Calabresa", "grande": 59.9, "pequena": 35.9}, {"nome": "Pizza Frango Ao Milho", "grande": 59.9, "pequena": 35.9}, {"nome": "Pizza Frango Com Bacon", "grande": 73.9, "pequena": 45.9}, {"nome": "Pizza Marguerita", "grande": 59.9, "pequena": 35.9}, {"nome": "Pizza Mista", "grande": 59.9, "pequena": 35.9}, {"nome": "Pizza Muçarela", "grande": 59.9, "pequena": 35.9}, {"nome": "Pizza Napolitana", "grande": 59.9, "pequena": 35.9}, {"nome": "Pizza Portuguesa", "grande": 59.9, "pequena": 35.9}, {"nome": "Pizza Siciliana", "grande": 69.9, "pequena": 42.9}];
 
-const CATEGORIAS_ORDEM = ["Tradicional","MeioAMeio","Especial","Doce","Promoção","Bebida"];
+const CATEGORIAS_ORDEM = ["Salgada","MeioAMeio","Doce","Promoção","Bebida"];   // "Salgada" = Tradicionais + Especiais juntas
 const CATEGORIAS_LABEL = {
-  "MeioAMeio":"🍕 Meio a Meio", "Tradicional":"Pizzas Tradicionais", "Especial":"Pizzas Especiais", "Doce":"Pizzas Doces",
+  "MeioAMeio":"🍕 Meio a Meio", "Salgada":"Pizzas Salgadas", "Doce":"Pizzas Doces",
   "Promoção":"Promoções", "Bebida":"Bebidas"
 };
 // Taxas de entrega por bairro (vindas do cadastro do Suitable). Ordenado do mais barato pro mais caro,
@@ -808,7 +814,7 @@ function enviarOrigemDoPedido(telefone){
 
 // Abas que podem ser abertas por link: ?categoria=promocoes | tradicional | especial | doce | bebida | meio-a-meio
 const CATEGORIA_POR_LINK = {promocoes:'Promoção', promocao:'Promoção', combos:'Promoção', combo:'Promoção',
-  tradicional:'Tradicional', tradicionais:'Tradicional', especial:'Especial', especiais:'Especial',
+  tradicional:'Salgada', tradicionais:'Salgada', especial:'Salgada', especiais:'Salgada', salgada:'Salgada', salgadas:'Salgada',
   doce:'Doce', doces:'Doce', bebida:'Bebida', bebidas:'Bebida', 'meio-a-meio':'MeioAMeio', meioameio:'MeioAMeio'};
 // Link direto: ?produto=camarao  |  ?meio1=camarao&meio2=carne-de-sol  (&tamanho=pequena)
 function abrirPeloLink(params){
@@ -1042,6 +1048,13 @@ let abaManual = false;      // o cliente ja escolheu uma aba sozinho?
 let promoPendente = null;
 let promoAtual = null, promoEscolhas = [], promoQtd = 1;
 const ROTULO_DIAS = ['domingo','segunda','terça','quarta','quinta','sexta','sábado'];
+// Meio a meio: cada sabor numa linha (só na tela; o texto enviado ao WhatsApp não muda)
+function nomeItemHtml(nome){
+  const t = String(nome);
+  if(t.indexOf('Meio a Meio: ') !== 0) return t;
+  const sab = t.slice('Meio a Meio: '.length).split(' / ');
+  return 'Meio a Meio' + sab.map(x=>'<span class="sabores-lista">½ ' + semPizza(x) + '</span>').join('');
+}
 function arred2(n){ return Math.round(n*100)/100; }
 function semPizza(n){ return String(n).replace(/^Pizza /,''); }
 
@@ -1452,6 +1465,17 @@ function mostrarCategoria(cat){
     hoje.forEach(pm=>lista.appendChild(criarCardPromo(pm)));
     return;
   }
+  if(cat === 'Salgada'){
+    [['Tradicional','Tradicionais'],['Especial','Especiais']].forEach(([c,rot])=>{
+      const grupo = CATALOGO.filter(p=>p.categoria===c && vendeNoCanal(p));
+      if(!grupo.length) return;
+      const h = document.createElement('div');
+      h.className = 'grupo-titulo'; h.textContent = rot;
+      lista.appendChild(h);
+      grupo.forEach(p=>lista.appendChild(criarCardProduto(p)));
+    });
+    return;
+  }
   const itens = CATALOGO.filter(p=>p.categoria===cat && vendeNoCanal(p));
   itens.forEach(p=>lista.appendChild(criarCardProduto(p)));
 }
@@ -1588,8 +1612,26 @@ function popularSelectsMeio(){
   const s1 = document.getElementById('meioSabor1');
   const s2 = document.getElementById('meioSabor2');
   const l1 = listaSaboresMeio1(), l2 = listaSaboresMeio2();
-  s1.innerHTML = '<option value="">Selecione...</option>' + l1.map((s,i)=>`<option value="${i}">${s.nome}</option>`).join('');
-  s2.innerHTML = '<option value="">Selecione...</option>' + l2.map((s,i)=>`<option value="${i}">${s.nome}</option>`).join('');
+  const b1 = document.getElementById('meioBusca1'), b2 = document.getElementById('meioBusca2');
+  if(b1) b1.value = ''; if(b2) b2.value = '';
+  preencherSelectSabores(s1, l1, '', '');
+  preencherSelectSabores(s2, l2, '', '');
+}
+function semAcentoBusca(t){ return String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase(); }
+// Preenche o select com os sabores em ordem alfabética (o value continua sendo a posição na lista original)
+function preencherSelectSabores(sel, lista, termo, manter){
+  const t = semAcentoBusca(termo).trim();
+  const itens = lista.map((s,i)=>({s,i})).filter(o=>!t || semAcentoBusca(o.s.nome).includes(t))
+    .sort((a,b)=>a.s.nome.localeCompare(b.s.nome,'pt-BR'));
+  sel.innerHTML = '<option value="">' + (itens.length ? 'Selecione...' : 'Nenhum sabor encontrado') + '</option>'
+    + itens.map(o=>`<option value="${o.i}">${semPizza(o.s.nome)}</option>`).join('');
+  if(manter !== '' && itens.some(o=>String(o.i)===String(manter))) sel.value = String(manter);
+}
+function filtrarSaboresMeio(n){
+  const sel = document.getElementById('meioSabor'+n), busca = document.getElementById('meioBusca'+n);
+  const lista = n===1 ? listaSaboresMeio1() : listaSaboresMeio2();
+  preencherSelectSabores(sel, lista, busca.value, sel.value);
+  atualizarModalMeio();
 }
 function selecionarTipoMeio(tipo){
   meioTipoAtual = tipo;
@@ -1721,7 +1763,7 @@ function renderCarrinho(){
     div.className = 'cart-item';
     div.innerHTML = `
       <div class="ci-info">
-        <h4>${item.nome}</h4>
+        <h4>${nomeItemHtml(item.nome)}</h4>
         ${item.componentes ? '<div class="ci-comp">' + item.componentes.map(c=>'• ' + c.nome + ' (' + c.tamanho + ')' + (c.preco===0 ? ' — grátis' : '')).join('<br>') + '</div>' : '<span>' + item.tamanho + '</span>'}
         <div class="ci-qtd">
           <button type="button" class="passo menos" aria-label="Diminuir">−</button>
@@ -2060,7 +2102,7 @@ function irParaCheckout(){
   }
   carregarDadosCliente();
   const resumo = document.getElementById('resumoCheckout');
-  resumo.innerHTML = carrinho.map(i=>`${i.qtd}x ${i.nome}${i.componentes ? '' : ' (' + i.tamanho + ')'} — ${fmtMoeda(i.precoUnit*i.qtd)}`).join('<br>');
+  resumo.innerHTML = carrinho.map(i=>`${i.qtd}x ${nomeItemHtml(i.nome)}${i.componentes ? '' : ' (' + i.tamanho + ')'} — ${fmtMoeda(i.precoUnit*i.qtd)}`).join('<br>');
   if(modalidadeAtual==='Entrega'){
     const sel = document.getElementById('campoBairro');
     if(sel.options.length<=1){
@@ -2337,7 +2379,7 @@ function gpAutocompleteEndereco(cfg){
     }catch(e){ falhas++; try{ console.warn('Não consegui os detalhes do endereço:', e.message || e); }catch(_){} }
     token = novoToken(); chamadas = 0;    // sessão nova a cada endereço escolhido
   }
-  inp.setAttribute('autocomplete', 'off');
+  inp.setAttribute('autocomplete', 'nope'); inp.setAttribute('name', 'gp-busca-' + Math.random().toString(36).slice(2,8)); inp.setAttribute('autocapitalize','words'); inp.setAttribute('spellcheck','false');
   inp.addEventListener('input', ()=>{
     clearTimeout(timer); const q = inp.value.trim();
     if(q.length < 4){ fechar(); return; }

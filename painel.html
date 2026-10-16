@@ -393,7 +393,14 @@ function cartao(p){
   if(pixPend) c.appendChild(el('div', 'pix-alerta', '💰 PIX AGORA: confira no app do banco se caiu ' + money(p.total) + (p.nome ? ' de ' + p.nome : '') + '. O pedido só imprime depois.'));
   else if(p.pix_conferido_em) c.appendChild(el('div', 'pix-ok', '✅ Pix conferido'));
   const itens = el('div', 'itens');
-  (Array.isArray(p.itens) ? p.itens : []).forEach(i => itens.appendChild(el('div', '', (i.qtd || 1) + 'x ' + i.nome + ' (' + i.tamanho + ')')));
+  (Array.isArray(p.itens) ? p.itens : []).forEach(i => {
+    const nm = String(i.nome || '');
+    if (nm.indexOf('Meio a Meio: ') === 0) {   // meio a meio: cada sabor numa linha
+      const bl = el('div', '', (i.qtd || 1) + 'x Meio a Meio (' + i.tamanho + ')');
+      nm.slice(13).split(' / ').forEach(x => { const d = el('div', '', '½ ' + x.replace(/^Pizza /, '')); d.style.marginLeft = '16px'; bl.appendChild(d); });
+      itens.appendChild(bl);
+    } else itens.appendChild(el('div', '', (i.qtd || 1) + 'x ' + nm + ' (' + i.tamanho + ')'));
+  });
   c.appendChild(itens);
   if(p.modalidade === 'Entrega'){
     c.appendChild(el('div', 'extra', 'Bairro: ' + (p.bairro || '—') + ' · ' + (p.endereco || 'sem endereço')));

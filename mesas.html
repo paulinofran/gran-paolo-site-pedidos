@@ -224,7 +224,7 @@ function gpAutocompleteEndereco(cfg){
     }catch(e){ falhas++; try{ console.warn('Não consegui os detalhes do endereço:', e.message || e); }catch(_){} }
     token = novoToken(); chamadas = 0;    // sessão nova a cada endereço escolhido
   }
-  inp.setAttribute('autocomplete', 'off');
+  inp.setAttribute('autocomplete', 'nope'); inp.setAttribute('name', 'gp-busca-' + Math.random().toString(36).slice(2,8)); inp.setAttribute('autocapitalize','words'); inp.setAttribute('spellcheck','false');
   inp.addEventListener('input', ()=>{
     clearTimeout(timer); const q = inp.value.trim();
     if(q.length < 4){ fechar(); return; }
@@ -306,7 +306,7 @@ function abrirPedidosSite(){
   pedSite.forEach(p=>{
     const bl = el('div','bloco'); bl.style.marginBottom = '10px';
     const t = el('div','linha'); t.appendChild(el('span','','#' + p.numero + ' · ' + (p.nome || 'Cliente'))); t.appendChild(el('span','',money(p.total))); bl.appendChild(t);
-    (Array.isArray(p.itens) ? p.itens : []).forEach(i=>{ const d = el('div','dica', (i.qtd||1) + 'x ' + i.nome + (i.tamanho ? ' (' + i.tamanho + ')' : '')); bl.appendChild(d); });
+    (Array.isArray(p.itens) ? p.itens : []).forEach(i=>{ const d = el('div','dica'); preencheNomeItem(d, i); if(i.tamanho) d.appendChild(el('div','',' (' + i.tamanho + ')')); bl.appendChild(d); });
     bl.appendChild(el('div','dica', p.pix_pendente ? '⚠️ Pix ainda não conferido: confira no painel antes.' : (p.pago ? '✅ Já pago no Pix' : 'Cobrar na mesa: ' + (p.pagamento || '—'))));
     if(p.obs) bl.appendChild(el('div','dica','Obs: ' + p.obs));
     if(!p.pix_pendente){
@@ -450,7 +450,7 @@ function desenharMesa(c){
     const box = el('div','ped'); if(cancelado) box.style.opacity = .45;
     const cab = el('div','cab'); cab.appendChild(el('span','','#' + (p.numero||p.id) + ' · ' + new Date(p.quando).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}) + (cancelado?' · cancelado':'')));
     cab.appendChild(el('span','',money(p.total))); box.appendChild(cab);
-    (p.itens||[]).forEach((i, ix)=>{ const l = el('div','linha'); const t = el('div'); t.textContent = (i.qtd||1) + 'x ' + i.nome; t.appendChild(el('small','',i.tamanho||'')); l.appendChild(t);
+    (p.itens||[]).forEach((i, ix)=>{ const l = el('div','linha'); const t = el('div'); preencheNomeItem(t, i); t.appendChild(el('small','',i.tamanho||'')); l.appendChild(t);
       const d = el('div'); d.style.textAlign = 'right'; d.appendChild(el('div','',money((i.qtd||1)*(i.precoUnit||0))));
       if(!cancelado && !rap){ const bt = el('button','btn peq','Transferir'); bt.style.marginTop = '4px'; bt.onclick = ()=>abrirTransferirItem(p, ix, i); d.appendChild(bt); }
       l.appendChild(d); box.appendChild(l); });
@@ -471,7 +471,7 @@ function desenharLateral(){
   L.appendChild(el('h3','','🛒 Pedido · ' + (mesaAtual === 'Entrega' ? 'Entrega' : rotMesa(mesaAtual) + (comandaAtual !== 'Comanda 1' ? ' · ' + comandaAtual : ''))));
   const it = el('div','itens'); L.appendChild(it);
   if(!carrinho.length) it.appendChild(el('p','dica','Toque nos produtos para ir montando o pedido aqui.'));
-  carrinho.forEach((i,ix)=>{ const l = el('div','linha'); const t = el('div'); t.textContent = i.qtd + 'x ' + i.nome; t.appendChild(el('small','',i.tamanho)); l.appendChild(t);
+  carrinho.forEach((i,ix)=>{ const l = el('div','linha'); const t = el('div'); preencheNomeItem(t, i); t.appendChild(el('small','',i.tamanho)); l.appendChild(t);
     const d = el('div'); d.style.textAlign = 'right'; d.appendChild(el('div','',money(i.qtd*i.precoUnit))); const x = el('button','btn peq','Editar'); x.style.marginTop = '4px'; x.onclick = ()=>editarItem(ix, null); d.appendChild(x); l.appendChild(d); it.appendChild(l); });
   const rp = el('div','rodape'); L.appendChild(rp);
   const tot = carrinho.reduce((a,i)=>a+i.qtd*i.precoUnit,0);
@@ -644,22 +644,65 @@ function abrirMeio(){
   desenhar3();
 }
 
+// Meio a meio: cada sabor numa linha (como no Suitable)
+function preencheNomeItem(t, i){
+  const n = String(i.nome||''), q = (i.qtd||1);
+  if(n.indexOf('Meio a Meio: ') !== 0){ t.textContent = q + 'x ' + n; return; }
+  t.textContent = q + 'x Meio a Meio';
+  n.slice(13).split(' / ').forEach(x=>{ const d = el('div','',  '½ ' + x.replace(/^Pizza /,'')); d.style.cssText = 'font-size:13px;margin-left:10px'; t.appendChild(d); });
+}
 function obsDoItem(i){ const k = (i.tamanho||'').indexOf(' • Obs: '); return k < 0 ? {base:i.tamanho||'', obs:''} : {base:i.tamanho.slice(0,k), obs:i.tamanho.slice(k+8)}; }
 function editarItem(ix, depois){
   const i = carrinho[ix]; if(!i) return;
-  const o = obsDoItem(i), st = {qtd:i.qtd, obs:o.obs};
-  fechar(); const j = janela(); j.appendChild(el('h3','','Editar item')); j.appendChild(el('div','sub', i.nome + ' · ' + o.base));
-  const q = el('div','qtd'); const m = el('button','','−'), mais = el('button','','+'), v = el('span','',String(st.qtd));
-  m.onclick = ()=>{ if(st.qtd>1){ st.qtd--; v.textContent = st.qtd; } }; mais.onclick = ()=>{ st.qtd++; v.textContent = st.qtd; };
-  q.appendChild(m); q.appendChild(v); q.appendChild(mais); j.appendChild(q);
-  j.appendChild(el('div','rot','Observações (vai para a cozinha)'));
-  const ob = el('input'); ob.type = 'text'; ob.style.width = '100%'; ob.value = st.obs; ob.oninput = ()=>{ st.obs = ob.value; }; j.appendChild(ob);
-  const fim = ()=>{ fechar(); desenharCarrinho(); if(depois && carrinho.length) depois(); };
-  const ac = el('div','acoes');
-  const br = el('button','btn','Remover item'); br.style.color = 'var(--rd)'; br.onclick = ()=>{ carrinho.splice(ix,1); fim(); };
-  const bc = el('button','btn','Voltar'); bc.onclick = fim;
-  const bs = el('button','btn verm','Salvar'); bs.onclick = ()=>{ i.qtd = st.qtd; i.tamanho = o.base + (st.obs.trim() ? ' • Obs: ' + st.obs.trim() : ''); fim(); };
-  ac.appendChild(br); ac.appendChild(bc); ac.appendChild(bs); j.appendChild(ac);
+  const o = obsDoItem(i), st = {qtd:i.qtd, obs:o.obs, troca:null};
+  const ehMeio = String(i.nome).indexOf('Meio a Meio: ') === 0;
+  const pz = ehMeio ? pizzasDoPdv() : [];
+  const tamBase = String(o.base).split(' • ')[0];
+  const mb = /• Borda: (.+?)(?: •|$)/.exec(o.base); const bordaNome = mb ? mb[1] : null;
+  const bordaPreco = bordaNome ? Number((((MENU && MENU.bordas)||[]).find(b=>b.nome===bordaNome)||{}).preco)||0 : 0;
+  const nomes = ehMeio ? String(i.nome).slice(13).split(' / ') : [];
+  const achar = n=>pz.find(x=>('Pizza ' + x.nome)===n || x.nome===n) || null;
+  const prods = nomes.map(achar);
+  const podeTrocar = ehMeio && nomes.length === 2 && prods[0] && prods[1];
+  fechar(); const j = janela();
+  function desenhar4(){
+    j.innerHTML = '';
+    j.appendChild(el('h3','','Editar item'));
+    j.appendChild(el('div','sub', (ehMeio ? 'Meio a Meio' : i.nome) + ' · ' + o.base));
+    if(ehMeio){
+      const bx = el('div'); bx.style.cssText = 'margin:6px 0 10px';
+      nomes.forEach((n,k)=>{
+        const r = el('div'); r.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0';
+        r.appendChild(el('span','', '½ ' + n.replace(/^Pizza /,'')));
+        if(podeTrocar){ const bt = el('button','btn peq','Trocar'); bt.onclick = ()=>{ st.troca = (st.troca===k ? null : k); desenhar4(); }; r.appendChild(bt); }
+        bx.appendChild(r);
+        if(podeTrocar && st.troca === k){
+          const outro = prods[1-k];
+          seletorBusca(bx, pz.filter(x=>precoTam(x, tamBase)!==null && x.slug!==outro.slug), prods[k], x=>{ prods[k] = x; nomes[k] = 'Pizza ' + x.nome; st.troca = null; desenhar4(); }, x=>money(precoTam(x, tamBase)));
+        }
+      });
+      j.appendChild(bx);
+    }
+    const q = el('div','qtd'); const m = el('button','','−'), mais = el('button','','+'), v = el('span','',String(st.qtd));
+    m.onclick = ()=>{ if(st.qtd>1){ st.qtd--; v.textContent = st.qtd; } }; mais.onclick = ()=>{ st.qtd++; v.textContent = st.qtd; };
+    q.appendChild(m); q.appendChild(v); q.appendChild(mais); j.appendChild(q);
+    j.appendChild(el('div','rot','Observações (vai para a cozinha)'));
+    const ob = el('input'); ob.type = 'text'; ob.style.width = '100%'; ob.value = st.obs; ob.oninput = ()=>{ st.obs = ob.value; }; j.appendChild(ob);
+    const fim = ()=>{ fechar(); desenharCarrinho(); if(depois && carrinho.length) depois(); };
+    const ac = el('div','acoes');
+    const br = el('button','btn','Remover item'); br.style.color = 'var(--rd)'; br.onclick = ()=>{ carrinho.splice(ix,1); fim(); };
+    const bc = el('button','btn','Voltar'); bc.onclick = fim;
+    const bs = el('button','btn verm','Salvar'); bs.onclick = ()=>{
+      i.qtd = st.qtd; i.tamanho = o.base + (st.obs.trim() ? ' • Obs: ' + st.obs.trim() : '');
+      if(podeTrocar){
+        const novo = 'Meio a Meio: ' + nomes.join(' / ');
+        if(novo !== i.nome){ i.nome = novo; i.precoUnit = arred(((precoTam(prods[0], tamBase)||0) + (precoTam(prods[1], tamBase)||0))/2 + bordaPreco); }
+      }
+      fim();
+    };
+    ac.appendChild(br); ac.appendChild(bc); ac.appendChild(bs); j.appendChild(ac);
+  }
+  desenhar4();
 }
 function abrirCarrinho(){
   const j = janela(); j.appendChild(el('h3','','Carrinho · ' + (mesaAtual === 'Entrega' ? 'Entrega' : rotMesa(mesaAtual) + ' · ' + comandaAtual)));
@@ -667,7 +710,7 @@ function abrirCarrinho(){
   function ver(){
     lista.innerHTML = '';
     if(!carrinho.length){ fechar(); desenhar(); return; }
-    carrinho.forEach((i,ix)=>{ const l = el('div','linha'); const t = el('div'); t.textContent = i.qtd + 'x ' + i.nome; t.appendChild(el('small','',i.tamanho)); l.appendChild(t);
+    carrinho.forEach((i,ix)=>{ const l = el('div','linha'); const t = el('div'); preencheNomeItem(t, i); t.appendChild(el('small','',i.tamanho)); l.appendChild(t);
       const d = el('div'); d.appendChild(el('div','',money(i.qtd*i.precoUnit))); const x = el('button','btn peq','Editar'); x.onclick = ()=>editarItem(ix, abrirCarrinho); d.appendChild(x); l.appendChild(d); lista.appendChild(l); });
     const t = el('div','total'); t.appendChild(el('span','','Total')); t.appendChild(el('span','',money(carrinho.reduce((a,i)=>a+i.qtd*i.precoUnit,0)))); lista.appendChild(t);
   }
@@ -853,7 +896,7 @@ function abrirEnviarEntrega(){
   const sub = arred(carrinho.reduce((a,i)=>a+i.qtd*i.precoUnit,0)), total = arred(sub + entrega.taxa);
   const j = janela(); j.appendChild(el('h3','','Enviar entrega · ' + entrega.nome));
   j.appendChild(el('div','sub', entrega.bairro + ' · ' + endCompleto(entrega) + ' · ' + entrega.telefone));
-  carrinho.forEach(i=>{ const l = el('div','linha'); const t = el('div'); t.textContent = i.qtd + 'x ' + i.nome; t.appendChild(el('small','',i.tamanho)); l.appendChild(t); l.appendChild(el('span','',money(i.qtd*i.precoUnit))); j.appendChild(l); });
+  carrinho.forEach(i=>{ const l = el('div','linha'); const t = el('div'); preencheNomeItem(t, i); t.appendChild(el('small','',i.tamanho)); l.appendChild(t); l.appendChild(el('span','',money(i.qtd*i.precoUnit))); j.appendChild(l); });
   const l1 = el('div','linha'); l1.appendChild(el('span','','Taxa de entrega')); l1.appendChild(el('span','',money(entrega.taxa))); j.appendChild(l1);
   const t0 = el('div','total'); t0.appendChild(el('span','','Total')); t0.appendChild(el('span','',money(total))); j.appendChild(t0);
   j.appendChild(el('div','rot','Forma de pagamento'));
@@ -897,7 +940,7 @@ function abrirConta(){
   const j = janela(); j.appendChild(el('h3','','Conta · ' + rotMesa(mesaAtual) + (comandaAtual!=='Comanda 1' ? ' · ' + comandaAtual : '')));
   const agrup = {};
   peds.forEach(p=>(p.itens||[]).forEach(i=>{ const k = i.nome + '|' + (i.tamanho||'') + '|' + i.precoUnit; (agrup[k] = agrup[k] || {...i, qtd:0}).qtd += (i.qtd||1); }));
-  Object.values(agrup).forEach(i=>{ const l = el('div','linha'); const t = el('div'); t.textContent = i.qtd + 'x ' + i.nome; t.appendChild(el('small','',i.tamanho||'')); l.appendChild(t); l.appendChild(el('span','',money(i.qtd*i.precoUnit))); j.appendChild(l); });
+  Object.values(agrup).forEach(i=>{ const l = el('div','linha'); const t = el('div'); preencheNomeItem(t, i); t.appendChild(el('small','',i.tamanho||'')); l.appendChild(t); l.appendChild(el('span','',money(i.qtd*i.precoUnit))); j.appendChild(l); });
   const somaIt = Object.values(agrup).reduce((a,i)=>a + i.qtd*i.precoUnit, 0);
   if(somaIt - sub > 0.009){ const ld = el('div','linha'); ld.appendChild(el('span','','Desconto do pedido do site (cashback/Pix)')); ld.appendChild(el('span','','-' + money(somaIt - sub))); j.appendChild(ld); }
   const t0 = el('div','total'); t0.appendChild(el('span','','Subtotal')); t0.appendChild(el('span','',money(sub))); j.appendChild(t0);
