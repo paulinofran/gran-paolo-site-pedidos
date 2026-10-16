@@ -896,7 +896,7 @@ function abrirConta(){
     try{
       const dados = {desconto:num(iDesc.value),acrescimo:num(iAcr.value),taxa_servico:taxa};
       await rpc('mesa_atualizar',{p_loja:LOJA,p_conta:conta.id,p_dados:dados});
-      if(f > 0.009) await rpc('mesa_receber',{p_loja:LOJA,p_conta:conta.id,p_valor:Math.min(v, f),p_forma:forma});
+      if(f > 0.009) await rpc('mesa_receber',{p_loja:LOJA,p_conta:conta.id,p_valor:Math.min(v, f),p_forma:forma,p_entregue:(forma === 'Dinheiro' && v > f + 0.005) ? v : null});
       if(fecha){ const rf = await rpc('mesa_fechar',{p_loja:LOJA,p_conta:conta.id,p_forma:forma,p_desconto:dados.desconto,p_acrescimo:dados.acrescimo,p_taxa:taxa}) || {};
         const ganhou = (Number(rf.cashback_ganho) > 0 || Number(rf.pontos_ganhos) > 0) ? ' Cliente ganhou ' + (Number(rf.cashback_ganho) > 0 ? money(Number(rf.cashback_ganho)) + ' de cashback' : '') + (Number(rf.cashback_ganho) > 0 && Number(rf.pontos_ganhos) > 0 ? ' e ' : '') + (Number(rf.pontos_ganhos) > 0 ? rf.pontos_ganhos + ' ponto(s)' : '') + '.' : '';
         fechar(); aviso((ehRapido(mesaAtual) ? 'Atendimento finalizado.' : 'Conta fechada. Mesa livre.') + (troco > 0 ? ' Troco: ' + money(troco) + '.' : '') + ganhou); if(troco > 0 || ganhou){ clearTimeout(aviso.t); aviso.t = setTimeout(()=>$('aviso').classList.add('oculto'), 9000); } tela = telaBase(); carrinho = []; await atualizarContas(); desenhar(); }
