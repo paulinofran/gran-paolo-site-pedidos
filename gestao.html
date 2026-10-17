@@ -152,7 +152,7 @@ function pnModal(n){ return n === 'Vem comer' ? 'Salão (vem comer)' : (n === 'D
 const CANAIS = ['Entrega','Retirada','Vem comer','Drive-thru','Balcão'];
 const DIAS = ['D','S','T','Q','Q','S','S'];
 const NOME_DIA = ['domingo','segunda','terça','quarta','quinta','sexta','sábado'];
-const ABAS = [['painel','Painel'],['hoje','Hoje'],['cardapio','Cardápio'],['promos','Promoções'],['taxas','Taxas'],['regras','Regras'],['horarios','Horários'],['clientes','Clientes'],['relatorios','Relatórios'],['notas','Notas'],['robo','Robô'],['estoque','Estoque'],['caixa','Caixa'],['contas','Contas']];
+const ABAS = [['painel','Painel'],['hoje','Hoje'],['cardapio','Cardápio'],['promos','Promoções'],['taxas','Taxas'],['regras','Regras'],['horarios','Horários'],['clientes','Clientes'],['relatorios','Relatórios'],['notas','Notas'],['robo','Robô'],['estoque','Estoque'],['caixa','Caixa'],['motor','Motor'],['contas','Contas']];
 
 let sessao = null, aba = (location.hash === '#robo') ? 'robo' : (location.hash === '#hoje' ? 'hoje' : 'painel');
 let PAPEL = 'dono';   // 'leitor' = acesso so de leitura (Marketing): ve apenas os Relatorios
@@ -293,7 +293,7 @@ function desenhar(){
   if(PAPEL === 'leitor') aba = 'relatorios';
   desenharAbas();
   const c = $('conteudo'); c.innerHTML = ''; c.className = '';
-  ({painel:telaPainel, hoje:telaHoje, cardapio:telaCardapio, promos:telaPromos, taxas:telaTaxas, regras:telaRegras, horarios:telaHorarios, clientes:telaClientes, relatorios:telaRelatorios, notas:telaNotas, robo:telaRobo, estoque:telaEstoque, caixa:telaCaixa, contas:telaContas})[aba](c);
+  ({painel:telaPainel, hoje:telaHoje, cardapio:telaCardapio, promos:telaPromos, taxas:telaTaxas, regras:telaRegras, horarios:telaHorarios, clientes:telaClientes, relatorios:telaRelatorios, notas:telaNotas, robo:telaRobo, estoque:telaEstoque, caixa:telaCaixa, motor:telaMotor, contas:telaContas})[aba](c);
 }
 function campo(rotulo, input){ const w = el('label', 'campo'); w.appendChild(el('span', '', rotulo)); w.appendChild(input); return w; }
 function inputNum(v, passo){ const i = el('input', 'num'); i.type = 'text'; i.inputMode = (passo === '1') ? 'numeric' : 'decimal'; i.autocomplete = 'off'; i.value = v === null || v === undefined ? '' : String(v).replace('.', ','); return i; }
@@ -771,6 +771,7 @@ async function telaCaixa(c){
   let F;
   try{ F = await rpc('caixa_fluxo', {p_loja:LOJA, p_ini:p.ini, p_fim:p.fim}); }
   catch(e){ if(aba !== 'caixa') return; corpo.innerHTML = ''; corpo.appendChild(el('div', 'vazio', /PGRST202|Could not find|404|does not exist/i.test(String(e.message || e)) ? 'O Caixa ainda não foi instalado no banco (falta rodar a Parte AU).' : 'Não consegui carregar: ' + (e.message || e))); return; }
+  try{ await carregarCategoriasConta(); }catch(e){}
   if(aba !== 'caixa') return;
   corpo.innerHTML = '';
   const n = (v)=>pnNum(v);
@@ -790,7 +791,7 @@ async function telaCaixa(c){
   pnBarras(cE, (F.entradas_por_forma || []).map(x=>({rot:x.forma, valor:n(x.valor), texto:money(x.valor), extra:totE ? Math.round(n(x.valor) / totE * 100) + '%' : '', dica:x.forma + ': ' + money(x.valor)})), 'Sem vendas no período.');
   g.appendChild(cE);
   const cS = pnCartao('Para onde saiu', 'Gastos pagos com o dinheiro da gaveta (anotados no PDV) e contas pagas (aba Contas).');
-  const linhasS = [['Gastos da gaveta', n(F.gastos_caixa)]].concat((F.contas_por_categoria || []).map(x=>['Contas: ' + x.categoria, n(x.valor)])).filter(x=>x[1] > 0);
+  const linhasS = [['Gastos da gaveta', n(F.gastos_caixa)]].concat((F.contas_por_categoria || []).map(x=>['Contas: ' + (CATS_CONTA[x.categoria] || x.categoria), n(x.valor)])).filter(x=>x[1] > 0);
   const totS = linhasS.reduce((s, x)=>s + x[1], 0);
   pnBarras(cS, linhasS.map(x=>({rot:x[0], valor:x[1], texto:money(x[1]), extra:totS ? Math.round(x[1] / totS * 100) + '%' : '', dica:x[0] + ': ' + money(x[1])})), 'Nada saiu no período.');
   g.appendChild(cS); corpo.appendChild(g);
@@ -801,6 +802,114 @@ async function telaCaixa(c){
   cF.appendChild(tabelaSimples(['Dia', 'Esperado', 'Separado', 'Diferença'], (F.fechamentos || []).map(x=>[brData(x.dia), money(x.esperado), money(x.entregue), (Math.abs(n(x.diferenca)) < 0.005 ? 'Bateu' : (n(x.diferenca) < 0 ? 'Faltou ' : 'Sobrou ') + money(Math.abs(n(x.diferenca))))]), 'Nenhum caixa fechado no período.'));
   corpo.appendChild(cF);
   const bC = el('button', 'btn verde', 'Lançar uma conta a pagar'); bC.style.marginTop = '12px'; bC.onclick = ()=>{ aba = 'contas'; desenhar(); window.scrollTo(0,0); }; corpo.appendChild(bC);
+}
+
+/* ============================ MOTOR FINANCEIRO (real) ============================ */
+let mtPreset = 'mes', mtDados = null;
+const mtNum = (v)=>{ let t = String(v == null ? '' : v).trim().replace(/[^0-9.,]/g, ''); if(!t) return 0;
+  const ic = t.lastIndexOf(','), ip = t.lastIndexOf('.');
+  if(ic >= 0 && ip >= 0) t = ic > ip ? t.replace(/\./g, '').replace(',', '.') : t.replace(/,/g, '');
+  else if(ic >= 0) t = t.replace(',', '.');
+  else if(ip >= 0){ const pt = t.split('.'); if(pt.length > 2 || (pt.length === 2 && pt[1].length === 3 && pt[0] !== '0')) t = t.replace(/\./g, ''); }
+  const x = parseFloat(t); return isFinite(x) ? x : 0; };
+const mtPct = (v, d)=> (Math.round(v * 100 * Math.pow(10, d || 0)) / Math.pow(10, d || 0)).toLocaleString('pt-BR') + '%';
+const MT_REF = {margem:0.70, ticketPizza:59.9};   // referencia quando ainda ha poucas vendas reais
+function mtDiasAbertos(iniISO, fimISO){   // terca a domingo (segunda fechado)
+  let n = 0, d = iniISO; while(d <= fimISO){ if(new Date(d + 'T12:00:00').getDay() !== 1) n++; d = somaDias(d, 1); } return n; }
+async function telaMotor(c){
+  c.className = 'larga';
+  const hoje = agoraLocal().data;
+  const mesIni = mtPreset === 'ant' ? periodoDoPreset('ant').ini : hoje.slice(0, 8) + '01';
+  const mesFim = mtPreset === 'ant' ? periodoDoPreset('ant').fim : (()=>{ const a = new Date(Number(hoje.slice(0, 4)), Number(hoje.slice(5, 7)), 0); return hoje.slice(0, 8) + String(a.getDate()).padStart(2, '0'); })();
+  const ateFim = mtPreset === 'ant' ? mesFim : hoje;
+  const barra = el('div', 'pn-barra'), chips = el('div', 'cheios');
+  [['mes', 'Este mês'], ['ant', 'Mês passado']].forEach(([id, rot])=>{ const b = el('button', 'btn peq ' + (mtPreset === id ? 'verde' : 'cinza'), rot); b.onclick = ()=>{ mtPreset = id; desenhar(); }; chips.appendChild(b); });
+  barra.appendChild(chips); barra.appendChild(el('div', 'pn-sub', brData(mesIni) + ' a ' + brData(mesFim))); c.appendChild(barra);
+  const corpo = el('div'); corpo.appendChild(el('div', 'vazio', 'Montando o Motor...')); c.appendChild(corpo);
+  let K, R;
+  try{ [K, R] = await Promise.all([rpc('motor_ler', {p_loja:LOJA}), rpc('motor_resumo', {p_loja:LOJA, p_ini:mesIni, p_fim:ateFim})]); }
+  catch(e){ if(aba !== 'motor') return; corpo.innerHTML = ''; corpo.appendChild(el('div', 'vazio', /PGRST202|Could not find|404|does not exist/i.test(String(e.message || e)) ? 'O Motor ainda não foi instalado no banco (falta rodar a Parte AV).' : 'Não consegui carregar: ' + (e.message || e))); return; }
+  if(aba !== 'motor') return;
+  corpo.innerHTML = '';
+  const cfg = K.config || {}, enc = pnNum(cfg.encargos_pct) / 100, sem = pnNum(cfg.semanas_mes) || 4.33;
+  const ativos = (K.custos || []).filter(x=>x.ativo);
+  const fixas = ativos.filter(x=>x.tipo === 'fixa').reduce((s, x)=>s + pnNum(x.valor), 0);
+  const folhaFixa = ativos.filter(x=>x.tipo === 'folha_fixo').reduce((s, x)=>s + pnNum(x.valor), 0);
+  const folhaExtra = ativos.filter(x=>x.tipo === 'folha_extra').reduce((s, x)=>s + pnNum(x.valor), 0) * sem;
+  const folha = folhaFixa * (1 + enc) + folhaExtra, custos = fixas + folha;
+
+  const fat = pnNum(R.faturamento), cmv = pnNum(R.cmv), ped = pnNum(R.pedidos), piz = pnNum(R.pizzas), dv = pnNum(R.dias_com_venda);
+  const pouco = ped < 20 || fat <= 0 || cmv <= 0;
+  const margem = pouco ? MT_REF.margem : Math.max(0.01, (fat - cmv) / fat);
+  const ticketPiz = piz > 0 && fat > 0 ? fat / piz : MT_REF.ticketPizza;
+  const diasMes = mtDiasAbertos(mesIni, mesFim), diasPassados = mtPreset === 'ant' ? diasMes : mtDiasAbertos(mesIni, hoje);
+  const projFat = mtPreset === 'ant' || dv === 0 ? fat : fat / dv * diasMes;
+  const pe = custos / margem;
+  const lucroProj = projFat * margem - custos;
+
+  /* topo */
+  const topo = el('div');
+  const hero = el('div', 'pn-hero'); hero.appendChild(el('small', '', mtPreset === 'ant' ? 'Lucro do mês (faturamento × margem − custos)' : 'Lucro projetado do mês'));
+  hero.appendChild(el('div', 'grande', money(lucroProj)));
+  hero.appendChild(el('div', 'pn-ref', (mtPreset === 'ant' ? 'Faturamento ' : 'Se o resto do mês seguir neste ritmo: faturamento de ') + money(projFat) + ' · margem ' + mtPct(margem, 1) + ' · custos ' + money(custos)));
+  topo.appendChild(hero);
+  const tiles = el('div', 'pn-tiles'); tiles.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:12px';
+  [['Faturamento até agora', money(fat)], ['CMV real (' + money(cmv) + ' em insumos)', fat > 0 ? mtPct(cmv / fat, 1) : '—'], ['Margem sobre vendas', mtPct(margem, 1)], ['Custos fixos + folha', money(custos)]].forEach(([rot, val])=>{
+    const t = el('div', 'pn-tile'); t.appendChild(el('div', 'rot', rot)); t.appendChild(el('div', 'val', val)); tiles.appendChild(t); });
+  topo.appendChild(tiles); corpo.appendChild(topo);
+  if(pouco) corpo.appendChild(el('div', '', 'ℹ️ Ainda há poucas vendas reais no período (menos de 20 pedidos), então a margem usada é a de referência (' + mtPct(MT_REF.margem, 0) + ', do Motor antigo). Ela passa para a margem real sozinha conforme as vendas entram.')).style.cssText = 'background:#E6EEFA;border-radius:12px;padding:12px;margin:12px 0;font-size:14px';
+  else if(pnNum(R.itens_sem_ficha) > 0) corpo.appendChild(el('div', '', 'ℹ️ ' + pnInt(R.itens_sem_ficha) + ' pedido(s) do período têm item sem ficha técnica (ex.: bebidas). O CMV conta só o que tem ficha, então a margem real pode ser um pouco menor.')).style.cssText = 'background:#FFF1CC;border-radius:12px;padding:12px;margin:12px 0;font-size:14px';
+
+  /* ponto de equilibrio */
+  const cPE = pnCartao('Ponto de equilíbrio', 'Quanto precisa vender no mês para pagar todos os custos (sem lucro, sem prejuízo).');
+  const pctPE = pe > 0 ? Math.min(100, projFat / pe * 100) : 0;
+  const trilho = el('div'); trilho.style.cssText = 'height:16px;background:#EFE7DC;border-radius:8px;overflow:hidden;margin:6px 0 8px';
+  const enche = el('div'); enche.style.cssText = 'height:100%;width:' + Math.max(2, pctPE) + '%;background:' + (projFat >= pe ? '#02341b' : '#ee4152') + ';border-radius:8px'; trilho.appendChild(enche); cPE.appendChild(trilho);
+  cPE.appendChild(el('div', '', 'Equilíbrio: ' + money(pe) + ' por mês · projeção do mês: ' + money(projFat) + (projFat >= pe ? ' ✅ acima do equilíbrio' : ' (faltam ' + money(pe - projFat) + ')'))).style.cssText = 'font-weight:700';
+  const pizMes = pe / ticketPiz, pizDia = diasMes ? pizMes / diasMes : 0, pizReal = dv > 0 ? piz / dv : 0;
+  const lin = el('div', 'pn-sub'); lin.style.marginTop = '8px';
+  lin.textContent = 'Em pizzas: cerca de ' + pnInt(pizMes) + ' por mês, ou ' + (Math.round(pizDia * 10) / 10).toLocaleString('pt-BR') + ' por dia aberto (valor médio de ' + money(ticketPiz) + ' por pizza)' + (dv > 0 ? '. Hoje você vende ' + (Math.round(pizReal * 10) / 10).toLocaleString('pt-BR') + ' pizzas por dia.' : '.');
+  cPE.appendChild(lin); corpo.appendChild(cPE);
+
+  /* para onde vai cada R$ 100 */
+  const base = projFat > 0 ? projFat : 1;
+  const cDest = pnCartao('Para onde vai cada R$ 100 vendidos', 'Com o faturamento projetado do mês.');
+  const parte = (rot, v)=>({rot, valor:Math.max(v, 0), texto:'R$ ' + (Math.round(v / base * 1000) / 10).toLocaleString('pt-BR'), dica:rot + ': ' + money(v)});
+  pnBarras(cDest, [parte('Insumos (CMV)', projFat * (1 - margem)), parte('Folha de pagamento', folha), parte('Despesas fixas', fixas), parte('Sobra (lucro)', Math.max(lucroProj, 0))], 'Sem dados.');
+  if(lucroProj < 0) cDest.appendChild(el('div', 'pn-sub', 'Neste ritmo o mês fecha no prejuízo de ' + money(-lucroProj) + '.'));
+  corpo.appendChild(cDest);
+
+  /* custos (editaveis) */
+  const cC = pnCartao('Custos do mês', 'Valores que alimentam o Motor. Mude um valor e clique em Salvar. A folha usa os encargos abaixo sobre os salários fixos.');
+  const salvar = (x, valor, nome, ativo)=>tentar(async()=>{ await rpc('motor_custo_salvar', {p_loja:LOJA, p_id:x.id, p_tipo:x.tipo, p_nome:nome, p_detalhe:x.detalhe || null, p_valor:valor, p_ativo:ativo}); desenhar(); }, 'Salvo.');
+  const grupo = (titulo, tipo, nota)=>{
+    const dt = el('details'); dt.style.marginTop = '8px'; const lista = (K.custos || []).filter(x=>x.tipo === tipo);
+    const tot = lista.filter(x=>x.ativo).reduce((s, x)=>s + pnNum(x.valor), 0);
+    dt.appendChild(el('summary', '', titulo + ' · ' + money(tot) + (nota || '')));
+    lista.forEach(x=>{
+      const l = el('div'); l.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:6px 0;border-bottom:1px dashed var(--line)';
+      const nm = el('div', '', x.nome + (x.detalhe ? ' · ' + x.detalhe : '')); nm.style.cssText = 'flex:1;min-width:150px;' + (x.ativo ? '' : 'opacity:.5;text-decoration:line-through');
+      const iv = document.createElement('input'); iv.type = 'text'; iv.inputMode = 'decimal'; iv.value = String(pnNum(x.valor)).replace('.', ','); iv.style.cssText = 'width:110px;padding:7px';
+      const bs = el('button', 'btn peq verde', 'Salvar'); bs.onclick = ()=>salvar(x, mtNum(iv.value), x.nome, x.ativo);
+      const bx = el('button', 'btn peq cinza', x.ativo ? 'Pausar' : 'Ativar'); bx.onclick = ()=>salvar(x, pnNum(x.valor), x.nome, !x.ativo);
+      const bd = el('button', 'btn peq cinza', 'Apagar'); bd.onclick = ()=>{ if(confirm('Apagar "' + x.nome + '"?')) tentar(async()=>{ await rpc('motor_custo_apagar', {p_loja:LOJA, p_id:x.id}); desenhar(); }, 'Apagado.'); };
+      l.appendChild(nm); l.appendChild(iv); l.appendChild(bs); l.appendChild(bx); l.appendChild(bd); dt.appendChild(l); });
+    const nl = el('div'); nl.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin-top:10px';
+    const inn = document.createElement('input'); inn.type = 'text'; inn.placeholder = 'Novo item'; inn.style.cssText = 'flex:1;min-width:150px;padding:7px';
+    const inv = document.createElement('input'); inv.type = 'text'; inv.inputMode = 'decimal'; inv.placeholder = 'Valor'; inv.style.cssText = 'width:110px;padding:7px';
+    const ba = el('button', 'btn peq verde', '+ Adicionar'); ba.onclick = ()=>{ if(!inn.value.trim()){ alert('Digite o nome do item.'); return; } tentar(async()=>{ await rpc('motor_custo_salvar', {p_loja:LOJA, p_id:null, p_tipo:tipo, p_nome:inn.value, p_detalhe:null, p_valor:mtNum(inv.value), p_ativo:true}); desenhar(); }, 'Adicionado.'); };
+    nl.appendChild(inn); nl.appendChild(inv); nl.appendChild(ba); dt.appendChild(nl); return dt; };
+  cC.appendChild(grupo('Despesas fixas (por mês)', 'fixa'));
+  cC.appendChild(grupo('Folha: salários fixos (por mês)', 'folha_fixo', ' (+ encargos ' + mtPct(enc, 2) + ')'));
+  cC.appendChild(grupo('Folha: extras (valor por semana)', 'folha_extra', ' por semana · × ' + sem.toString().replace('.', ',') + ' semanas'));
+  const fe = el('div'); fe.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px';
+  fe.appendChild(el('span', '', 'Encargos sobre salários fixos (%):'));
+  const ie = document.createElement('input'); ie.type = 'text'; ie.inputMode = 'decimal'; ie.value = String(pnNum(cfg.encargos_pct)).replace('.', ','); ie.style.cssText = 'width:90px;padding:7px';
+  const be = el('button', 'btn peq verde', 'Salvar'); be.onclick = ()=>tentar(async()=>{ await rpc('motor_config_salvar', {p_loja:LOJA, p_encargos:mtNum(ie.value), p_meta:null}); desenhar(); }, 'Salvo.');
+  fe.appendChild(ie); fe.appendChild(be); cC.appendChild(fe);
+  cC.appendChild(el('div', 'pn-sub', 'Total do mês: despesas fixas ' + money(fixas) + ' + folha ' + money(folha) + ' = ' + money(custos))).style.marginTop = '10px';
+  corpo.appendChild(cC);
+  corpo.appendChild(el('p', 'dica', 'O CMV real vem da baixa automática do estoque pela ficha técnica de cada venda (só itens com ficha). Pró-labore e dedetização estão com valor zero: preencha para entrarem na conta.'));
 }
 
 /* ============================ CARDAPIO ============================ */
