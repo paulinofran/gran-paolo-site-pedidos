@@ -1322,14 +1322,14 @@ async function desenharRoboNumeros(box){
 const SEGMENTOS_PROMO = [['ativos', 'Pediram nos últimos 30 dias'], ['parados_30', 'Sem pedir há 30 a 59 dias'], ['parados_60', 'Sem pedir há 60 a 89 dias'], ['parados_90', 'Sem pedir há 90 dias ou mais'], ['novos', 'Só 1 pedido (novos)'], ['recorrentes', '2 ou mais pedidos (recorrentes)']];
 async function desenharSegmentos(box){
   box.textContent = '';
-  box.appendChild(el('h2', '', 'Segmentos para campanhas (só quem aceitou)'));
-  box.appendChild(el('p', 'dica', 'Quantas pessoas de cada grupo poderiam receber uma promoção agora. Entram só quem marcou a caixinha e não respondeu SAIR. Os grupos de tempo e os de frequência são duas formas de olhar as mesmas pessoas, então os números se repetem entre eles. Esta tela não envia nada.'));
+  box.appendChild(el('h2', '', 'Segmentos para campanhas'));
+  box.appendChild(el('p', 'dica', 'Quantas pessoas de cada grupo poderiam receber uma promoção agora. Entram os clientes que já compraram (site, PDV ou histórico do Suitable) e não responderam SAIR. Os grupos de tempo e os de frequência são duas formas de olhar as mesmas pessoas, então os números se repetem entre eles. Esta tela não envia nada.'));
   const corpo = el('div'); corpo.appendChild(el('div', 'vazio', 'Calculando...')); box.appendChild(corpo);
   let d;
   try{ d = await rpc('rel_segmentos', {p_loja:LOJA}); }
   catch(e){ corpo.textContent = ''; corpo.appendChild(el('div', 'vazio', erroRelNovo(e, 'AH', 'os segmentos'))); return; }
   corpo.textContent = '';
-  if(!Number(d.elegiveis)){ corpo.appendChild(el('div', 'vazio', 'Ninguém aceitou receber promoções ainda. Os grupos aparecem aqui conforme os clientes marcarem a caixinha ao pedir no site.')); return; }
+  if(!Number(d.elegiveis)){ corpo.appendChild(el('div', 'vazio', 'Ainda não há clientes com compra registrada. Os grupos aparecem aqui conforme os clientes pedirem.')); return; }
   const linhas = [['Total que pode receber', d.elegiveis, '']].concat(SEGMENTOS_PROMO.map(([k, r])=>[r, d[k], '']));
   const t = tabelaSimples(['Grupo', 'Pessoas', PAPEL === 'leitor' ? '' : 'Lista'], linhas.map(x=>[x[0], x[1], '']));
   corpo.appendChild(t);
@@ -1393,8 +1393,7 @@ async function telaRelatorios(c){
   const novosBox = el('div'); corpo.appendChild(novosBox); desenharNovosRecorrentes(novosBox);
   const horaBox = el('div'); corpo.appendChild(horaBox); desenharDiaHora(horaBox);
   const roboBox = el('div'); corpo.appendChild(roboBox); desenharRoboNumeros(roboBox);
-  const consBox = el('div'); corpo.appendChild(consBox); desenharConsentimentos(consBox);
-  const segBox = el('div'); corpo.appendChild(segBox); desenharSegmentos(segBox);
+    const segBox = el('div'); corpo.appendChild(segBox); desenharSegmentos(segBox);
   const funilBox = el('div'); corpo.appendChild(funilBox); desenharFunil(funilBox);
   const diaBox = el('div'); corpo.appendChild(diaBox); desenharVisitasDia(diaBox);
   const linksBox = el('div'); corpo.appendChild(linksBox); montarGeradorLinks(linksBox);
