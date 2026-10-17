@@ -156,6 +156,9 @@ const CHAVE_SESSAO = "gp_painel_sessao";      // a mesma do painel: entrou lá, 
 const QTD_MESAS = 10;
 const MESAS = ['Balcao'].concat(Array.from({length:QTD_MESAS}, (_,i)=>String(i+1)));
 const FORMAS = ['Pix','Dinheiro','Débito','Crédito'];
+let FISCAL = {ativo:false};   // nota fiscal (Gestão > Notas): enquanto estiver desligada, o PDV nem mostra a caixinha
+function cpfValido(c){ const d = String(c||'').replace(/\D/g,''); if(d.length !== 11 || /^(\d)\1{10}$/.test(d)) return false;
+  for(let t = 9; t < 11; t++){ let s = 0; for(let i = 0; i < t; i++) s += Number(d[i]) * (t + 1 - i); const r = (s * 10) % 11 % 10; if(r !== Number(d[t])) return false; } return true; }
 const RAPIDOS = {Drive:{rot:'Drive-thru', ic:'🚗'}, Retirada:{rot:'Retirada', ic:'🥡'}};   // um cliente por vez: nome + telefone, paga na hora
 const ehRapido = (m)=> !!RAPIDOS[m];
 
@@ -1011,12 +1014,36 @@ function abrirConta(){
   const tTroco = el('div','total'); tTroco.style.cssText = 'display:none;background:#fff3cd;color:#7a4b00;margin-top:8px;font-size:1.15em'; bpg.appendChild(tTroco);
   bpg.appendChild(el('div','rot','Forma de pagamento'));
   let forma = null; const of = el('div','opcoes'); FORMAS.forEach(f=>{ const b = el('button','opc pgto',f); b.onclick = ()=>{ forma = f; of.querySelectorAll('.opc').forEach(x=>x.classList.remove('sel')); b.classList.add('sel'); atualizaPag(); }; of.appendChild(b); }); bpg.appendChild(of);
+  // ---- nota fiscal (só aparece se a nota estiver ligada na Gestão) ----
+  const FISCAL_ON = !!(FISCAL && FISCAL.ativo); let notaTocada = false, cbNota = null, iCpf = null, boxCpf = null, dicaNota = null;
+  if(FISCAL_ON){
+    const bn = el('div','bloco'); bn.style.cssText = 'margin-top:10px;padding:10px;border:1px solid #cfd8dc;border-radius:10px';
+    const lb = el('label'); lb.style.cssText = 'display:flex;gap:10px;align-items:center;font-weight:700;font-size:1.05em;cursor:pointer';
+    cbNota = el('input'); cbNota.type = 'checkbox'; cbNota.style.cssText = 'width:22px;height:22px';
+    lb.appendChild(cbNota); lb.appendChild(el('span','','Emitir nota fiscal' + (FISCAL.ambiente === 'homologacao' ? ' (TESTE)' : ''))); bn.appendChild(lb);
+    dicaNota = el('div','rot',''); dicaNota.style.marginTop = '4px'; bn.appendChild(dicaNota);
+    boxCpf = el('div'); boxCpf.style.marginTop = '8px'; boxCpf.appendChild(el('div','rot','CPF na nota (opcional)'));
+    iCpf = el('input'); iCpf.type = 'text'; iCpf.inputMode = 'numeric'; iCpf.placeholder = '000.000.000-00'; iCpf.maxLength = 14; iCpf.style.width = '100%';
+    iCpf.oninput = ()=>{ const d = iCpf.value.replace(/\D/g,'').slice(0,11); iCpf.value = d.replace(/(\d{3})(\d{3})(\d{3})(\d{0,2})/, (m,a,b,c,e)=>a + '.' + b + '.' + c + (e ? '-' + e : '')).replace(/^(\d{3})(\d{1,3})$/, '$1.$2'); };
+    boxCpf.appendChild(iCpf); bn.appendChild(boxCpf);
+    cbNota.onchange = ()=>{ notaTocada = true; atualizaNota(); };
+    bpg.appendChild(bn);
+  }
+  function atualizaNota(){
+    if(!FISCAL_ON) return;
+    const fs = pagos.map(g=>g.forma); if(forma) fs.push(forma);
+    // cartão e Pix: já vem marcada. Dinheiro: desmarcada (marca se o cliente pedir) — a menos que a loja tenha escolhido "sempre"
+    const padrao = fs.some(f=>f !== 'Dinheiro') || (FISCAL.dinheiro === 'sempre' && fs.length > 0);
+    if(!notaTocada) cbNota.checked = padrao;
+    boxCpf.style.display = cbNota.checked ? 'block' : 'none';
+    dicaNota.textContent = cbNota.checked ? 'Vai sair nota desta conta. Pode desmarcar se não for emitir.' : (fs.length && fs.every(f=>f === 'Dinheiro') ? 'Dinheiro: marque se o cliente pedir a nota.' : 'Esta conta ficará sem nota.');
+  }
   const bRec = el('button','btn verde'); bRec.style.width = '100%'; bpg.appendChild(bRec);
   j.appendChild(bpg);
   const falta = ()=> arred(recalcula() - recebido);
   function atualizaPag(){ const f = falta(); tfalta.innerHTML = ''; tfalta.appendChild(el('span','', f > 0.009 ? 'Falta receber' : 'Tudo recebido')); tfalta.appendChild(el('span','', money(Math.max(f,0))));
     const v = num(iVal.value); bRec.textContent = f <= 0.009 ? 'Fechar conta' : (v >= f - 0.005 ? 'Receber e fechar conta' : 'Receber este valor (parcial)');
-    const tr = trocoAtual(); tTroco.innerHTML = ''; if(tr > 0.009){ tTroco.style.display = 'flex'; tTroco.appendChild(el('span','','Troco a devolver')); tTroco.appendChild(el('span','',money(tr))); } else tTroco.style.display = 'none'; }
+    const tr = trocoAtual(); tTroco.innerHTML = ''; if(tr > 0.009){ tTroco.style.display = 'flex'; tTroco.appendChild(el('span','','Troco a devolver')); tTroco.appendChild(el('span','',money(tr))); } else tTroco.style.display = 'none'; atualizaNota(); }
   function trocoAtual(){ const f = falta(), v = num(iVal.value); return (forma === 'Dinheiro' && f > 0.009 && v > f + 0.005) ? arred(v - f) : 0; }
   iVal.value = String(Math.max(falta(),0).toFixed(2)).replace('.',','); iDesc.addEventListener('input', ()=>{ iVal.value = String(Math.max(falta(),0).toFixed(2)).replace('.',','); atualizaPag(); }); iAcr.addEventListener('input', ()=>{ iVal.value = String(Math.max(falta(),0).toFixed(2)).replace('.',','); atualizaPag(); });
   iVal.oninput = atualizaPag; atualizaPag();
@@ -1025,6 +1052,7 @@ function abrirConta(){
     if(f > 0.009 && !forma){ aviso('Escolha a forma de pagamento.'); return; }
     if(f > 0.009 && v <= 0){ aviso('Informe o valor.'); return; }
     const troco = trocoAtual();
+    if(fecha && FISCAL_ON && cbNota.checked && iCpf.value.trim() && !cpfValido(iCpf.value)){ aviso('CPF inválido. Confira os números ou apague o CPF.'); return; }
     if(fecha && !confirm('Fechar a conta de ' + rotMesa(mesaAtual) + ' em ' + money(recalcula()) + '?' + (troco > 0 ? '\n\nTROCO A DEVOLVER: ' + money(troco) : ''))) return;
     bRec.disabled = true;
     try{
@@ -1032,8 +1060,15 @@ function abrirConta(){
       await rpc('mesa_atualizar',{p_loja:LOJA,p_conta:conta.id,p_dados:dados});
       if(f > 0.009) await rpc('mesa_receber',{p_loja:LOJA,p_conta:conta.id,p_valor:Math.min(v, f),p_forma:forma,p_entregue:(forma === 'Dinheiro' && v > f + 0.005) ? v : null});
       if(fecha){ const rf = await rpc('mesa_fechar',{p_loja:LOJA,p_conta:conta.id,p_forma:forma,p_desconto:dados.desconto,p_acrescimo:dados.acrescimo,p_taxa:taxa}) || {};
+        let avisoNota = '';
+        if(FISCAL_ON){
+          try{
+            const rn = await rpc('mesa_registrar_nota',{p_loja:LOJA,p_conta:conta.id,p_emitir:cbNota.checked,p_cpf:(cbNota.checked && iCpf.value.trim()) ? iCpf.value : null,p_bandeira:'99'}) || {};
+            avisoNota = rn.nota === 'pendente' ? (FISCAL.ambiente === 'homologacao' ? ' Nota de TESTE registrada.' : ' Nota fiscal enviada para emissão.') : (rn.nota === 'dispensada' ? ' Sem nota fiscal.' : '');
+          }catch(e){ avisoNota = ' ATENÇÃO: a conta fechou, mas a nota NÃO foi registrada (' + e.message + '). Avise o Fran.' + (/function|does not exist|mesa_registrar_nota/i.test(e.message) ? ' (falta instalar a Parte AS)' : ''); }
+        }
         const ganhou = (Number(rf.cashback_ganho) > 0 || Number(rf.pontos_ganhos) > 0) ? ' Cliente ganhou ' + (Number(rf.cashback_ganho) > 0 ? money(Number(rf.cashback_ganho)) + ' de cashback' : '') + (Number(rf.cashback_ganho) > 0 && Number(rf.pontos_ganhos) > 0 ? ' e ' : '') + (Number(rf.pontos_ganhos) > 0 ? rf.pontos_ganhos + ' ponto(s)' : '') + '.' : '';
-        fechar(); aviso((ehRapido(mesaAtual) ? 'Atendimento finalizado.' : 'Conta fechada. Mesa livre.') + (troco > 0 ? ' Troco: ' + money(troco) + '.' : '') + ganhou); if(troco > 0 || ganhou){ clearTimeout(aviso.t); aviso.t = setTimeout(()=>$('aviso').classList.add('oculto'), 9000); } tela = telaBase(); carrinho = []; await atualizarContas(); desenhar(); }
+        fechar(); aviso((ehRapido(mesaAtual) ? 'Atendimento finalizado.' : 'Conta fechada. Mesa livre.') + (troco > 0 ? ' Troco: ' + money(troco) + '.' : '') + ganhou + avisoNota); if(troco > 0 || ganhou || avisoNota){ clearTimeout(aviso.t); aviso.t = setTimeout(()=>$('aviso').classList.add('oculto'), 9000); } tela = telaBase(); carrinho = []; await atualizarContas(); desenhar(); }
       else{ await carregarDetalhe(); fechar(); aviso('Recebido ' + money(v) + ' em ' + forma + '.'); abrirConta(); }
     }catch(e){ bRec.disabled = false; aviso('Não consegui: ' + e.message); }
   };
@@ -1049,7 +1084,7 @@ function abrirConta(){
 async function iniciar(){
   $('login').classList.add('oculto'); $('app').classList.remove('oculto');
   tela = 'inicio'; mesaAtual = null; entrega = null; carrinho = []; detalhe = null;
-  await Promise.all([carregarMenu(), atualizarContas()]);
+  await Promise.all([carregarMenu(), atualizarContas(), rpc('fiscal_pdv_config',{p_loja:LOJA}).then(c=>{ FISCAL = c || {ativo:false}; }).catch(()=>{ FISCAL = {ativo:false}; })]);
   desenhar();
   clearInterval(timer); timer = setInterval(async ()=>{ if((tela==='grade' || tela==='inicio') && !$('modais').children.length){ await atualizarContas(); desenhar(); } }, 20000);
 }
