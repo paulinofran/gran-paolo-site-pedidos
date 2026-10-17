@@ -182,10 +182,11 @@ function gpAutocompleteEndereco(cfg){
       if(ctrl) ctrl.abort(); ctrl = new AbortController();
       const r = await fetch('https://places.googleapis.com/v1/places:autocomplete', {method:'POST', signal:ctrl.signal, headers:HDR,
         body: JSON.stringify({input:q, sessionToken:token, languageCode:'pt-BR', regionCode:'br', includedRegionCodes:['br'],
-          locationBias:{circle:{center:{latitude:-5.8674,longitude:-35.2039}, radius:30000}}})});
+          locationRestriction:{rectangle:{low:{latitude:-6.02,longitude:-35.33}, high:{latitude:-5.69,longitude:-35.10}}}})});
       if(!r.ok) throw new Error('HTTP ' + r.status);
       const j = await r.json(); if(meu !== seq) return; falhas = 0;
-      const sug = (j.suggestions || []).filter(s=>s.placePrediction).slice(0,6);
+      const soCidade = t=>/natal|parnamirim/.test(String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase());   // só Natal e Parnamirim
+      const sug = (j.suggestions || []).filter(s=>s.placePrediction && soCidade(((s.placePrediction.structuredFormat||{}).secondaryText||{}).text || (s.placePrediction.text||{}).text)).slice(0,6);
       lista.innerHTML = '';
       if(!sug.length){ fechar(); return; }
       sug.forEach(s=>{
