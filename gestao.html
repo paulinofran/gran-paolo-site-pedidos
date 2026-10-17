@@ -163,6 +163,16 @@ let clienteBusca = null;
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt !== undefined) e.textContent = txt; return e; };
 const money = (v) => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+// "Dinheiro (troco para R$ 100,00)" e "Dinheiro (troco para R$ 50,00)" contam todos como "Dinheiro"
+function agruparPagamentos(lista){
+  const m = {}, ordem = [];
+  (lista || []).forEach(x => {
+    const nome = String(x.nome || '').replace(/\s*\(troco para[^)]*\)/i, '').trim() || 'Nao informado';
+    if(!m[nome]){ m[nome] = {nome: nome, pedidos: 0, faturamento: 0}; ordem.push(nome); }
+    m[nome].pedidos += Number(x.pedidos || 0); m[nome].faturamento += Number(x.faturamento || 0);
+  });
+  return ordem.map(n => m[n]).sort((a, b) => b.faturamento - a.faturamento);
+}
 const num = (v) => { const n = parseFloat(String(v).replace(',', '.')); return isNaN(n) ? null : n; };
 const slug = (t) => String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
 
@@ -1637,7 +1647,7 @@ function csvRelatorio(qual, d){
   if(qual === 'resumo'){
     const L = [['Faturamento', num2(d.resumo.faturamento)], ['Pedidos', d.resumo.pedidos], ['Ticket medio', num2(d.resumo.ticket_medio)], ['Cancelados', d.resumo.cancelados], ['Taxas de entrega', num2(d.resumo.taxas_entrega)]];
     d.resumo.por_modalidade.forEach(x=>L.push(['Modalidade: ' + x.nome, num2(x.faturamento) + ' (' + x.pedidos + ' pedidos)']));
-    d.resumo.por_pagamento.forEach(x=>L.push(['Pagamento: ' + x.nome, num2(x.faturamento) + ' (' + x.pedidos + ' pedidos)']));
+    agruparPagamentos(d.resumo.por_pagamento).forEach(x=>L.push(['Pagamento: ' + x.nome, num2(x.faturamento) + ' (' + x.pedidos + ' pedidos)']));
     d.resumo.por_dia.forEach(x=>L.push(['Dia ' + x.dia, num2(x.faturamento) + ' (' + x.pedidos + ' pedidos)']));
     return lin(['Item', 'Valor'], L);
   }
@@ -1880,7 +1890,7 @@ async function telaRelatorios(c){
   resumo.appendChild(el('div', 'dica', 'Por modalidade'));
   resumo.appendChild(tabelaSimples(['Modalidade', 'Pedidos', 'Faturamento', 'Ticket médio'], R.por_modalidade.map(x=>[x.nome, x.pedidos, money(x.faturamento), money(x.ticket_medio)])));
   resumo.appendChild(el('div', 'dica', 'Por forma de pagamento'));
-  resumo.appendChild(tabelaSimples(['Pagamento', 'Pedidos', 'Faturamento'], R.por_pagamento.map(x=>[x.nome, x.pedidos, money(x.faturamento)])));
+  resumo.appendChild(tabelaSimples(['Pagamento', 'Pedidos', 'Faturamento'], agruparPagamentos(R.por_pagamento).map(x=>[x.nome, x.pedidos, money(x.faturamento)])));
   resumo.appendChild(el('div', 'dica', 'Por dia (taxas de entrega no período: ' + money(R.taxas_entrega) + ')'));
   resumo.appendChild(tabelaSimples(['Dia', 'Pedidos', 'Faturamento'], R.por_dia.map(x=>[brData(x.dia), x.pedidos, money(x.faturamento)])));
   secaoRel(corpo, 'resumo', 'Resumo', 'resumo', resumo);
