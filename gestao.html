@@ -64,6 +64,50 @@ details>summary{cursor:pointer;color:var(--azul);font-weight:700;font-size:13px;
 .saldo div{flex:1;min-width:130px;background:#F1FAF3;border:1px solid #BFE3C8;border-radius:12px;padding:10px;font-weight:800;font-size:18px;color:#14502B}
 .saldo small{display:block;font-weight:600;font-size:12px;color:#3B6B4B}
 .pos{color:var(--ok);font-weight:700}.neg{color:var(--rd);font-weight:700}
+/* ---- painel (visao geral) ---- */
+main.larga{max-width:1080px}
+.pn-barra{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;margin:2px 0 14px}
+.pn-barra .cheios{margin:0}
+.pn-sub{font-size:13px;color:var(--soft)}
+.pn-grade{display:grid;gap:12px;grid-template-columns:1fr;margin-bottom:12px;align-items:start}.pn-grade.hero{align-items:stretch}
+@media(min-width:820px){.pn-grade.dois{grid-template-columns:1fr 1fr}.pn-grade.tres{grid-template-columns:repeat(3,1fr)}.pn-grade.hero{grid-template-columns:1.25fr 1fr}}
+.pn-hero{background:linear-gradient(135deg,#02341b 0%,#0e5a35 100%);color:#fff;border-radius:20px;padding:22px 24px;box-shadow:0 10px 28px rgba(2,52,27,.20);display:flex;flex-direction:column;justify-content:center;min-height:170px}
+.pn-hero small{font-size:13px;font-weight:600;color:#bfe3cc;letter-spacing:.2px}
+.pn-hero .grande{font-size:clamp(40px,8vw,56px);font-weight:800;line-height:1.05;margin:6px 0 10px;letter-spacing:-1px}
+.pn-delta{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:800;padding:4px 10px;border-radius:20px;white-space:nowrap}
+.pn-delta.sobe{background:#DFF0E4;color:#14502B}.pn-delta.desce{background:#FCE0DD;color:#b3261e}.pn-delta.igual{background:#EFE6DA;color:#7A6A5C}
+.pn-hero .pn-delta.sobe{background:rgba(255,255,255,.16);color:#d9f6e3}.pn-hero .pn-delta.desce{background:rgba(255,255,255,.16);color:#ffd9d4}.pn-hero .pn-delta.igual{background:rgba(255,255,255,.14);color:#dfe9e3}
+.pn-hero .pn-ref{font-size:12.5px;color:#bfe3cc;margin-top:8px}
+.pn-tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.pn-tile{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px 14px 12px;box-shadow:0 2px 10px rgba(42,29,21,.04);display:flex;flex-direction:column;gap:2px;min-width:0}
+.pn-tile .rot{font-size:12.5px;color:var(--soft);font-weight:600}
+.pn-tile .val{white-space:nowrap;font-size:clamp(17px,3.9vw,25px);font-weight:800;color:var(--verde);line-height:1.15;margin:2px 0 6px;letter-spacing:-.4px}
+.pn-card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px 16px 14px;box-shadow:0 2px 10px rgba(42,29,21,.04);min-width:0}
+.pn-card h3{margin:0;font-size:15px;color:var(--verde)}
+.pn-card .pn-sub{margin:2px 0 12px}
+.pn-card svg{display:block;width:100%;height:auto;overflow:visible}
+.pn-vazio{padding:16px;border:1.5px dashed var(--line);border-radius:12px;color:var(--soft);text-align:center;font-size:13.5px}
+.hb{display:grid;grid-template-columns:minmax(84px,34%) 1fr auto;gap:10px;align-items:center;padding:6px 0}
+.hb .rot{font-size:13.5px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hb .trilho{height:10px;border-radius:5px;background:#F1EADF;overflow:hidden}
+.hb .barra-h{height:100%;border-radius:5px;background:var(--verde)}
+.hb .num{font-size:13px;font-weight:700;color:var(--ink);text-align:right;white-space:nowrap}
+.hb .num small{font-weight:600;color:var(--soft)}
+.pn-calor{display:grid;gap:3px;align-items:center}
+.pn-calor .c{height:26px;border-radius:5px;background:#F3EDE4}
+.pn-calor .h{font-size:11px;color:var(--soft);text-align:center}
+.pn-calor .d{font-size:12px;color:var(--soft);font-weight:700;padding-right:6px}
+.pn-leg{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--soft);margin-top:10px}
+.pn-leg i{display:block;width:90px;height:8px;border-radius:4px;background:linear-gradient(90deg,rgba(2,52,27,.10),rgba(2,52,27,1))}
+.pn-dupla{display:flex;height:22px;gap:2px}
+.pn-dupla div{height:100%}
+.pn-dupla div:first-child{border-radius:6px 0 0 6px}.pn-dupla div:last-child{border-radius:0 6px 6px 0}.pn-dupla div:only-child{border-radius:6px}
+.pn-chaves{display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;font-size:13px;color:var(--ink)}
+.pn-chaves b{font-weight:800}
+.pn-chaves .sw{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.pn-tip{position:fixed;z-index:50;display:none;background:#2A1D15;color:#fff;font-size:12.5px;font-weight:600;padding:7px 10px;border-radius:9px;pointer-events:none;box-shadow:0 6px 18px rgba(0,0,0,.25);max-width:260px;line-height:1.35}
+.pn-card details>summary{margin-top:10px}
+.pn-link{font-size:13px;color:var(--azul);font-weight:700;background:none;border:0;padding:0;margin-top:10px;text-align:left}
 </style>
 </head>
 <body>
@@ -104,12 +148,13 @@ const SUPABASE_URL = "https://shhdqvhjvtwoviiqtxng.supabase.co";
 const SUPABASE_KEY = "sb_publishable_qpfP7hAj0tmvwVEEqkqluA_iKzPYFUJ";
 const LOJA = "gran-paolo";
 const CHAVE_SESSAO = "gp_painel_sessao";          // a mesma do painel de pedidos: entra uma vez so
+function pnModal(n){ return n === 'Vem comer' ? 'Salão (vem comer)' : (n === 'Drive-thru' ? 'Drive-thru' : n); }
 const CANAIS = ['Entrega','Retirada','Vem comer','Drive-thru','Balcão'];
 const DIAS = ['D','S','T','Q','Q','S','S'];
 const NOME_DIA = ['domingo','segunda','terça','quarta','quinta','sexta','sábado'];
-const ABAS = [['hoje','Hoje'],['cardapio','Cardápio'],['promos','Promoções'],['taxas','Taxas'],['regras','Regras'],['horarios','Horários'],['clientes','Clientes'],['relatorios','Relatórios'],['notas','Notas'],['robo','Robô'],['estoque','Estoque'],['contas','Contas']];
+const ABAS = [['painel','Painel'],['hoje','Hoje'],['cardapio','Cardápio'],['promos','Promoções'],['taxas','Taxas'],['regras','Regras'],['horarios','Horários'],['clientes','Clientes'],['relatorios','Relatórios'],['notas','Notas'],['robo','Robô'],['estoque','Estoque'],['caixa','Caixa'],['contas','Contas']];
 
-let sessao = null, aba = (location.hash === '#robo') ? 'robo' : 'hoje';
+let sessao = null, aba = (location.hash === '#robo') ? 'robo' : (location.hash === '#hoje' ? 'hoje' : 'painel');
 let PAPEL = 'dono';   // 'leitor' = acesso so de leitura (Marketing): ve apenas os Relatorios
 let timerRobo = null;
 let D = {categorias:[], produtos:[], promocoes:[], bairros:[], regras:null, perfis:[]};
@@ -247,8 +292,8 @@ function desenharAbas(){
 function desenhar(){
   if(PAPEL === 'leitor') aba = 'relatorios';
   desenharAbas();
-  const c = $('conteudo'); c.innerHTML = '';
-  ({hoje:telaHoje, cardapio:telaCardapio, promos:telaPromos, taxas:telaTaxas, regras:telaRegras, horarios:telaHorarios, clientes:telaClientes, relatorios:telaRelatorios, notas:telaNotas, robo:telaRobo, estoque:telaEstoque, contas:telaContas})[aba](c);
+  const c = $('conteudo'); c.innerHTML = ''; c.className = '';
+  ({painel:telaPainel, hoje:telaHoje, cardapio:telaCardapio, promos:telaPromos, taxas:telaTaxas, regras:telaRegras, horarios:telaHorarios, clientes:telaClientes, relatorios:telaRelatorios, notas:telaNotas, robo:telaRobo, estoque:telaEstoque, caixa:telaCaixa, contas:telaContas})[aba](c);
 }
 function campo(rotulo, input){ const w = el('label', 'campo'); w.appendChild(el('span', '', rotulo)); w.appendChild(input); return w; }
 function inputNum(v, passo){ const i = el('input', 'num'); i.type = 'text'; i.inputMode = (passo === '1') ? 'numeric' : 'decimal'; i.autocomplete = 'off'; i.value = v === null || v === undefined ? '' : String(v).replace('.', ','); return i; }
@@ -537,6 +582,225 @@ function telaHoje(c){
       tp.appendChild(b); l.appendChild(tp); lista.appendChild(l); });
   };
   busca.oninput = mostrar; mostrar();
+}
+
+/* ============================ PAINEL (visao geral) ============================ */
+const NS_SVG = 'http://www.w3.org/2000/svg';
+const sv = (tag, attrs, txt) => { const e = document.createElementNS(NS_SVG, tag); Object.keys(attrs || {}).forEach(k=>e.setAttribute(k, attrs[k])); if(txt !== undefined) e.textContent = txt; return e; };
+let pnPreset = '7', pnTipBox = null, pnTipTimer = null;
+const pnNum = (v) => Number(v) || 0;
+const pnInt = (v) => Math.round(pnNum(v)).toLocaleString('pt-BR');
+const pnCompacto = (v) => { v = pnNum(v); return v >= 1000 ? (v / 1000).toLocaleString('pt-BR', {maximumFractionDigits: 1}) + ' mil' : String(Math.round(v)); };
+const pnDiaSemana = (iso) => NOME_DIA[new Date(iso + 'T12:00:00Z').getUTCDay()];
+const pnDiasEntre = (ini, fim) => Math.round((new Date(fim + 'T12:00:00Z') - new Date(ini + 'T12:00:00Z')) / 86400000) + 1;
+function pnAnterior(p){ const n = pnDiasEntre(p.ini, p.fim), fim = somaDias(p.ini, -1); return {ini:somaDias(fim, -(n - 1)), fim}; }
+function pnTip(node, texto){
+  const pos = (ev)=>{
+    const t = ev.touches && ev.touches[0] ? ev.touches[0] : ev; if(!pnTipBox) return;
+    const w = pnTipBox.offsetWidth, h = pnTipBox.offsetHeight;
+    pnTipBox.style.left = Math.max(8, Math.min(t.clientX + 12, window.innerWidth - w - 8)) + 'px';
+    pnTipBox.style.top = Math.max(8, t.clientY - h - 14) + 'px';
+  };
+  const mostrar = (ev)=>{ if(!pnTipBox){ pnTipBox = el('div', 'pn-tip'); document.body.appendChild(pnTipBox); } pnTipBox.textContent = texto; pnTipBox.style.display = 'block'; pos(ev); clearTimeout(pnTipTimer); };
+  const esconder = ()=>{ if(pnTipBox) pnTipBox.style.display = 'none'; };
+  node.addEventListener('mouseenter', mostrar); node.addEventListener('mousemove', pos); node.addEventListener('mouseleave', esconder);
+  node.addEventListener('click', (ev)=>{ mostrar(ev); pnTipTimer = setTimeout(esconder, 2600); });
+}
+function pnDelta(atual, ant, boaSubir){
+  if(!ant) return null;
+  const p = (atual - ant) / ant * 100, igual = Math.abs(p) < 0.5, bom = igual ? null : ((p > 0) === boaSubir);
+  const d = el('span', 'pn-delta ' + (igual ? 'igual' : (bom ? 'sobe' : 'desce')), (igual ? '= ' : (p > 0 ? '▲ ' : '▼ ')) + (p > 0 ? '+' : '') + Math.round(p) + '%');
+  d.title = 'Comparado ao período anterior de mesmo tamanho'; return d;
+}
+function pnPasso(max){ const cru = max / 4, mag = Math.pow(10, Math.floor(Math.log10(cru || 1))); return [1, 2, 2.5, 5, 10].map(m=>m * mag).find(s=>s >= cru) || mag * 10; }
+function pnCartao(titulo, sub){ const c = el('div', 'pn-card'); c.appendChild(el('h3', '', titulo)); if(sub) c.appendChild(el('div', 'pn-sub', sub)); return c; }
+function pnBarras(c, itens, vazio){
+  if(!itens.length){ c.appendChild(el('div', 'pn-vazio', vazio || 'Nada neste período.')); return; }
+  const max = Math.max(...itens.map(i=>i.valor), 1);
+  itens.forEach(i=>{
+    const l = el('div', 'hb'); l.appendChild(el('div', 'rot', i.rot)); l.firstChild.title = i.rot;
+    const tr = el('div', 'trilho'), b = el('div', 'barra-h'); b.style.width = Math.max(2, i.valor / max * 100) + '%'; tr.appendChild(b); l.appendChild(tr);
+    const n = el('div', 'num', i.texto); if(i.extra){ n.appendChild(document.createTextNode(' ')); n.appendChild(el('small', '', i.extra)); } l.appendChild(n);
+    if(i.dica) pnTip(l, i.dica); c.appendChild(l);
+  });
+}
+function pnGraficoDias(c, dias, mapa){
+  const W = window.innerWidth < 820 ? Math.max(300, window.innerWidth - 56) : 980, H = W < 500 ? 210 : 260, mL = 46, mR = 8, mT = 18, mB = 26, base = H - mB, area = base - mT;
+  const vals = dias.map(d=>mapa[d] ? pnNum(mapa[d].faturamento) : 0), max = Math.max(...vals, 1);
+  const passo = pnPasso(max), topo = passo * 4;
+  const s = sv('svg', {viewBox:'0 0 ' + W + ' ' + H, role:'img', 'aria-label':'Faturamento por dia'});
+  for(let i = 0; i <= 4; i++){
+    const y = base - area * i / 4;
+    s.appendChild(sv('line', {x1:mL, x2:W - mR, y1:y, y2:y, stroke:'#EADFD0', 'stroke-width':1}));
+    s.appendChild(sv('text', {x:mL - 8, y:y + 4, 'text-anchor':'end', 'font-size':11, fill:'#7A6A5C'}, i === 0 ? '0' : pnCompacto(passo * i)));
+  }
+  const band = (W - mL - mR) / dias.length, bw = Math.min(24, band * 0.7), cada = Math.max(1, Math.ceil(dias.length / (W < 500 ? 5 : 10)));
+  const iMax = vals.indexOf(Math.max(...vals));
+  dias.forEach((d, i)=>{
+    const v = vals[i], x = mL + band * i + (band - bw) / 2; let h = area * v / topo; if(v > 0 && h < 2) h = 2;
+    if(h > 0){ const y = base - h, r = Math.min(4, bw / 2, h);
+      s.appendChild(sv('path', {d:'M' + x + ',' + base + ' V' + (y + r) + ' Q' + x + ',' + y + ' ' + (x + r) + ',' + y + ' H' + (x + bw - r) + ' Q' + (x + bw) + ',' + y + ' ' + (x + bw) + ',' + (y + r) + ' V' + base + ' Z', fill:'#02341b'}));
+      if(i === iMax && v > 0) s.appendChild(sv('text', {x:x + bw / 2, y:y - 6, 'text-anchor':'middle', 'font-size':11.5, 'font-weight':700, fill:'#2A1D15'}, 'R$ ' + pnCompacto(v)));
+    }
+    if(i % cada === 0 || i === dias.length - 1) s.appendChild(sv('text', {x:x + bw / 2, y:H - 7, 'text-anchor':'middle', 'font-size':11, fill:'#7A6A5C'}, brData(d)));
+    const alvo = sv('rect', {x:mL + band * i, y:mT - 6, width:band, height:area + 6, fill:'transparent', style:'cursor:pointer'});
+    const m = mapa[d]; pnTip(alvo, brData(d) + ' (' + pnDiaSemana(d) + ') · ' + money(v) + ' · ' + (m ? m.pedidos : 0) + ' pedido(s)'); s.appendChild(alvo);
+  });
+  c.appendChild(s);
+}
+function pnCalor(c, linhas){
+  const celulas = {}; let max = 0, hMin = 17, hMax = 22;
+  linhas.forEach(x=>{ celulas[x.dow + '_' + x.hora] = x; max = Math.max(max, pnNum(x.pedidos)); hMin = Math.min(hMin, x.hora); hMax = Math.max(hMax, x.hora); });
+  const horas = []; for(let h = hMin; h <= hMax; h++) horas.push(h);
+  const g = el('div', 'pn-calor'); g.style.gridTemplateColumns = '34px repeat(' + horas.length + ', 1fr)';
+  g.appendChild(el('div')); horas.forEach(h=>g.appendChild(el('div', 'h', h + 'h')));
+  [[1, 'Seg'], [2, 'Ter'], [3, 'Qua'], [4, 'Qui'], [5, 'Sex'], [6, 'Sáb'], [0, 'Dom']].forEach(([dow, rot])=>{
+    g.appendChild(el('div', 'd', rot));
+    horas.forEach(h=>{
+      const x = celulas[dow + '_' + h], n = x ? pnNum(x.pedidos) : 0, cel = el('div', 'c');
+      if(n > 0){ cel.style.background = 'rgba(2,52,27,' + (0.10 + 0.90 * n / max).toFixed(2) + ')'; pnTip(cel, rot + ', ' + h + 'h: ' + n + ' pedido(s) · ' + money(x.faturamento)); }
+      g.appendChild(cel);
+    });
+  });
+  c.appendChild(g);
+  const leg = el('div', 'pn-leg'); leg.appendChild(document.createTextNode('menos pedidos')); leg.appendChild(el('i')); leg.appendChild(document.createTextNode('mais pedidos')); c.appendChild(leg);
+}
+async function telaPainel(c){
+  c.className = 'larga';
+  const p = {preset:pnPreset, ...periodoDoPreset(pnPreset)}, ant = pnAnterior(p), nDias = pnDiasEntre(p.ini, p.fim);
+  const barra = el('div', 'pn-barra'), chips = el('div', 'cheios');
+  [['hoje', 'Hoje'], ['7', '7 dias'], ['30', '30 dias'], ['mes', 'Este mês']].forEach(([id, rot])=>{ const b = el('button', 'btn peq ' + (pnPreset === id ? 'verde' : 'cinza'), rot); b.dataset.preset = id; b.onclick = ()=>{ pnPreset = id; desenhar(); }; chips.appendChild(b); });
+  barra.appendChild(chips); barra.appendChild(el('div', 'pn-sub', brData(p.ini) + (p.ini === p.fim ? '' : ' a ' + brData(p.fim)) + ' · comparando com ' + brData(ant.ini) + ' a ' + brData(ant.fim)));
+  c.appendChild(barra);
+  const corpo = el('div'); corpo.appendChild(el('div', 'vazio', 'Montando o painel...')); c.appendChild(corpo);
+
+  const a = {p_loja:LOJA, p_ini:p.ini, p_fim:p.fim}, aa = {p_loja:LOJA, p_ini:ant.ini, p_fim:ant.fim};
+  const pega = (f, args)=>rpc(f, args).then(v=>({ok:true, v}), e=>({ok:false, e}));
+  const [rAtual, rAnt, rProd, rOrig, rHora, rNovos, rFunil] = await Promise.all([pega('rel_resumo', a), pega('rel_resumo', aa), pega('rel_produtos', a), pega('rel_origem', a), pega('rel_dia_hora', a), pega('rel_novos_recorrentes', a), pega('rel_funil_dia', a)]);
+  if(aba !== 'painel') return;
+  corpo.innerHTML = '';
+  if(!rAtual.ok){ corpo.appendChild(el('div', 'vazio', /PGRST202|Could not find|404|does not exist/i.test(String(rAtual.e && rAtual.e.message || rAtual.e)) ? 'Os relatórios ainda não foram instalados no banco de dados (falta rodar a Parte H no Supabase).' : 'Não consegui carregar o painel agora. Tente de novo.')); return; }
+  const R = rAtual.v, R0 = rAnt.ok ? rAnt.v : null;
+
+  /* topo: numero principal + 3 cartoes */
+  const topo = el('div', 'pn-grade hero');
+  const hero = el('div', 'pn-hero'); hero.appendChild(el('small', '', 'Faturamento ' + (p.preset === 'hoje' ? 'de hoje' : 'do período')));
+  hero.appendChild(el('div', 'grande', money(R.faturamento)));
+  const dl = R0 ? pnDelta(pnNum(R.faturamento), pnNum(R0.faturamento), true) : null;
+  const linhaH = el('div'); if(dl) linhaH.appendChild(dl); hero.appendChild(linhaH);
+  hero.appendChild(el('div', 'pn-ref', dl ? 'Período anterior: ' + money(R0.faturamento) : (R0 ? 'Sem vendas no período anterior para comparar.' : '')));
+  topo.appendChild(hero);
+  const tiles = el('div', 'pn-tiles');
+  [['Pedidos', pnInt(R.pedidos), R0 && pnDelta(pnNum(R.pedidos), pnNum(R0.pedidos), true)],
+   ['Ticket médio', money(R.ticket_medio), R0 && pnDelta(pnNum(R.ticket_medio), pnNum(R0.ticket_medio), true)],
+   ['Cancelados', pnInt(R.cancelados), R0 && pnDelta(pnNum(R.cancelados), pnNum(R0.cancelados), false)]].forEach(([rot, val, d])=>{
+    const t = el('div', 'pn-tile'); t.appendChild(el('div', 'rot', rot)); t.appendChild(el('div', 'val', val)); if(d) t.appendChild(d); tiles.appendChild(t); });
+  topo.appendChild(tiles); corpo.appendChild(topo);
+  if(!pnNum(R.pedidos)) corpo.appendChild(el('div', 'pn-vazio', 'Nenhuma venda neste período. Escolha outro período acima.'));
+
+  /* vendas por dia */
+  const g1 = el('div', 'pn-grade'); const cDia = pnCartao('Vendas por dia', 'Faturamento de cada dia. Toque ou passe o mouse numa coluna para ver os detalhes.');
+  if(nDias < 2) cDia.appendChild(el('div', 'pn-vazio', 'Escolha "7 dias" ou mais para ver o gráfico por dia.'));
+  else {
+    const dias = []; for(let i = 0; i < nDias; i++) dias.push(somaDias(p.ini, i));
+    const mapa = {}; R.por_dia.forEach(x=>{ mapa[String(x.dia).slice(0, 10)] = x; });
+    pnGraficoDias(cDia, dias, mapa);
+    const dt = el('details'); dt.appendChild(el('summary', '', 'Ver em tabela')); dt.appendChild(tabelaSimples(['Dia', 'Pedidos', 'Faturamento'], R.por_dia.map(x=>[brData(x.dia), x.pedidos, money(x.faturamento)]))); cDia.appendChild(dt);
+  }
+  g1.appendChild(cDia); corpo.appendChild(g1);
+
+  /* como vendem + mais vendidos */
+  const g2 = el('div', 'pn-grade dois');
+  const cMod = pnCartao('Como vendem', 'Faturamento por forma de pedido.'), totMod = R.por_modalidade.reduce((s, x)=>s + pnNum(x.faturamento), 0);
+  pnBarras(cMod, R.por_modalidade.map(x=>({rot:pnModal(x.nome), valor:pnNum(x.faturamento), texto:money(x.faturamento), extra:totMod ? Math.round(pnNum(x.faturamento) / totMod * 100) + '%' : '', dica:pnModal(x.nome) + ': ' + x.pedidos + ' pedido(s) · ticket médio ' + money(x.ticket_medio)})), 'Nenhuma venda neste período.');
+  g2.appendChild(cMod);
+  const cProd = pnCartao('Mais vendidos', 'Os 6 produtos que mais saíram.');
+  if(rProd.ok){
+    const por = {}; rProd.v.produtos.forEach(x=>{ const k = x.nome + (x.tamanho ? ' · ' + x.tamanho : ''); por[k] = (por[k] || 0) + pnNum(x.quantidade); });
+    pnBarras(cProd, Object.keys(por).map(k=>({rot:k, valor:por[k], texto:por[k] + ' un'})).sort((x, y)=>y.valor - x.valor).slice(0, 6), 'Nenhum produto vendido neste período.');
+  } else cProd.appendChild(el('div', 'pn-vazio', 'Não consegui carregar os produtos agora.'));
+  g2.appendChild(cProd); corpo.appendChild(g2);
+
+  /* quando vendem + de onde vem */
+  const g3 = el('div', 'pn-grade dois');
+  const cHora = pnCartao('Quando vendem', 'Pedidos por dia da semana e hora. Quanto mais escuro, mais pedidos.');
+  if(rHora.ok && rHora.v.length) pnCalor(cHora, rHora.v); else cHora.appendChild(el('div', 'pn-vazio', rHora.ok ? 'Nenhuma venda neste período.' : 'Este quadro ainda não foi instalado no banco (falta rodar a Parte AE).'));
+  g3.appendChild(cHora);
+  const cOri = pnCartao('De onde vêm as vendas', 'Origem dos pedidos do site. "Sem origem" é quem entrou direto.');
+  if(rOrig.ok) pnBarras(cOri, rOrig.v.slice(0, 6).map(x=>({rot:x.origem, valor:pnNum(x.faturamento), texto:money(x.faturamento), extra:x.pedidos + ' ped.', dica:x.origem + ': ' + x.pedidos + ' pedido(s)'})), 'Nenhuma venda neste período.');
+  else cOri.appendChild(el('div', 'pn-vazio', 'Não consegui carregar as origens agora.'));
+  g3.appendChild(cOri); corpo.appendChild(g3);
+
+  /* clientes novos x recorrentes + funil */
+  const g4 = el('div', 'pn-grade dois');
+  const cCli = pnCartao('Clientes novos e recorrentes', 'Novo é quem nunca tinha comprado antes (nem no Suitable).');
+  if(rNovos.ok && rNovos.v.length){
+    const nv = rNovos.v.reduce((s, x)=>s + pnNum(x.novos), 0), rc = rNovos.v.reduce((s, x)=>s + pnNum(x.recorrentes), 0), tot = nv + rc;
+    if(tot){
+      const dupla = el('div', 'pn-dupla');
+      [[rc, '#02341b', 'Recorrentes'], [nv, '#ee4152', 'Novos']].forEach(([n, cor, rot])=>{ if(!n) return; const d = el('div'); d.style.background = cor; d.style.width = (n / tot * 100) + '%'; pnTip(d, rot + ': ' + n + ' pedido(s)'); dupla.appendChild(d); });
+      cCli.appendChild(dupla);
+      const ch = el('div', 'pn-chaves');
+      [[rc, '#02341b', 'Recorrentes'], [nv, '#ee4152', 'Novos']].forEach(([n, cor, rot])=>{ const s = el('span'); const q = el('span', 'sw'); q.style.background = cor; s.appendChild(q); s.appendChild(el('b', '', String(n))); s.appendChild(document.createTextNode(' ' + rot.toLowerCase() + ' (' + Math.round(n / tot * 100) + '%)')); ch.appendChild(s); });
+      cCli.appendChild(ch);
+    } else cCli.appendChild(el('div', 'pn-vazio', 'Nenhuma venda neste período.'));
+  } else cCli.appendChild(el('div', 'pn-vazio', rNovos.ok ? 'Nenhuma venda neste período.' : 'Este quadro ainda não foi instalado no banco (falta rodar a Parte AE).'));
+  g4.appendChild(cCli);
+  const cFun = pnCartao('Funil do site', 'Quantas visitas chegaram em cada etapa. Conta visitas, não pessoas.');
+  if(rFunil.ok && rFunil.v.length){
+    const soma = (k)=>rFunil.v.reduce((s, x)=>s + pnNum(x[k]), 0), etapas = [['visita', 'Entraram'], ['produto', 'Viram produto'], ['carrinho', 'Carrinho'], ['checkout', 'Checkout'], ['tentou', 'Tentaram enviar'], ['pedido', 'Enviaram']].map(([k, r])=>({rot:r, valor:soma(k)}));
+    const t0 = etapas[0].valor;
+    pnBarras(cFun, etapas.map(e=>({rot:e.rot, valor:e.valor, texto:pnInt(e.valor), extra:t0 ? Math.round(e.valor / t0 * 100) + '%' : ''})));
+  } else cFun.appendChild(el('div', 'pn-vazio', rFunil.ok ? 'Sem visitas neste período.' : 'Este quadro ainda não foi instalado no banco (falta rodar a Parte AD).'));
+  g4.appendChild(cFun); corpo.appendChild(g4);
+
+  const rodape = el('div', 'pn-sub', 'Só pedidos finalizados, no horário da loja' + (pnNum(R.testes_ignorados) ? ' · ' + R.testes_ignorados + ' pedido(s) de teste ignorado(s)' : '') + '.');
+  corpo.appendChild(rodape);
+  const ver = el('button', 'pn-link', 'Ver os relatórios completos'); ver.onclick = ()=>{ aba = 'relatorios'; desenhar(); window.scrollTo(0, 0); }; corpo.appendChild(ver);
+}
+
+/* ============================ CAIXA (fluxo: entrou x saiu) ============================ */
+let cxPreset = 'mes';
+async function telaCaixa(c){
+  c.className = 'larga';
+  const p = {preset:cxPreset, ...periodoDoPreset(cxPreset)};
+  const barra = el('div', 'pn-barra'), chips = el('div', 'cheios');
+  [['hoje', 'Hoje'], ['7', '7 dias'], ['30', '30 dias'], ['mes', 'Este mês'], ['ant', 'Mês passado']].forEach(([id, rot])=>{ const b = el('button', 'btn peq ' + (cxPreset === id ? 'verde' : 'cinza'), rot); b.onclick = ()=>{ cxPreset = id; desenhar(); }; chips.appendChild(b); });
+  barra.appendChild(chips); barra.appendChild(el('div', 'pn-sub', brData(p.ini) + (p.ini === p.fim ? '' : ' a ' + brData(p.fim)))); c.appendChild(barra);
+  const corpo = el('div'); corpo.appendChild(el('div', 'vazio', 'Montando o caixa...')); c.appendChild(corpo);
+  let F;
+  try{ F = await rpc('caixa_fluxo', {p_loja:LOJA, p_ini:p.ini, p_fim:p.fim}); }
+  catch(e){ if(aba !== 'caixa') return; corpo.innerHTML = ''; corpo.appendChild(el('div', 'vazio', /PGRST202|Could not find|404|does not exist/i.test(String(e.message || e)) ? 'O Caixa ainda não foi instalado no banco (falta rodar a Parte AU).' : 'Não consegui carregar: ' + (e.message || e))); return; }
+  if(aba !== 'caixa') return;
+  corpo.innerHTML = '';
+  const n = (v)=>pnNum(v);
+  const topo = el('div');
+  const hero = el('div', 'pn-hero'); hero.appendChild(el('small', '', 'Saldo do período (entrou − saiu)'));
+  hero.appendChild(el('div', 'grande', money(F.saldo)));
+  hero.appendChild(el('div', 'pn-ref', 'Entrou ' + money(F.entradas) + ' · Saiu ' + money(F.saidas)));
+  topo.appendChild(hero);
+  const tiles = el('div', 'pn-tiles'); tiles.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:12px';
+  [['Entrou (vendas)', money(F.entradas)], ['Saiu (gastos + contas pagas)', money(F.saidas)], ['A pagar nos próximos 7 dias', money(F.a_pagar_7dias)]].forEach(([rot, val])=>{
+    const t = el('div', 'pn-tile'); t.appendChild(el('div', 'rot', rot)); t.appendChild(el('div', 'val', val)); tiles.appendChild(t); });
+  topo.appendChild(tiles); corpo.appendChild(topo);
+  if(n(F.a_pagar_vencidas) > 0) corpo.appendChild(el('div', 'aviso-amarelo', '⚠️ Contas vencidas e ainda não pagas: ' + money(F.a_pagar_vencidas) + '. Veja na aba Contas.')).style.cssText = 'background:#FFF1CC;border-radius:12px;padding:12px;margin:12px 0;font-weight:700';
+  const g = el('div', 'pn-grade');
+  const cE = pnCartao('De onde entrou', 'Vendas recebidas, por forma de pagamento. Cartão e Pix caem na sua conta nos dias seguintes.');
+  const totE = (F.entradas_por_forma || []).reduce((s, x)=>s + n(x.valor), 0);
+  pnBarras(cE, (F.entradas_por_forma || []).map(x=>({rot:x.forma, valor:n(x.valor), texto:money(x.valor), extra:totE ? Math.round(n(x.valor) / totE * 100) + '%' : '', dica:x.forma + ': ' + money(x.valor)})), 'Sem vendas no período.');
+  g.appendChild(cE);
+  const cS = pnCartao('Para onde saiu', 'Gastos pagos com o dinheiro da gaveta (anotados no PDV) e contas pagas (aba Contas).');
+  const linhasS = [['Gastos da gaveta', n(F.gastos_caixa)]].concat((F.contas_por_categoria || []).map(x=>['Contas: ' + x.categoria, n(x.valor)])).filter(x=>x[1] > 0);
+  const totS = linhasS.reduce((s, x)=>s + x[1], 0);
+  pnBarras(cS, linhasS.map(x=>({rot:x[0], valor:x[1], texto:money(x[1]), extra:totS ? Math.round(x[1] / totS * 100) + '%' : '', dica:x[0] + ': ' + money(x[1])})), 'Nada saiu no período.');
+  g.appendChild(cS); corpo.appendChild(g);
+  const cD = pnCartao('Dia a dia', 'O que entrou e saiu em cada dia.');
+  cD.appendChild(tabelaSimples(['Dia', 'Entrou', 'Saiu', 'Saldo'], (F.por_dia || []).map(x=>[brData(x.dia), money(x.entradas), money(x.saidas), money(n(x.entradas) - n(x.saidas))]), 'Nenhum movimento no período.'));
+  corpo.appendChild(cD);
+  const cF = pnCartao('Fechamentos do caixa', 'O dinheiro que as atendentes separaram para você, comparado com o que o sistema esperava.');
+  cF.appendChild(tabelaSimples(['Dia', 'Esperado', 'Separado', 'Diferença'], (F.fechamentos || []).map(x=>[brData(x.dia), money(x.esperado), money(x.entregue), (Math.abs(n(x.diferenca)) < 0.005 ? 'Bateu' : (n(x.diferenca) < 0 ? 'Faltou ' : 'Sobrou ') + money(Math.abs(n(x.diferenca))))]), 'Nenhum caixa fechado no período.'));
+  corpo.appendChild(cF);
+  const bC = el('button', 'btn verde', 'Lançar uma conta a pagar'); bC.style.marginTop = '12px'; bC.onclick = ()=>{ aba = 'contas'; desenhar(); window.scrollTo(0,0); }; corpo.appendChild(bC);
 }
 
 /* ============================ CARDAPIO ============================ */
