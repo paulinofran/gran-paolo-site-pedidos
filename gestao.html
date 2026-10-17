@@ -152,7 +152,7 @@ function pnModal(n){ return n === 'Vem comer' ? 'Salão (vem comer)' : (n === 'D
 const CANAIS = ['Entrega','Retirada','Vem comer','Drive-thru','Balcão'];
 const DIAS = ['D','S','T','Q','Q','S','S'];
 const NOME_DIA = ['domingo','segunda','terça','quarta','quinta','sexta','sábado'];
-const ABAS = [['painel','Painel'],['hoje','Hoje'],['cardapio','Cardápio'],['promos','Promoções'],['taxas','Taxas'],['regras','Regras'],['horarios','Horários'],['clientes','Clientes'],['relatorios','Relatórios'],['notas','Notas'],['robo','Robô'],['estoque','Estoque'],['caixa','Caixa'],['motor','Motor'],['contas','Contas']];
+const ABAS = [['painel','Painel'],['hoje','Hoje'],['cardapio','Cardápio'],['promos','Promoções'],['taxas','Taxas'],['regras','Regras'],['horarios','Horários'],['clientes','Clientes'],['relatorios','Relatórios'],['notas','Notas'],['robo','Robô'],['estoque','Estoque'],['caixa','Caixa'],['motor','Motor'],['simulador','Simulador'],['contas','Contas']];
 
 let sessao = null, aba = (location.hash === '#robo') ? 'robo' : (location.hash === '#hoje' ? 'hoje' : 'painel');
 let PAPEL = 'dono';   // 'leitor' = acesso so de leitura (Marketing): ve apenas os Relatorios
@@ -293,7 +293,7 @@ function desenhar(){
   if(PAPEL === 'leitor') aba = 'relatorios';
   desenharAbas();
   const c = $('conteudo'); c.innerHTML = ''; c.className = '';
-  ({painel:telaPainel, hoje:telaHoje, cardapio:telaCardapio, promos:telaPromos, taxas:telaTaxas, regras:telaRegras, horarios:telaHorarios, clientes:telaClientes, relatorios:telaRelatorios, notas:telaNotas, robo:telaRobo, estoque:telaEstoque, caixa:telaCaixa, motor:telaMotor, contas:telaContas})[aba](c);
+  ({painel:telaPainel, hoje:telaHoje, cardapio:telaCardapio, promos:telaPromos, taxas:telaTaxas, regras:telaRegras, horarios:telaHorarios, clientes:telaClientes, relatorios:telaRelatorios, notas:telaNotas, robo:telaRobo, estoque:telaEstoque, caixa:telaCaixa, motor:telaMotor, simulador:telaSimulador, contas:telaContas})[aba](c);
 }
 function campo(rotulo, input){ const w = el('label', 'campo'); w.appendChild(el('span', '', rotulo)); w.appendChild(input); return w; }
 function inputNum(v, passo){ const i = el('input', 'num'); i.type = 'text'; i.inputMode = (passo === '1') ? 'numeric' : 'decimal'; i.autocomplete = 'off'; i.value = v === null || v === undefined ? '' : String(v).replace('.', ','); return i; }
@@ -833,17 +833,20 @@ async function telaMotor(c){
   corpo.innerHTML = '';
   const cfg = K.config || {}, enc = pnNum(cfg.encargos_pct) / 100, sem = pnNum(cfg.semanas_mes) || 4.33;
   const ativos = (K.custos || []).filter(x=>x.ativo);
-  const fixas = ativos.filter(x=>x.tipo === 'fixa').reduce((s, x)=>s + pnNum(x.valor), 0);
+  const mensal = (x)=>pnNum(x.valor) / Math.max(1, pnNum(x.meses) || 1);
+  const fixas = ativos.filter(x=>x.tipo === 'fixa').reduce((s, x)=>s + mensal(x), 0);
   const folhaFixa = ativos.filter(x=>x.tipo === 'folha_fixo').reduce((s, x)=>s + pnNum(x.valor), 0);
   const folhaExtra = ativos.filter(x=>x.tipo === 'folha_extra').reduce((s, x)=>s + pnNum(x.valor), 0) * sem;
   const folha = folhaFixa * (1 + enc) + folhaExtra, custos = fixas + folha;
 
-  const fat = pnNum(R.faturamento), cmv = pnNum(R.cmv), ped = pnNum(R.pedidos), piz = pnNum(R.pizzas), dv = pnNum(R.dias_com_venda);
-  const pouco = ped < 20 || fat <= 0 || cmv <= 0;
-  const margem = pouco ? MT_REF.margem : Math.max(0.01, (fat - cmv) / fat);
-  const ticketPiz = piz > 0 && fat > 0 ? fat / piz : MT_REF.ticketPizza;
+  const fatSis = pnNum(R.faturamento), ext = pnNum(R.vendas_externas), fat = fatSis + ext, cmv = pnNum(R.cmv), ped = pnNum(R.pedidos), piz = pnNum(R.pizzas), dv = pnNum(R.dias_com_venda);
+  const cobertura = fatSis > 0 ? pnNum(R.faturamento_com_baixa) / fatSis : 0;
+  const pouco = ped < 20 || fatSis <= 0 || cmv <= 0 || cobertura < 0.8;
+  const margem = pouco ? MT_REF.margem : Math.max(0.01, (fatSis - cmv) / fatSis);
+  const ticketPiz = piz >= 30 && fatSis > 0 ? fatSis / piz : MT_REF.ticketPizza;
   const diasMes = mtDiasAbertos(mesIni, mesFim), diasPassados = mtPreset === 'ant' ? diasMes : mtDiasAbertos(mesIni, hoje);
-  const projFat = mtPreset === 'ant' || dv === 0 ? fat : fat / dv * diasMes;
+  const baseDias = ext > 0 ? diasPassados : dv;
+  const projFat = mtPreset === 'ant' || baseDias === 0 ? fat : fat / baseDias * diasMes;
   const pe = custos / margem;
   const lucroProj = projFat * margem - custos;
 
@@ -854,11 +857,20 @@ async function telaMotor(c){
   hero.appendChild(el('div', 'pn-ref', (mtPreset === 'ant' ? 'Faturamento ' : 'Se o resto do mês seguir neste ritmo: faturamento de ') + money(projFat) + ' · margem ' + mtPct(margem, 1) + ' · custos ' + money(custos)));
   topo.appendChild(hero);
   const tiles = el('div', 'pn-tiles'); tiles.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:12px';
-  [['Faturamento até agora', money(fat)], ['CMV real (' + money(cmv) + ' em insumos)', fat > 0 ? mtPct(cmv / fat, 1) : '—'], ['Margem sobre vendas', mtPct(margem, 1)], ['Custos fixos + folha', money(custos)]].forEach(([rot, val])=>{
+  [['Faturamento até agora' + (ext > 0 ? ' (sistema + Suitable)' : ''), money(fat)], ['CMV pelas fichas (' + money(cmv) + ')', fatSis > 0 ? mtPct(cmv / fatSis, 1) : '—'], ['Margem usada' + (pouco ? ' (referência)' : ' (real)'), mtPct(margem, 1)], ['Custos fixos + folha', money(custos)]].forEach(([rot, val])=>{
     const t = el('div', 'pn-tile'); t.appendChild(el('div', 'rot', rot)); t.appendChild(el('div', 'val', val)); tiles.appendChild(t); });
   topo.appendChild(tiles); corpo.appendChild(topo);
-  if(pouco) corpo.appendChild(el('div', '', 'ℹ️ Ainda há poucas vendas reais no período (menos de 20 pedidos), então a margem usada é a de referência (' + mtPct(MT_REF.margem, 0) + ', do Motor antigo). Ela passa para a margem real sozinha conforme as vendas entram.')).style.cssText = 'background:#E6EEFA;border-radius:12px;padding:12px;margin:12px 0;font-size:14px';
+  if(pouco) corpo.appendChild(el('div', '', 'ℹ️ A margem usada é a de referência (' + mtPct(MT_REF.margem, 0) + ', do Motor antigo), porque ainda há poucas vendas com baixa pela ficha técnica no sistema (precisa de 20 pedidos e 80% das vendas com ficha; hoje: ' + pnInt(ped) + ' pedidos e ' + Math.round(cobertura * 100) + '%). Ela passa para a margem real sozinha conforme as vendas entram.')).style.cssText = 'background:#E6EEFA;border-radius:12px;padding:12px;margin:12px 0;font-size:14px';
   else if(pnNum(R.itens_sem_ficha) > 0) corpo.appendChild(el('div', '', 'ℹ️ ' + pnInt(R.itens_sem_ficha) + ' pedido(s) do período têm item sem ficha técnica (ex.: bebidas). O CMV conta só o que tem ficha, então a margem real pode ser um pouco menor.')).style.cssText = 'background:#FFF1CC;border-radius:12px;padding:12px;margin:12px 0;font-size:14px';
+
+  /* vendas fora do sistema (Suitable) */
+  const cE = pnCartao('Vendas fora do sistema (Suitable)', 'Enquanto parte das vendas ainda passa pelo Suitable, digite aqui o faturamento dele no mês até hoje. Depois da virada, deixe em 0.');
+  const fe2 = el('div'); fe2.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap';
+  const ie2 = document.createElement('input'); ie2.type = 'text'; ie2.inputMode = 'decimal'; ie2.value = ext ? String(ext).replace('.', ',') : ''; ie2.placeholder = 'R$ 0,00'; ie2.style.cssText = 'width:150px;padding:8px';
+  const be2 = el('button', 'btn peq verde', 'Salvar'); be2.onclick = ()=>tentar(async()=>{ await rpc('motor_externas_salvar', {p_loja:LOJA, p_mes:mesIni, p_valor:mtNum(ie2.value)}); desenhar(); }, 'Salvo.');
+  fe2.appendChild(el('span', '', 'Faturamento do Suitable no mês:')); fe2.appendChild(ie2); fe2.appendChild(be2); cE.appendChild(fe2);
+  cE.appendChild(el('div', 'pn-sub', 'Sistema novo: ' + money(fatSis) + (ext > 0 ? ' + Suitable: ' + money(ext) + ' = ' + money(fat) : ''))).style.marginTop = '8px';
+  corpo.appendChild(cE);
 
   /* ponto de equilibrio */
   const cPE = pnCartao('Ponto de equilíbrio', 'Quanto precisa vender no mês para pagar todos os custos (sem lucro, sem prejuízo).');
@@ -868,7 +880,7 @@ async function telaMotor(c){
   cPE.appendChild(el('div', '', 'Equilíbrio: ' + money(pe) + ' por mês · projeção do mês: ' + money(projFat) + (projFat >= pe ? ' ✅ acima do equilíbrio' : ' (faltam ' + money(pe - projFat) + ')'))).style.cssText = 'font-weight:700';
   const pizMes = pe / ticketPiz, pizDia = diasMes ? pizMes / diasMes : 0, pizReal = dv > 0 ? piz / dv : 0;
   const lin = el('div', 'pn-sub'); lin.style.marginTop = '8px';
-  lin.textContent = 'Em pizzas: cerca de ' + pnInt(pizMes) + ' por mês, ou ' + (Math.round(pizDia * 10) / 10).toLocaleString('pt-BR') + ' por dia aberto (valor médio de ' + money(ticketPiz) + ' por pizza)' + (dv > 0 ? '. Hoje você vende ' + (Math.round(pizReal * 10) / 10).toLocaleString('pt-BR') + ' pizzas por dia.' : '.');
+  lin.textContent = 'Em pizzas: cerca de ' + pnInt(pizMes) + ' por mês, ou ' + (Math.round(pizDia * 10) / 10).toLocaleString('pt-BR') + ' por dia aberto (valor médio de ' + money(ticketPiz) + ' por pizza)' + (dv > 0 && ext === 0 ? '. Hoje você vende ' + (Math.round(pizReal * 10) / 10).toLocaleString('pt-BR') + ' pizzas por dia.' : '.');
   cPE.appendChild(lin); corpo.appendChild(cPE);
 
   /* para onde vai cada R$ 100 */
@@ -880,26 +892,27 @@ async function telaMotor(c){
   corpo.appendChild(cDest);
 
   /* custos (editaveis) */
-  const cC = pnCartao('Custos do mês', 'Valores que alimentam o Motor. Mude um valor e clique em Salvar. A folha usa os encargos abaixo sobre os salários fixos.');
-  const salvar = (x, valor, nome, ativo)=>tentar(async()=>{ await rpc('motor_custo_salvar', {p_loja:LOJA, p_id:x.id, p_tipo:x.tipo, p_nome:nome, p_detalhe:x.detalhe || null, p_valor:valor, p_ativo:ativo}); desenhar(); }, 'Salvo.');
+  const cC = pnCartao('Custos do mês', 'Valores que alimentam o Motor. Mude um valor e clique em Salvar. Em "a cada", 1 = todo mês; para um gasto eventual (ex.: dedetização de R$ 300 a cada 6 meses) coloque 300 e 6, e o Motor divide por mês. A folha usa os encargos abaixo sobre os salários fixos.');
+  const salvar = (x, valor, nome, ativo, meses)=>tentar(async()=>{ await rpc('motor_custo_salvar', {p_loja:LOJA, p_id:x.id, p_tipo:x.tipo, p_nome:nome, p_detalhe:x.detalhe || null, p_valor:valor, p_ativo:ativo, p_meses:meses || 1}); desenhar(); }, 'Salvo.');
   const grupo = (titulo, tipo, nota)=>{
     const dt = el('details'); dt.style.marginTop = '8px'; const lista = (K.custos || []).filter(x=>x.tipo === tipo);
-    const tot = lista.filter(x=>x.ativo).reduce((s, x)=>s + pnNum(x.valor), 0);
+    const tot = lista.filter(x=>x.ativo).reduce((s, x)=>s + (tipo === 'fixa' ? mensal(x) : pnNum(x.valor)), 0);
     dt.appendChild(el('summary', '', titulo + ' · ' + money(tot) + (nota || '')));
     lista.forEach(x=>{
       const l = el('div'); l.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:6px 0;border-bottom:1px dashed var(--line)';
       const nm = el('div', '', x.nome + (x.detalhe ? ' · ' + x.detalhe : '')); nm.style.cssText = 'flex:1;min-width:150px;' + (x.ativo ? '' : 'opacity:.5;text-decoration:line-through');
       const iv = document.createElement('input'); iv.type = 'text'; iv.inputMode = 'decimal'; iv.value = String(pnNum(x.valor)).replace('.', ','); iv.style.cssText = 'width:110px;padding:7px';
-      const bs = el('button', 'btn peq verde', 'Salvar'); bs.onclick = ()=>salvar(x, mtNum(iv.value), x.nome, x.ativo);
-      const bx = el('button', 'btn peq cinza', x.ativo ? 'Pausar' : 'Ativar'); bx.onclick = ()=>salvar(x, pnNum(x.valor), x.nome, !x.ativo);
+      let im = null; if(tipo === 'fixa'){ im = document.createElement('input'); im.type = 'text'; im.inputMode = 'numeric'; im.value = String(pnNum(x.meses) || 1); im.style.cssText = 'width:46px;padding:7px;text-align:center'; im.title = 'A cada quantos meses esse valor é pago (1 = todo mês)'; }
+      const bs = el('button', 'btn peq verde', 'Salvar'); bs.onclick = ()=>salvar(x, mtNum(iv.value), x.nome, x.ativo, im ? Math.max(1, Math.round(mtNum(im.value)) || 1) : 1);
+      const bx = el('button', 'btn peq cinza', x.ativo ? 'Pausar' : 'Ativar'); bx.onclick = ()=>salvar(x, pnNum(x.valor), x.nome, !x.ativo, pnNum(x.meses) || 1);
       const bd = el('button', 'btn peq cinza', 'Apagar'); bd.onclick = ()=>{ if(confirm('Apagar "' + x.nome + '"?')) tentar(async()=>{ await rpc('motor_custo_apagar', {p_loja:LOJA, p_id:x.id}); desenhar(); }, 'Apagado.'); };
-      l.appendChild(nm); l.appendChild(iv); l.appendChild(bs); l.appendChild(bx); l.appendChild(bd); dt.appendChild(l); });
+      l.appendChild(nm); l.appendChild(iv); if(im){ const lm = el('span', 'pn-sub', 'a cada'); lm.style.margin = '0'; l.appendChild(lm); l.appendChild(im); l.appendChild(el('span', 'pn-sub', 'mês(es)')); } l.appendChild(bs); l.appendChild(bx); l.appendChild(bd); dt.appendChild(l); });
     const nl = el('div'); nl.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin-top:10px';
     const inn = document.createElement('input'); inn.type = 'text'; inn.placeholder = 'Novo item'; inn.style.cssText = 'flex:1;min-width:150px;padding:7px';
     const inv = document.createElement('input'); inv.type = 'text'; inv.inputMode = 'decimal'; inv.placeholder = 'Valor'; inv.style.cssText = 'width:110px;padding:7px';
     const ba = el('button', 'btn peq verde', '+ Adicionar'); ba.onclick = ()=>{ if(!inn.value.trim()){ alert('Digite o nome do item.'); return; } tentar(async()=>{ await rpc('motor_custo_salvar', {p_loja:LOJA, p_id:null, p_tipo:tipo, p_nome:inn.value, p_detalhe:null, p_valor:mtNum(inv.value), p_ativo:true}); desenhar(); }, 'Adicionado.'); };
     nl.appendChild(inn); nl.appendChild(inv); nl.appendChild(ba); dt.appendChild(nl); return dt; };
-  cC.appendChild(grupo('Despesas fixas (por mês)', 'fixa'));
+  cC.appendChild(grupo('Despesas fixas (média por mês)', 'fixa'));
   cC.appendChild(grupo('Folha: salários fixos (por mês)', 'folha_fixo', ' (+ encargos ' + mtPct(enc, 2) + ')'));
   cC.appendChild(grupo('Folha: extras (valor por semana)', 'folha_extra', ' por semana · × ' + sem.toString().replace('.', ',') + ' semanas'));
   const fe = el('div'); fe.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px';
@@ -910,6 +923,125 @@ async function telaMotor(c){
   cC.appendChild(el('div', 'pn-sub', 'Total do mês: despesas fixas ' + money(fixas) + ' + folha ' + money(folha) + ' = ' + money(custos))).style.marginTop = '10px';
   corpo.appendChild(cC);
   corpo.appendChild(el('p', 'dica', 'O CMV real vem da baixa automática do estoque pela ficha técnica de cada venda (só itens com ficha). Pró-labore e dedetização estão com valor zero: preencha para entrarem na conta.'));
+}
+
+/* ============================ SIMULADOR DO FRANQUEADO ============================ */
+// Custos zerados (o candidato preenche); produtos, precos e custos vem das fichas tecnicas reais da Gran Paolo.
+const SIM_CHAVE = 'gp_simulador_v1';
+const simPadrao = ()=>({nome:'', varPreco:0, pctGrande:70, dias:26, imp:0, cartao:0, roy:3, fundoPct:1, fundoMin:1000, enc:21.77, meta:0,
+  fixas:['Aluguel', 'Energia elétrica', 'Água', 'Gás', 'Internet e telefone', 'Contabilidade', 'Sistema de gestão', 'Descartáveis e limpeza', 'Manutenção', 'Outros'].map(n=>({n, v:''})),
+  folha:['Pizzaiolo', 'Atendente'].map(n=>({n, v:''})), extras:[{n:'Extra de fim de semana', v:''}]});
+let SIM = null;
+function simCarrega(){ if(SIM) return; SIM = simPadrao(); try{ const t = localStorage.getItem(SIM_CHAVE); if(t){ const o = JSON.parse(t); if(o && Array.isArray(o.fixas)) SIM = Object.assign(simPadrao(), o); } }catch(e){} }
+function simSalva(){ try{ localStorage.setItem(SIM_CHAVE, JSON.stringify(SIM)); }catch(e){} }
+// media de preco e custo das pizzas que tem ficha tecnica, por tamanho
+function simProdutos(){
+  const pizzas = (D.produtos || []).filter(p=>((D.categorias.find(c=>c.id === p.categoria_id) || {}).tipo === 'pizza') && p.ativo !== false);
+  const lin = [], tam = {Grande:{p:0, c:0, n:0}, Pequena:{p:0, c:0, n:0}};
+  pizzas.forEach(p=>{ (p.produto_tamanhos || []).forEach(t=>{ const pr = Number(t.preco), c = custoDe(p, t);
+    if(!(pr > 0) || c === null) return; lin.push({nome:nomeProd(p), tam:t.nome, preco:pr, custo:c});
+    if(tam[t.nome]){ tam[t.nome].p += pr; tam[t.nome].c += c; tam[t.nome].n++; } }); });
+  ['Grande', 'Pequena'].forEach(k=>{ const x = tam[k]; if(x.n){ x.p /= x.n; x.c /= x.n; } });
+  return {lin, tam, total:pizzas.length};
+}
+function simModelo(){
+  const P = simProdutos(), g = Math.min(100, Math.max(0, SIM.pctGrande)) / 100, f = 1 + SIM.varPreco / 100;
+  const tg = P.tam.Grande, tp = P.tam.Pequena;
+  const gOk = tg.n > 0, pOk = tp.n > 0;
+  const wg = gOk && pOk ? g : (gOk ? 1 : 0), wp = 1 - wg;
+  const preco = (tg.p * wg + tp.p * wp) * f, cmv = tg.c * wg + tp.c * wp;
+  const fixas = SIM.fixas.reduce((s, x)=>s + mtNum(x.v), 0);
+  const folha = SIM.folha.reduce((s, x)=>s + mtNum(x.v), 0) * (1 + SIM.enc / 100) + SIM.extras.reduce((s, x)=>s + mtNum(x.v), 0) * 4.33;
+  const pv = (SIM.imp + SIM.cartao + SIM.roy) / 100;
+  const dias = Math.max(1, SIM.dias);
+  const lucro = (n)=>{ const rev = n * preco, fundo = n > 0 ? Math.max(rev * SIM.fundoPct / 100, SIM.fundoMin) : 0;
+    return rev - rev * pv - n * cmv - fundo - fixas - folha; };
+  const resolve = (alvo)=>{ if(lucro(100000) < alvo) return null; let a = 0, b = 100000; for(let i = 0; i < 60; i++){ const m = (a + b) / 2; if(lucro(m) < alvo) a = m; else b = m; } return b; };
+  return {P, preco, cmv, fixas, folha, pv, dias, lucro, resolve, custos:fixas + folha, contrib:preco * (1 - pv) - cmv};
+}
+function telaSimulador(c){
+  c.className = 'larga'; simCarrega();
+  if(!D || !D.produtos){ c.appendChild(el('div', 'vazio', 'Carregando o cardápio...')); return; }
+  const topo = el('div', 'pn-barra'); const inNome = document.createElement('input'); inNome.type = 'text'; inNome.placeholder = 'Candidato / ponto (ex.: João · Av. Central)'; inNome.value = SIM.nome; inNome.style.cssText = 'flex:1;min-width:220px;padding:9px;font-size:16px';
+  inNome.oninput = ()=>{ SIM.nome = inNome.value; simSalva(); };
+  const bP = el('button', 'btn peq cinza', 'Imprimir / PDF'); bP.onclick = ()=>window.print();
+  const bZ = el('button', 'btn peq cinza', 'Limpar tudo'); bZ.onclick = ()=>{ if(confirm('Zerar a simulação (candidato, custos e premissas)?')){ SIM = simPadrao(); simSalva(); desenhar(); } };
+  topo.appendChild(inNome); topo.appendChild(bP); topo.appendChild(bZ); c.appendChild(topo);
+  const res = el('div'); c.appendChild(res);
+  const ent = el('div');
+  c.appendChild(ent);
+
+  function resultado(){
+    res.innerHTML = '';
+    const M = simModelo();
+    if(!M.P.lin.length){ res.appendChild(el('div', 'vazio', 'Nenhuma pizza com ficha técnica encontrada. O Simulador usa as fichas do Estoque (Gestão).')); return; }
+    const pe = M.resolve(0), peD = pe === null ? null : pe / M.dias;
+    const hero = el('div', 'pn-hero'); hero.style.marginTop = '12px';
+    hero.appendChild(el('small', '', 'Ponto de equilíbrio' + (SIM.nome ? ' · ' + SIM.nome : '')));
+    hero.appendChild(el('div', 'grande', pe === null ? 'Sem equilíbrio' : (Math.round(peD * 10) / 10).toLocaleString('pt-BR') + ' pizzas/dia'));
+    hero.appendChild(el('div', 'pn-ref', pe === null ? 'Com esses custos e margem, as vendas nunca cobrem os custos. Revise preço, royalties ou custos.' : 'São ' + pnInt(pe) + ' pizzas por mês e ' + money(pe * M.preco) + ' de faturamento para empatar, com ' + M.dias + ' dias abertos.'));
+    res.appendChild(hero);
+    const tiles = el('div', 'pn-tiles'); tiles.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:12px';
+    [['Preço médio por pizza', money(M.preco)], ['Custo médio dos insumos', money(M.cmv) + ' (' + mtPct(M.preco ? M.cmv / M.preco : 0, 0) + ')'], ['Sobra por pizza', money(M.contrib)], ['Custos fixos + folha', money(M.custos)]].forEach(([r, v])=>{
+      const t = el('div', 'pn-tile'); t.appendChild(el('div', 'rot', r)); t.appendChild(el('div', 'val', v)); tiles.appendChild(t); });
+    res.appendChild(tiles);
+    res.appendChild(el('div', 'pn-sub', 'Base: ' + M.P.lin.length + ' preços de pizza com ficha técnica real (de ' + M.P.total + ' sabores). Preço e custo médios dos sabores, na proporção ' + SIM.pctGrande + '% grande / ' + (100 - SIM.pctGrande) + '% pequena. Bebidas e extras não entram (resultado conservador).')).style.marginTop = '8px';
+    if(mtNum(SIM.meta) > 0){ const nm = M.resolve(mtNum(SIM.meta));
+      const cm = pnCartao('Para tirar ' + money(mtNum(SIM.meta)) + ' por mês', 'Meta de lucro do franqueado, depois de todos os custos.');
+      cm.appendChild(el('div', '', nm === null ? 'Não é possível chegar nessa meta com esses custos.' : 'Precisa vender cerca de ' + (Math.round(nm / M.dias * 10) / 10).toLocaleString('pt-BR') + ' pizzas por dia (' + pnInt(nm) + ' por mês), faturando ' + money(nm * M.preco) + '.')).style.cssText = 'font-weight:800;font-size:17px';
+      res.appendChild(cm); }
+    // cenarios
+    const cen = pnCartao('Cenários', 'Quanto sobra no mês conforme as pizzas vendidas por dia.');
+    const linhas = [10, 15, 20, 25, 30, 40].map(d=>{ const n = d * M.dias, l = M.lucro(n), rev = n * M.preco; return [d + ' por dia', pnInt(n), money(rev), (l < 0 ? '− ' + money(-l) : money(l)), rev ? mtPct(l / rev, 0) : '—']; });
+    cen.appendChild(tabelaSimples(['Pizzas', 'No mês', 'Faturamento', 'Lucro', 'Margem'], linhas));
+    const faixas = [50000, 65000, 80000, 100000].map(fa=>{ const n = fa / M.preco, l = M.lucro(n); return [money(fa), (Math.round(n / M.dias * 10) / 10).toLocaleString('pt-BR') + ' por dia', (l < 0 ? '− ' + money(-l) : money(l)), mtPct(l / fa, 0)]; });
+    const t2 = el('div'); t2.style.marginTop = '14px'; t2.appendChild(el('div', 'pn-sub', 'Por faixa de faturamento:')); t2.appendChild(tabelaSimples(['Faturamento', 'Pizzas', 'Lucro', 'Margem'], faixas)); cen.appendChild(t2);
+    res.appendChild(cen);
+    // para onde vai
+    const nRef = pe === null ? 20 * M.dias : Math.max(pe * 1.6, 15 * M.dias), rev = nRef * M.preco, fundo = Math.max(rev * SIM.fundoPct / 100, SIM.fundoMin);
+    const cd = pnCartao('Para onde vai cada R$ 100 vendidos', 'Em ' + (Math.round(nRef / M.dias * 10) / 10).toLocaleString('pt-BR') + ' pizzas por dia (' + money(rev) + ' por mês).');
+    const pt = (r, v)=>({rot:r, valor:Math.max(v, 0), texto:'R$ ' + (Math.round(v / rev * 1000) / 10).toLocaleString('pt-BR'), dica:r + ': ' + money(v)});
+    pnBarras(cd, [pt('Insumos', nRef * M.cmv), pt('Impostos e taxas', rev * (SIM.imp + SIM.cartao) / 100), pt('Royalties', rev * SIM.roy / 100), pt('Fundo de marketing', fundo), pt('Folha', M.folha), pt('Despesas fixas', M.fixas), pt('Sobra (lucro)', M.lucro(nRef))], 'Sem dados.');
+    res.appendChild(cd);
+    // margem por sabor
+    const cs = pnCartao('Fichas técnicas usadas', 'Preço e custo de cada pizza, direto das fichas da Gran Paolo (mesmo preço para o franqueado).');
+    const dt = el('details'); dt.appendChild(el('summary', '', 'Ver margem por sabor (' + M.P.lin.length + ' preços)'));
+    const ord = M.P.lin.slice().sort((a, b)=>(a.custo / a.preco) - (b.custo / b.preco));
+    dt.appendChild(tabelaSimples(['Pizza', 'Tamanho', 'Preço', 'Custo', 'CMV'], ord.map(x=>[x.nome, x.tam, money(x.preco * (1 + SIM.varPreco / 100)), money(x.custo), mtPct(x.custo / (x.preco * (1 + SIM.varPreco / 100)), 0)])));
+    cs.appendChild(dt); res.appendChild(cs);
+  }
+
+  function campo(rot, chave, suf, passo){
+    const w = el('label'); w.style.cssText = 'display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--soft)'; w.appendChild(document.createTextNode(rot));
+    const i = document.createElement('input'); i.type = 'text'; i.inputMode = 'decimal'; i.value = String(SIM[chave] === 0 && chave === 'meta' ? '' : SIM[chave]).replace('.', ','); i.style.cssText = 'padding:8px;width:130px;font-size:16px;color:var(--ink)';
+    i.oninput = ()=>{ SIM[chave] = mtNum(i.value); simSalva(); resultado(); };
+    const l = el('div'); l.style.cssText = 'display:flex;align-items:center;gap:6px'; l.appendChild(i); if(suf) l.appendChild(el('span', '', suf)); w.appendChild(l); return w; }
+  function lista(titulo, chave, nota, rotMulti){
+    const cx = el('details'); cx.open = true; cx.style.marginTop = '10px';
+    const sm = el('summary', '', titulo); cx.appendChild(sm); if(nota) cx.appendChild(el('div', 'pn-sub', nota));
+    const corpoL = el('div'); cx.appendChild(corpoL);
+    const desenhaL = ()=>{ corpoL.innerHTML = '';
+      SIM[chave].forEach((x, idx)=>{ const l = el('div'); l.style.cssText = 'display:flex;gap:8px;align-items:center;margin:6px 0';
+        const n = document.createElement('input'); n.type = 'text'; n.value = x.n; n.style.cssText = 'flex:1;min-width:120px;padding:8px'; n.oninput = ()=>{ x.n = n.value; simSalva(); };
+        const v = document.createElement('input'); v.type = 'text'; v.inputMode = 'decimal'; v.placeholder = 'R$ 0'; v.value = x.v === '' ? '' : String(x.v).replace('.', ','); v.style.cssText = 'width:120px;padding:8px'; v.oninput = ()=>{ x.v = v.value; simSalva(); resultado(); };
+        const d = el('button', 'btn peq cinza', '✕'); d.onclick = ()=>{ SIM[chave].splice(idx, 1); simSalva(); desenhaL(); resultado(); };
+        l.appendChild(n); l.appendChild(v); l.appendChild(d); corpoL.appendChild(l); });
+      const a = el('button', 'btn peq verde', '+ Adicionar linha'); a.onclick = ()=>{ SIM[chave].push({n:'', v:''}); simSalva(); desenhaL(); }; corpoL.appendChild(a); };
+    desenhaL(); return cx; }
+
+  const cp = pnCartao('Premissas de venda', 'Mesmo preço da Gran Paolo; ajuste só se o ponto pedir.');
+  const g1 = el('div'); g1.style.cssText = 'display:flex;gap:18px;flex-wrap:wrap'; 
+  [campo('Variação de preço (%)', 'varPreco', '%'), campo('Pizzas grandes no total (%)', 'pctGrande', '%'), campo('Dias abertos por mês', 'dias', 'dias'), campo('Meta de lucro por mês (opcional)', 'meta', 'R$')].forEach(x=>g1.appendChild(x)); cp.appendChild(g1); ent.appendChild(cp);
+  const cv = pnCartao('Custos sobre a venda', 'Percentuais do faturamento. Royalties e fundo de marketing seguem o modelo da rede (a revisar).');
+  const g2 = el('div'); g2.style.cssText = 'display:flex;gap:18px;flex-wrap:wrap';
+  [campo('Royalties (%)', 'roy', '%'), campo('Fundo de marketing (%)', 'fundoPct', '%'), campo('Fundo de marketing: mínimo por mês', 'fundoMin', 'R$'), campo('Impostos (%)', 'imp', '%'), campo('Taxas de cartão e apps (%)', 'cartao', '%')].forEach(x=>g2.appendChild(x)); cv.appendChild(g2); ent.appendChild(cv);
+  const cf = pnCartao('Custos do ponto (preencher com os dados do candidato)', 'Valores por mês. Deixe em branco o que ainda não souber.');
+  cf.appendChild(lista('Despesas fixas', 'fixas'));
+  cf.appendChild(lista('Folha: salários mensais', 'folha', 'Os encargos abaixo são somados sobre estes salários.'));
+  cf.appendChild(lista('Folha: extras (valor por semana)', 'extras', 'Multiplicado por 4,33 semanas.'));
+  cf.appendChild(campo('Encargos sobre salários (%)', 'enc', '%')).style.marginTop = '10px';
+  ent.appendChild(cf);
+  resultado();
 }
 
 /* ============================ CARDAPIO ============================ */
