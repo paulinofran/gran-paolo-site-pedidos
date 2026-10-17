@@ -174,6 +174,8 @@ header.top .sub{font-size:12px;color:rgba(255,255,255,.85);margin-top:3px;}
 .busca-sabor{width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:12px;font-size:14px;background:#fff;margin-top:6px;box-sizing:border-box;}
 .sabores-lista{display:block;margin-top:2px;line-height:1.45;}
 .select-sabor{width:100%;padding:12px;border:1.5px solid var(--line);border-radius:12px;font-size:14px;background:#fff;margin-top:6px;}
+.select-sabor[size]{padding:4px;font-size:15px;}
+.select-sabor[size] option{padding:10px 8px;}
 .meio-label{font-size:12.5px;font-weight:600;color:var(--ink-soft);margin-top:14px;display:block;}
 
 /* ---------- Carrinho ---------- */
@@ -1626,6 +1628,8 @@ function preencherSelectSabores(sel, lista, termo, manter){
   sel.innerHTML = '<option value="">' + (itens.length ? 'Selecione...' : 'Nenhum sabor encontrado') + '</option>'
     + itens.map(o=>`<option value="${o.i}">${semPizza(o.s.nome)}</option>`).join('');
   if(manter !== '' && itens.some(o=>String(o.i)===String(manter))) sel.value = String(manter);
+  // Enquanto há texto na busca, mostra os resultados já abertos na tela (no celular a caixinha fechada parecia "não buscar")
+  if(t) sel.size = Math.min(itens.length + 1, 6); else sel.removeAttribute('size');
 }
 function filtrarSaboresMeio(n){
   const sel = document.getElementById('meioSabor'+n), busca = document.getElementById('meioBusca'+n);
@@ -1660,7 +1664,7 @@ function selecionarTamanhoMeio(t){
   atualizarModalMeio();
 }
 document.addEventListener('change', (e)=>{
-  if(e.target.id==='meioSabor1' || e.target.id==='meioSabor2') atualizarModalMeio();
+  if(e.target.id==='meioSabor1' || e.target.id==='meioSabor2'){ e.target.removeAttribute('size'); atualizarModalMeio(); }
 });
 function precoSaborTamanho(sabor, tamanho){
   if(!sabor) return null;
