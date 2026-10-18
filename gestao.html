@@ -33,6 +33,11 @@ header h1{margin:0;font-size:18px}
 #abas{display:flex;gap:6px;overflow-x:auto;padding:10px 12px;background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
 #abas button{border:1.5px solid var(--line);background:#fff;border-radius:20px;padding:8px 14px;font-weight:700;color:var(--soft);white-space:nowrap}
 #abas button.ativa{background:var(--vermelho);border-color:var(--vermelho);color:#fff}
+#avisoNotas{display:none;padding:10px 14px;font-size:14px;font-weight:700;cursor:pointer;border-bottom:1px solid var(--line);line-height:1.35}
+#avisoNotas.erro{display:block;background:var(--rdbg);color:var(--rd)}
+#avisoNotas.espera{display:block;background:var(--ambg);color:var(--am)}
+#abas button .selo{display:inline-block;margin-left:6px;min-width:18px;padding:0 6px;border-radius:10px;background:var(--rd);color:#fff;font-size:12px;line-height:18px;text-align:center}
+#abas button.ativa .selo{background:#fff;color:var(--vermelho)}
 #aviso{position:fixed;left:12px;right:12px;bottom:14px;z-index:20;max-width:520px;margin:0 auto}
 .toast{padding:12px 14px;border-radius:12px;font-weight:700;margin-top:8px;box-shadow:0 6px 18px rgba(0,0,0,.18)}
 .toast.ok{background:var(--ok);color:#fff}.toast.erro{background:var(--rd);color:#fff}
@@ -135,6 +140,7 @@ main.larga{max-width:1080px}
       <button id="btnSair" class="btn claro peq">Sair</button>
     </div>
   </header>
+  <div id="avisoNotas" role="alert"></div>
   <div id="abas"></div>
   <main id="conteudo"><div class="vazio">Carregando...</div></main>
 </div>
@@ -156,6 +162,7 @@ const ABAS = [['painel','Painel'],['hoje','Hoje'],['cardapio','Cardápio'],['pro
 
 let sessao = null, aba = (location.hash === '#robo') ? 'robo' : (location.hash === '#hoje' ? 'hoje' : 'painel');
 let PAPEL = 'dono';   // 'leitor' = acesso so de leitura (Marketing): ve apenas os Relatorios
+let NOTAS_PROBLEMA = 0, timerAvisoNotas = null;   // notas com erro, paradas ou esperando pagamento (aviso no topo)
 let timerRobo = null;
 let D = {categorias:[], produtos:[], promocoes:[], bairros:[], regras:null, perfis:[]};
 let clienteBusca = null;
@@ -297,13 +304,48 @@ async function recarregar(){ await tentar(async()=>{ await carregarTudo(); desen
 /* ---------- abas ---------- */
 function desenharAbas(){
   const box = $('abas'); box.innerHTML = '';
-  ABAS.filter(([id])=>PAPEL !== 'leitor' || id === 'relatorios').forEach(([id, rot])=>{ const b = el('button', id === aba ? 'ativa' : '', rot); b.dataset.aba = id; b.onclick = ()=>{ aba = id; desenhar(); window.scrollTo(0,0); }; box.appendChild(b); });
+  ABAS.filter(([id])=>PAPEL !== 'leitor' || id === 'relatorios').forEach(([id, rot])=>{ const b = el('button', id === aba ? 'ativa' : '', rot); b.dataset.aba = id; if(id === 'notas' && NOTAS_PROBLEMA > 0) b.appendChild(el('span', 'selo', String(NOTAS_PROBLEMA))); b.onclick = ()=>{ aba = id; desenhar(); window.scrollTo(0,0); }; box.appendChild(b); });
 }
 function desenhar(){
   if(PAPEL === 'leitor') aba = 'relatorios';
   desenharAbas();
   const c = $('conteudo'); c.innerHTML = ''; c.className = '';
   ({painel:telaPainel, hoje:telaHoje, cardapio:telaCardapio, promos:telaPromos, taxas:telaTaxas, regras:telaRegras, horarios:telaHorarios, clientes:telaClientes, relatorios:telaRelatorios, notas:telaNotas, robo:telaRobo, estoque:telaEstoque, caixa:telaCaixa, motor:telaMotor, simulador:telaSimulador, contas:telaContas})[aba](c);
+  if(aba === 'notas') setTimeout(atualizarAvisoNotas, 1500);   // acabou de reenviar/salvar algo: confere o aviso de novo
+}
+
+/* ---------- aviso de notas fiscais com problema (so aparece com a nota LIGADA) ---------- */
+// Vermelho: nota com ERRO ou parada na fila ha mais de 15 min (internet ou Focus fora do ar).
+// Amarelo: nota esperando a forma de pagamento ha mais de 30 min. Olha so os ultimos 7 dias.
+async function atualizarAvisoNotas(){
+  const box = $('avisoNotas'); if(!box || PAPEL === 'leitor') return;
+  let erros = 0, esperando = 0, paradas = 0, teste = false;
+  try{
+    const cfg = (await api(`/rest/v1/fiscal_config?loja_id=eq.${LOJA}&select=ativo,ambiente`) || [])[0];
+    if(cfg && cfg.ativo){
+      teste = cfg.ambiente !== 'producao';
+      const desde = new Date(Date.now() - 7 * 86400000).toISOString();
+      const lista = await api(`/rest/v1/notas_fiscais?loja_id=eq.${LOJA}&ambiente=eq.${cfg.ambiente}&criado_em=gte.${desde}&status=in.(erro,aguardando,pendente,enviando)&select=status,criado_em,atualizado_em&limit=200`) || [];
+      const agora = Date.now();
+      lista.forEach(n=>{
+        if(n.status === 'erro') erros++;
+        else if(n.status === 'aguardando'){ if(agora - new Date(n.criado_em).getTime() > 30 * 60000) esperando++; }
+        else if(agora - new Date(n.atualizado_em).getTime() > 15 * 60000) paradas++;
+      });
+    }
+  }catch(e){ return; }   // sem a Parte G, sem internet ou sessao vencida: nao mostra nada (e nao atrapalha)
+  const antes = NOTAS_PROBLEMA; NOTAS_PROBLEMA = erros + esperando + paradas;
+  const partes = [];
+  if(erros) partes.push(erros === 1 ? '1 nota com erro' : erros + ' notas com erro');
+  if(paradas) partes.push(paradas === 1 ? '1 nota parada na fila há mais de 15 min' : paradas + ' notas paradas na fila há mais de 15 min');
+  if(esperando) partes.push(esperando === 1 ? '1 nota esperando a forma de pagamento' : esperando + ' notas esperando a forma de pagamento');
+  if(!partes.length){ box.className = ''; box.textContent = ''; box.onclick = null; }
+  else{
+    box.className = (erros || paradas) ? 'erro' : 'espera';
+    box.textContent = '⚠ ' + partes.join(' · ') + (teste ? ' (modo teste)' : '') + '. Toque aqui para ver.';
+    box.onclick = ()=>{ aba = 'notas'; desenhar(); window.scrollTo(0, 0); };
+  }
+  if(antes !== NOTAS_PROBLEMA) desenharAbas();
 }
 function campo(rotulo, input){ const w = el('label', 'campo'); w.appendChild(el('span', '', rotulo)); w.appendChild(input); return w; }
 function inputNum(v, passo){ const i = el('input', 'num'); i.type = 'text'; i.inputMode = (passo === '1') ? 'numeric' : 'decimal'; i.autocomplete = 'off'; i.value = v === null || v === undefined ? '' : String(v).replace('.', ','); return i; }
@@ -2333,6 +2375,7 @@ async function iniciar(){
   try{ PAPEL = (await rpc('gestao_meu_papel', {p_loja:LOJA})) === 'leitor' ? 'leitor' : 'dono'; }catch(e){ PAPEL = 'dono'; }   // sem a Parte AG instalada, segue como antes
   if(PAPEL === 'leitor'){ aba = 'relatorios'; await tentar(async()=>{ desenhar(); }); return; }   // leitor nao carrega cardapio, clientes etc.
   await tentar(async()=>{ await carregarTudo(); desenhar(); });
+  atualizarAvisoNotas(); clearInterval(timerAvisoNotas); timerAvisoNotas = setInterval(atualizarAvisoNotas, 120000);   // confere as notas a cada 2 min
 }
 $('formLogin').addEventListener('submit', async (e)=>{
   e.preventDefault(); $('erroLogin').textContent = '';
