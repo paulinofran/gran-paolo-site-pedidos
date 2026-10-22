@@ -135,6 +135,7 @@ body.comLateral main{margin:0;max-width:none;padding-right:366px}
     <h1>Gran Paolo · PDV</h1>
     <div class="barra">
       <button class="btn peq oculto" id="btnInicio">🏠 Início</button>
+      <button class="btn peq" id="btnCaixa">💵 Caixa</button>
       <button class="btn peq" id="btnSite">Pedidos do site</button>
       <button class="btn peq" id="btnAtualizar">Atualizar</button>
       <a class="btn peq" href="painel.html" target="painel" rel="noopener" style="text-decoration:none">Painel</a>
@@ -500,6 +501,74 @@ function desenharCarrinho(){
 /* ---------- janelas ---------- */
 function janela(){ const f = el('div','fundo'); const j = el('div','janela'); f.appendChild(j); f.addEventListener('click', e=>{ if(e.target === f) fechar(); }); $('modais').innerHTML = ''; $('modais').appendChild(f); return j; }
 function fechar(){ $('modais').innerHTML = ''; }
+
+/* ---------- CAIXA: gasto em dinheiro + fechamento do dia ---------- */
+const brDia = (d)=>{ const p = String(d||'').split('-'); return p.length === 3 ? p[2] + '/' + p[1] : ''; };
+async function abrirCaixa(){
+  let R;
+  try{ R = await rpc('caixa_resumo',{p_loja:LOJA}); }
+  catch(e){ aviso(/function|schema cache|does not exist/i.test(e.message) ? 'O Caixa ainda não foi instalado (falta rodar a Parte AU).' : e.message); return; }
+  desenharCaixa(R);
+}
+function desenharCaixa(R){
+  const j = janela();
+  j.appendChild(el('h3','','💵 Caixa de hoje · ' + brDia(R.dia)));
+  // 1) vendas do dia
+  const b1 = el('div','bloco'); b1.appendChild(el('h3','','Vendas do dia'));
+  const total = (R.por_forma||[]).filter(x=>x.forma !== 'Cashback/Pontos').reduce((a,x)=>a+Number(x.valor),0);
+  if(!(R.por_forma||[]).length) b1.appendChild(el('p','dica','Ainda não teve venda hoje.'));
+  (R.por_forma||[]).forEach(x=>{ const l = el('div','linha'); l.appendChild(el('span','',x.forma + ' (' + x.pedidos + ')')); l.appendChild(el('b','',money(x.valor))); b1.appendChild(l); });
+  if((R.por_forma||[]).length){ const l = el('div','linha'); l.appendChild(el('b','','Total')); l.appendChild(el('b','',money(total))); b1.appendChild(l); }
+  j.appendChild(b1);
+  // 2) gastos em dinheiro
+  const b2 = el('div','bloco'); b2.appendChild(el('h3','','Gastos pagos com o dinheiro da gaveta'));
+  if(!(R.saidas||[]).length) b2.appendChild(el('p','dica','Nenhum gasto hoje. Gelo, mercado, motoboy… se saiu dinheiro da gaveta, anote aqui.'));
+  (R.saidas||[]).forEach(x=>{ const l = el('div','linha'); l.appendChild(el('span','',x.descricao)); const d = el('span'); d.appendChild(el('b','','− ' + money(x.valor) + ' '));
+    const bx = el('button','btn peq','Apagar'); bx.onclick = async ()=>{ if(!confirm('Apagar o gasto "' + x.descricao + '"?')) return; try{ desenharCaixa(await rpc('caixa_saida_del',{p_loja:LOJA,p_id:x.id})); }catch(e){ aviso(e.message); } };
+    d.appendChild(bx); l.appendChild(d); b2.appendChild(l); });
+  const fg = el('div'); fg.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin-top:10px';
+  const iV = document.createElement('input'); iV.type = 'text'; iV.inputMode = 'decimal'; iV.placeholder = 'Valor'; iV.style.cssText = 'width:110px';
+  const iD = document.createElement('input'); iD.type = 'text'; iD.placeholder = 'Com o quê? (ex.: gelo)'; iD.style.cssText = 'flex:1;min-width:150px';
+  const bA = el('button','btn verde','+ Anotar gasto');
+  bA.onclick = async ()=>{ const v = num(iV.value); if(v <= 0){ aviso('Digite o valor do gasto.'); return; } if(!iD.value.trim()){ aviso('Diga com o que foi o gasto.'); return; }
+    bA.disabled = true; try{ desenharCaixa(await rpc('caixa_saida_add',{p_loja:LOJA,p_valor:v,p_descricao:iD.value.trim()})); }catch(e){ aviso(e.message); bA.disabled = false; } };
+  fg.appendChild(iV); fg.appendChild(iD); fg.appendChild(bA); b2.appendChild(fg);
+  b2.appendChild(el('p','dica','Pagou no cartão ou é boleto? Não anote aqui: lance em Contas a pagar, na Gestão.')).style.marginTop = '10px';
+  j.appendChild(b2);
+  // 3) conta do dinheiro
+  const b3 = el('div','bloco'); b3.appendChild(el('h3','','Conta do dinheiro'));
+  const lin = (a,b,forte)=>{ const l = el('div','linha'); l.appendChild(el(forte?'b':'span','',a)); l.appendChild(el('b','',b)); b3.appendChild(l); };
+  lin('Vendas em dinheiro', money(R.dinheiro_vendas)); lin('Gastos da gaveta', '− ' + money(R.total_saidas));
+  lin('Para entregar ao dono', money(R.esperado), true);
+  b3.appendChild(el('p','dica','Além disso, deixe ' + money(R.fundo) + ' na gaveta para o dia seguinte.')).style.marginTop = '8px';
+  j.appendChild(b3);
+  // 4) fechar
+  const b4 = el('div','bloco'); b4.appendChild(el('h3','','Fechar o caixa'));
+  const F = R.fechamento;
+  if(F){ const ok = Math.abs(Number(F.diferenca)) < 0.005;
+    const msg = el('div','linha'); msg.style.cssText = 'background:' + (ok ? 'var(--okbg)' : 'var(--ambg)') + ';padding:10px;border-radius:10px;font-weight:800;display:block';
+    msg.textContent = '✅ Caixa fechado às ' + new Date(F.fechado_em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}) + ' · ' + (ok ? 'Bateu certinho.' : (Number(F.diferenca) < 0 ? 'Faltou ' + money(Math.abs(F.diferenca)) + '.' : 'Sobrou ' + money(F.diferenca) + '.'))
+      + ' (separado ' + money(F.entregue) + ' de ' + money(F.esperado) + ')';
+    b4.appendChild(msg);
+    if(F.maquininha != null){ const dc = Number(F.maquininha) - Number(R.cartao||0); b4.appendChild(el('p','dica', 'Maquininhas: ' + money(F.maquininha) + ' · sistema: ' + money(R.cartao) + (Math.abs(dc) < 0.005 ? ' · bateu' : ' · diferença de ' + money(Math.abs(dc))))).style.marginTop = '8px'; }
+    b4.appendChild(el('p','dica','Vendeu mais depois de fechar? É só fechar de novo: ele atualiza.')).style.marginTop = '8px';
+  }
+  b4.appendChild(el('div','rot','Dinheiro separado para o dono (sem os ' + money(R.fundo) + ' da gaveta)'));
+  const iE = document.createElement('input'); iE.type = 'text'; iE.inputMode = 'decimal'; iE.placeholder = money(R.esperado); iE.style.cssText = 'width:100%'; if(F) iE.value = String(F.entregue).replace('.',','); b4.appendChild(iE);
+  b4.appendChild(el('div','rot','Total das maquininhas (opcional, para conferir o cartão)'));
+  const iM = document.createElement('input'); iM.type = 'text'; iM.inputMode = 'decimal'; iM.placeholder = 'Sistema: ' + money(R.cartao); iM.style.cssText = 'width:100%'; if(F && F.maquininha != null) iM.value = String(F.maquininha).replace('.',','); b4.appendChild(iM);
+  b4.appendChild(el('div','rot','Observação (opcional)'));
+  const iO = document.createElement('input'); iO.type = 'text'; iO.style.cssText = 'width:100%'; if(F && F.obs) iO.value = F.obs; b4.appendChild(iO);
+  const aE = el('div','acoes'); const bF = el('button','btn verm', F ? 'Fechar de novo' : 'Fechar o caixa');
+  bF.onclick = async ()=>{ if(!iE.value.trim()){ aviso('Digite quanto dinheiro foi separado (pode ser 0).'); return; }
+    const v = num(iE.value), dif = arred(v - Number(R.esperado));
+    if(Math.abs(dif) >= 0.005 && !confirm((dif < 0 ? 'Faltam ' : 'Sobram ') + money(Math.abs(dif)) + ' em relação ao esperado (' + money(R.esperado) + '). Fechar assim mesmo?')) return;
+    bF.disabled = true; try{ desenharCaixa(await rpc('caixa_fechar',{p_loja:LOJA,p_dia:R.dia,p_entregue:v,p_maquininha:iM.value.trim() ? num(iM.value) : null,p_obs:iO.value.trim() || null})); aviso('Caixa fechado.'); }catch(e){ aviso(e.message); bF.disabled = false; } };
+  const bP = el('button','btn','Imprimir resumo'); bP.onclick = ()=>window.print();
+  aE.appendChild(bP); aE.appendChild(bF); b4.appendChild(aE);
+  j.appendChild(b4);
+  const ac = el('div','acoes'); const bv = el('button','btn','Fechar'); bv.onclick = fechar; ac.appendChild(bv); j.appendChild(ac);
+}
 
 // lista de sabores com campo de busca (ignora acento e maiusculas)
 function seletorBusca(pai, lista, atual, fnPick, rotuloPreco){
@@ -1092,6 +1161,7 @@ $('formLogin').addEventListener('submit', async e=>{ e.preventDefault(); $('erro
   if(await entrar($('email').value.trim(), $('senha').value)){ $('senha').value = ''; iniciar(); } else $('erroLogin').textContent = 'E-mail ou senha não conferem.'; });
 $('btnSair').onclick = sair;
 $('btnInicio').onclick = irInicio;
+$('btnCaixa').onclick = abrirCaixa;
 $('btnSite').onclick = async ()=>{ await atualizarContas(); abrirPedidosSite(); };
 $('btnAtualizar').onclick = async ()=>{ await Promise.all([carregarMenu(), atualizarContas()]); if(tela==='mesa') await carregarDetalhe(); desenhar(); aviso('Atualizado.'); };
 (function retomar(){
