@@ -965,13 +965,16 @@ async function telaMotor(c){
   catch(e){ if(aba !== 'motor') return; corpo.innerHTML = ''; corpo.appendChild(el('div', 'vazio', /PGRST202|Could not find|404|does not exist/i.test(String(e.message || e)) ? 'O Motor ainda não foi instalado no banco (falta rodar a Parte AV).' : 'Não consegui carregar: ' + (e.message || e))); return; }
   if(aba !== 'motor') return;
   corpo.innerHTML = '';
+  let EQ = {custo:0, pedidos:0};
+  try{ EQ = await rpc('rel_equipe', {p_loja:LOJA, p_ini:mesIni, p_fim:ateFim}) || EQ; }catch(e){ EQ = {custo:0, pedidos:0, naoInstalado:true}; }
+  if(aba !== 'motor') return;
   const cfg = K.config || {}, enc = pnNum(cfg.encargos_pct) / 100, sem = pnNum(cfg.semanas_mes) || 4.33;
   const ativos = (K.custos || []).filter(x=>x.ativo);
   const mensal = (x)=>pnNum(x.valor) / Math.max(1, pnNum(x.meses) || 1);
   const fixas = ativos.filter(x=>x.tipo === 'fixa').reduce((s, x)=>s + mensal(x), 0);
   const folhaFixa = ativos.filter(x=>x.tipo === 'folha_fixo').reduce((s, x)=>s + pnNum(x.valor), 0);
   const folhaExtra = ativos.filter(x=>x.tipo === 'folha_extra').reduce((s, x)=>s + pnNum(x.valor), 0) * sem;
-  const folha = folhaFixa * (1 + enc) + folhaExtra, custos = fixas + folha;
+  const folha = folhaFixa * (1 + enc) + folhaExtra, custosBase = fixas + folha;
 
   const fatSis = pnNum(R.faturamento), ext = pnNum(R.vendas_externas), fat = fatSis + ext, cmv = pnNum(R.cmv), ped = pnNum(R.pedidos), piz = pnNum(R.pizzas), dv = pnNum(R.dias_com_venda);
   const cobertura = fatSis > 0 ? pnNum(R.faturamento_com_baixa) / fatSis : 0;
@@ -981,6 +984,7 @@ async function telaMotor(c){
   const diasMes = mtDiasAbertos(mesIni, mesFim), diasPassados = mtPreset === 'ant' ? diasMes : mtDiasAbertos(mesIni, hoje);
   const baseDias = ext > 0 ? diasPassados : dv;
   const projFat = mtPreset === 'ant' || baseDias === 0 ? fat : fat / baseDias * diasMes;
+  const eqAte = pnNum(EQ.custo), eqMes = mtPreset === 'ant' || baseDias === 0 ? eqAte : eqAte / baseDias * diasMes, custos = custosBase + eqMes;
   const pe = custos / margem;
   const lucroProj = projFat * margem - custos;
 
@@ -991,7 +995,7 @@ async function telaMotor(c){
   hero.appendChild(el('div', 'pn-ref', (mtPreset === 'ant' ? 'Faturamento ' : 'Se o resto do mês seguir neste ritmo: faturamento de ') + money(projFat) + ' · margem ' + mtPct(margem, 1) + ' · custos ' + money(custos)));
   topo.appendChild(hero);
   const tiles = el('div', 'pn-tiles'); tiles.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:12px';
-  [['Faturamento até agora' + (ext > 0 ? ' (sistema + Suitable)' : ''), money(fat)], ['CMV pelas fichas (' + money(cmv) + ')', fatSis > 0 ? mtPct(cmv / fatSis, 1) : '—'], ['Margem usada' + (pouco ? ' (referência)' : ' (real)'), mtPct(margem, 1)], ['Custos fixos + folha', money(custos)]].forEach(([rot, val])=>{
+  [['Faturamento até agora' + (ext > 0 ? ' (sistema + Suitable)' : ''), money(fat)], ['CMV pelas fichas (' + money(cmv) + ')', fatSis > 0 ? mtPct(cmv / fatSis, 1) : '—'], ['Margem usada' + (pouco ? ' (referência)' : ' (real)'), mtPct(margem, 1)], ['Custos fixos + folha + equipe', money(custos)]].forEach(([rot, val])=>{
     const t = el('div', 'pn-tile'); t.appendChild(el('div', 'rot', rot)); t.appendChild(el('div', 'val', val)); tiles.appendChild(t); });
   topo.appendChild(tiles); corpo.appendChild(topo);
   if(pouco) corpo.appendChild(el('div', '', 'ℹ️ A margem usada é a de referência (' + mtPct(MT_REF.margem, 0) + ', do Motor antigo), porque ainda há poucas vendas com baixa pela ficha técnica no sistema (precisa de 20 pedidos e 80% das vendas com ficha; hoje: ' + pnInt(ped) + ' pedidos e ' + Math.round(cobertura * 100) + '%). Ela passa para a margem real sozinha conforme as vendas entram.')).style.cssText = 'background:#E6EEFA;border-radius:12px;padding:12px;margin:12px 0;font-size:14px';
@@ -1021,7 +1025,7 @@ async function telaMotor(c){
   const base = projFat > 0 ? projFat : 1;
   const cDest = pnCartao('Para onde vai cada R$ 100 vendidos', 'Com o faturamento projetado do mês.');
   const parte = (rot, v)=>({rot, valor:Math.max(v, 0), texto:'R$ ' + (Math.round(v / base * 1000) / 10).toLocaleString('pt-BR'), dica:rot + ': ' + money(v)});
-  pnBarras(cDest, [parte('Insumos (CMV)', projFat * (1 - margem)), parte('Folha de pagamento', folha), parte('Despesas fixas', fixas), parte('Sobra (lucro)', Math.max(lucroProj, 0))], 'Sem dados.');
+  pnBarras(cDest, [parte('Insumos (CMV)', projFat * (1 - margem)), parte('Folha de pagamento', folha), parte('Despesas fixas', fixas), parte('Alimentação da equipe', eqMes), parte('Sobra (lucro)', Math.max(lucroProj, 0))], 'Sem dados.');
   if(lucroProj < 0) cDest.appendChild(el('div', 'pn-sub', 'Neste ritmo o mês fecha no prejuízo de ' + money(-lucroProj) + '.'));
   corpo.appendChild(cDest);
 
@@ -1054,7 +1058,8 @@ async function telaMotor(c){
   const ie = document.createElement('input'); ie.type = 'text'; ie.inputMode = 'decimal'; ie.value = String(pnNum(cfg.encargos_pct)).replace('.', ','); ie.style.cssText = 'width:90px;padding:7px';
   const be = el('button', 'btn peq verde', 'Salvar'); be.onclick = ()=>tentar(async()=>{ await rpc('motor_config_salvar', {p_loja:LOJA, p_encargos:mtNum(ie.value), p_meta:null}); desenhar(); }, 'Salvo.');
   fe.appendChild(ie); fe.appendChild(be); cC.appendChild(fe);
-  cC.appendChild(el('div', 'pn-sub', 'Total do mês: despesas fixas ' + money(fixas) + ' + folha ' + money(folha) + ' = ' + money(custos))).style.marginTop = '10px';
+  cC.appendChild(el('div', 'pn-sub', 'Alimentação da equipe (automática): ' + money(eqMes) + ' no mês' + (mtPreset === 'ant' ? '' : ' (consumo até hoje: ' + money(eqAte) + ', projetado para o mês)') + ' · ' + pnInt(EQ.pedidos) + ' pedido(s) da equipe. Vem do custo dos insumos que saíram do estoque; não precisa digitar.' + (EQ.naoInstalado ? ' (Falta instalar o relatório do consumo da equipe no Supabase.)' : ''))).style.marginTop = '10px';
+  cC.appendChild(el('div', 'pn-sub', 'Total do mês: despesas fixas ' + money(fixas) + ' + folha ' + money(folha) + ' + alimentação da equipe ' + money(eqMes) + ' = ' + money(custos))).style.marginTop = '6px';
   corpo.appendChild(cC);
   corpo.appendChild(el('p', 'dica', 'O CMV real vem da baixa automática do estoque pela ficha técnica de cada venda (só itens com ficha). Pró-labore e dedetização estão com valor zero: preencha para entrarem na conta.'));
 }
