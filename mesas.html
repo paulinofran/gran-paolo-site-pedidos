@@ -980,12 +980,21 @@ function abrirEntrega(){
 }
 function abrirEnviarEntrega(){
   if(!carrinho.length || !entrega) return;
-  const sub = arred(carrinho.reduce((a,i)=>a+i.qtd*i.precoUnit,0)), total = arred(sub + entrega.taxa);
+  const sub = arred(carrinho.reduce((a,i)=>a+i.qtd*i.precoUnit,0)); let total = arred(sub + entrega.taxa), primeOn = false;
+  const primeElig = (i)=> /^(Meio a Meio: )?Pizza /i.test(i.nome||'') && (i.tamanho||'').indexOf(' — ') < 0 && !/combo/i.test((i.nome||'') + ' ' + (i.tamanho||''));
+  const precoPrime = (i)=> arred(i.precoUnit * 0.7);
+  const descPrime = ()=> arred(carrinho.reduce((a,i)=> a + (primeElig(i) ? i.qtd * (i.precoUnit - precoPrime(i)) : 0), 0));
   const j = janela(); j.appendChild(el('h3','','Enviar entrega · ' + entrega.nome));
   j.appendChild(el('div','sub', entrega.bairro + ' · ' + endCompleto(entrega) + ' · ' + entrega.telefone));
   carrinho.forEach(i=>{ const l = el('div','linha'); const t = el('div'); preencheNomeItem(t, i); t.appendChild(el('small','',i.tamanho)); l.appendChild(t); l.appendChild(el('span','',money(i.qtd*i.precoUnit))); j.appendChild(l); });
   const l1 = el('div','linha'); l1.appendChild(el('span','','Taxa de entrega')); l1.appendChild(el('span','',money(entrega.taxa))); j.appendChild(l1);
-  const t0 = el('div','total'); t0.appendChild(el('span','','Total')); t0.appendChild(el('span','',money(total))); j.appendChild(t0);
+  const t0 = el('div','total'); const t0v = el('span','',money(total)); t0.appendChild(el('span','','Total')); t0.appendChild(t0v); j.appendChild(t0);
+  const bPr = el('div','bloco'); bPr.style.marginTop = '10px';
+  const lPr = el('label','linha'); lPr.style.cursor = 'pointer'; const cPr = document.createElement('input'); cPr.type = 'checkbox'; cPr.style.cssText = 'width:22px;height:22px;margin-right:10px';
+  const tPr = el('div'); tPr.style.flex = '1'; tPr.appendChild(el('b','','📱 Cliente do app Prime (30% nas pizzas fora de promoção e combo)')); const sPr = el('small',''); tPr.appendChild(sPr);
+  lPr.appendChild(cPr); lPr.appendChild(tPr); bPr.appendChild(lPr); j.appendChild(bPr);
+  const refTotal = ()=>{ primeOn = cPr.checked; const d = primeOn ? descPrime() : 0; total = arred(sub - d + entrega.taxa); t0v.textContent = money(total); sPr.textContent = primeOn ? (d > 0 ? 'Desconto: − ' + money(d) : 'Nenhuma pizza elegível neste pedido') : ''; atualizaTroco(); };
+  cPr.onchange = ()=>refTotal();
   j.appendChild(el('div','rot','Forma de pagamento'));
   let forma = null; const of = el('div','opcoes');
   const boxTroco = el('div'); boxTroco.style.display = 'none';
@@ -1005,8 +1014,9 @@ function abrirEnviarEntrega(){
     if(!forma){ aviso('Escolha a forma de pagamento.'); return; }
     bo.disabled = true;
     try{
-      const itens = carrinho.map(i=>({nome:i.nome, tamanho:i.tamanho, qtd:i.qtd, precoUnit:i.precoUnit}));
-      const r = await rpc('pdv_criar_entrega',{p_loja:LOJA,p_nome:entrega.nome,p_telefone:entrega.telefone,p_endereco:endCompleto(entrega),p_bairro:entrega.bairro,p_taxa:entrega.taxa,p_pagamento:pagTxt(),p_itens:itens,p_obs:iObs.value.trim() || null});
+      const itens = carrinho.map(i=>({nome:i.nome, tamanho:i.tamanho, qtd:i.qtd, precoUnit:(primeOn && primeElig(i)) ? precoPrime(i) : i.precoUnit}));
+      const obsFinal = ((primeOn ? '[APP PRIME -30%: desconto ' + money(descPrime()) + '] ' : '') + iObs.value.trim()).trim();
+      const r = await rpc('pdv_criar_entrega',{p_loja:LOJA,p_nome:entrega.nome,p_telefone:entrega.telefone,p_endereco:endCompleto(entrega),p_bairro:entrega.bairro,p_taxa:entrega.taxa,p_pagamento:pagTxt(),p_itens:itens,p_obs:obsFinal || null});
       fechar(); aviso('Entrega #' + (r.numero || r.pedido_id) + ' enviada para a cozinha.');
       entrega = null; carrinho = []; mesaAtual = null; tela = 'inicio'; await atualizarContas(); desenhar();
     }catch(e){ bo.disabled = false; aviso('Não consegui enviar: ' + e.message + '. O carrinho foi mantido.'); }
@@ -1046,6 +1056,43 @@ function abrirConta(){
   const tf = el('div','total'); j.appendChild(tf);
   const recalcula = ()=>{ const f = Math.max(arred(sub - num(iDesc.value) + num(iAcr.value) + taxa - cbU - dfU), 0); tf.innerHTML = ''; tf.appendChild(el('span','','Total')); tf.appendChild(el('span','',money(f))); return f; };
   iDesc.oninput = iAcr.oninput = recalcula; recalcula();
+  // ---- app parceiro (Natal em Dobro / Prime): desconto = a menor das 2 pizzas escolhidas ----
+  const eligiveis = [];
+  peds.forEach(p=>(p.itens||[]).forEach(i=>{ const nm = i.nome || '', tm = i.tamanho || '';
+    const ehPizza = /^(Meio a Meio: )?Pizza /i.test(nm), emPromo = tm.indexOf(' — ') >= 0 || /combo/i.test(nm + ' ' + tm);
+    if(ehPizza && !emPromo) for(let q = 0; q < (i.qtd || 1); q++) eligiveis.push({nome:nm, tam:/^Pequena/.test(tm) ? 'Pequena' : /^Grande/.test(tm) ? 'Grande' : tm, preco:Number(i.precoUnit)}); }));
+  const bap = el('div','bloco'); bap.style.marginTop = '12px'; bap.appendChild(el('h3','','📱 App parceiro'));
+  const abrirApp = (app, tamApp)=>{
+    const lista = eligiveis.filter(x=>x.tam === tamApp), marcado = [];
+    const j2 = janela(); j2.appendChild(el('h3','', app + ' · 2 pizzas ' + (tamApp === 'Pequena' ? 'pequenas' : 'grandes') + ', paga a maior'));
+    j2.appendChild(el('p','dica','Só aparecem pizzas fora de promoção e fora de combo. Marque as 2 pizzas do app.'));
+    const tD = el('div','total'); tD.style.marginTop = '10px';
+    const atual = ()=>{ tD.innerHTML = ''; tD.appendChild(el('span','', marcado.length === 2 ? 'Desconto (a menor das 2)' : 'Marque 2 pizzas')); tD.appendChild(el('span','', marcado.length === 2 ? money(Math.min(marcado[0].preco, marcado[1].preco)) : '—')); };
+    if(!lista.length) j2.appendChild(el('p','dica','Não há pizza ' + (tamApp === 'Pequena' ? 'pequena' : 'grande') + ' elegível nesta conta (promoções e combos não valem).'));
+    lista.forEach(x=>{ const l = el('label','linha'); l.style.cursor = 'pointer'; const cb = document.createElement('input'); cb.type = 'checkbox'; cb.style.cssText = 'width:22px;height:22px;margin-right:10px';
+      cb.onchange = ()=>{ if(cb.checked){ if(marcado.length >= 2){ cb.checked = false; aviso('Só 2 pizzas por app.'); return; } marcado.push(x); } else marcado.splice(marcado.indexOf(x), 1); atual(); };
+      const t = el('div'); t.style.flex = '1'; t.appendChild(el('span','', x.nome.replace(/^Pizza /,''))); l.appendChild(cb); l.appendChild(t); l.appendChild(el('span','',money(x.preco))); j2.appendChild(l); });
+    j2.appendChild(tD); atual();
+    const ac2 = el('div','acoes'); const bv2 = el('button','btn','Voltar'); bv2.onclick = ()=>{ fechar(); abrirConta(); };
+    const bo2 = el('button','btn verm','Aplicar desconto');
+    bo2.onclick = async ()=>{ if(marcado.length !== 2){ aviso('Marque as 2 pizzas.'); return; } bo2.disabled = true;
+      try{ await rpc('mesa_app_parceiro',{p_loja:LOJA,p_conta:conta.id,p_app:app,p_desconto:Math.min(marcado[0].preco, marcado[1].preco)}); await reabrir(); }
+      catch(e){ bo2.disabled = false; aviso(/function|schema cache|does not exist/i.test(e.message) ? 'Falta instalar o SQL dos apps parceiros no Supabase.' : e.message); } };
+    ac2.appendChild(bv2); ac2.appendChild(bo2); j2.appendChild(ac2);
+  };
+  if(conta.app_parceiro){
+    const l = el('div','linha'); l.appendChild(el('b','','✅ ' + conta.app_parceiro + ' aplicado')); l.appendChild(el('b','','− ' + money(conta.desconto))); bap.appendChild(l);
+    const br = el('button','btn','Tirar o app'); br.style.cssText = 'width:100%;margin-top:6px';
+    br.onclick = async ()=>{ try{ await rpc('mesa_app_parceiro',{p_loja:LOJA,p_conta:conta.id,p_app:null,p_desconto:0}); await reabrir(); }catch(e){ aviso(e.message); } };
+    bap.appendChild(br);
+  } else {
+    bap.appendChild(el('p','dica','Cliente de app? Natal em Dobro: 2 pequenas. Prime: 2 grandes. O sistema calcula o desconto, sem cancelar nada.'));
+    const fa = el('div','opcoes');
+    const bN = el('button','opc','Natal em Dobro'); bN.onclick = ()=>abrirApp('Natal em Dobro','Pequena');
+    const bP = el('button','opc','Prime (2 grandes)'); bP.onclick = ()=>abrirApp('Prime','Grande');
+    fa.appendChild(bN); fa.appendChild(bP); bap.appendChild(fa);
+  }
+  j.appendChild(bap);
   // ---- cliente: cashback e pontos ----
   const bcl = el('div','bloco'); bcl.style.marginTop = '12px'; bcl.appendChild(el('h3','','Cliente · cashback e pontos'));
   const salvaCampos = ()=> rpc('mesa_atualizar',{p_loja:LOJA,p_conta:conta.id,p_dados:{desconto:num(iDesc.value),acrescimo:num(iAcr.value),taxa_servico:taxa}});
