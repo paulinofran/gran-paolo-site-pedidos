@@ -447,6 +447,21 @@ async function telaEstoque(c){
   const porId = {}; ins.forEach(i=>{ porId[i.id] = i; });
   const recarregarEstoque = () => { if(aba === 'estoque') desenhar(); };
 
+  // ---------- 00) Valor do estoque em dinheiro, agora ----------
+  const vCard = el('div', 'cartao'); vCard.appendChild(el('div', 'nome', '💰 Valor do estoque agora'));
+  const linhasV = ins.map(i=>{ const cen = Math.max(0, Number(i.saldo_central) || 0), pro = Math.max(0, Number(i.saldo_producao) || 0), cu = Number(i.custo_por_g) || 0;
+    return {i, cen, pro, cu, vc: cen * cu, vp: pro * cu}; });
+  const totC = linhasV.reduce((a,x)=>a + x.vc, 0), totP = linhasV.reduce((a,x)=>a + x.vp, 0), totV = totC + totP;
+  const semCusto = linhasV.filter(x=>x.cu <= 0 && (x.cen + x.pro) > 0), negativos = ins.filter(i=>Number(i.saldo_central) < 0 || Number(i.saldo_producao) < 0);
+  const vBig = el('div', 'nome', money(totV)); vBig.style.cssText = 'font-size:1.9em;margin:6px 0'; vCard.appendChild(vBig);
+  vCard.appendChild(el('div', 'dica', 'Central: ' + money(totC) + ' · Produção (linha): ' + money(totP) + ' · calculado com o custo por kg de cada insumo.'));
+  if(semCusto.length) vCard.appendChild(el('div', 'dica', '⚠️ Sem custo cadastrado (não entram na soma): ' + semCusto.map(x=>x.i.nome).join(', ') + '.')).style.color = '#b45309';
+  if(negativos.length) vCard.appendChild(el('div', 'dica', '⚠️ Saldo negativo (conta como zero): ' + negativos.map(i=>i.nome).join(', ') + '. Isso acontece quando saiu mais do que foi lançado de entrada.')).style.color = '#b45309';
+  const dV = el('details'); dV.appendChild(el('summary', '', 'Ver por insumo (do maior valor para o menor)'));
+  const ord = linhasV.filter(x=>x.vc + x.vp > 0).sort((a,b)=>(b.vc + b.vp) - (a.vc + a.vp));
+  dV.appendChild(ord.length ? tabelaSimples(['Insumo', 'Quantidade', 'Custo por kg', 'Valor'], ord.map(x=>[x.i.nome, fmtQtd(x.cen + x.pro, x.i.unidade), x.i.unidade === 'un' ? money(x.cu) + ' /un' : money(x.cu * 1000) + ' /kg', money(x.vc + x.vp)])) : el('div', 'vazio', 'Ainda não há saldo com custo cadastrado.'));
+  vCard.appendChild(dV); c.appendChild(vCard);
+
   // ---------- 0) Abastecer a Producao ----------
   const hojeDow = agoraLocal().dow;
   const comPlano = ins.filter(i=>i.unidade === 'g' && Array.isArray(i.ideal_semana) && Number(i.porcao_g) > 0);
