@@ -703,6 +703,8 @@ function normalizaTel(t){
 let modalidadeAtual = null;
 let carrinho = []; // {tipo:'simples'|'meio', nome, tamanho, precoUnit, qtd}
 let origemCampanha = null;
+let QR_LOCAL = null;   // pedido feito pelo QR/NFC: {tipo:'mesa'|'plaquinha', n:'3'}
+let qrPixAplicado = false;
 
 let modalProdutoAtual = null; // {nome, tamanhos:[...]}
 let modalTamanhoSelecionado = null;
@@ -1360,6 +1362,35 @@ async function carregarCardapioDoBanco(){
 }
 setInterval(carregarCardapioDoBanco, 5*60*1000);
 
+/* ---------- Pedido pelo QR: ?mesa=3 (salao) | ?plaquinha=7 (container) ---------- */
+function lerLocalQR(params){
+  const m = params.get('mesa'), p = params.get('plaquinha');
+  const ok = v => /^\d{1,2}$/.test(String(v||'').trim()) && parseInt(v,10) >= 1;
+  let tipo = null, n = null;
+  if(m !== null && ok(m)){ tipo = 'mesa'; n = String(parseInt(m,10)); }
+  else if(p !== null && ok(p)){ tipo = 'plaquinha'; n = String(parseInt(p,10)); }
+  if(tipo){ QR_LOCAL = {tipo, n}; try{ sessionStorage.setItem('gp_qr', JSON.stringify({tipo, n, t:Date.now()})); }catch(e){} return; }
+  try{                                                   // recarregou a pagina: lembra por 6 horas
+    const g = JSON.parse(sessionStorage.getItem('gp_qr') || 'null');
+    if(g && g.tipo && g.n && Date.now() - g.t < 6*3600*1000) QR_LOCAL = {tipo:g.tipo, n:g.n};
+  }catch(e){}
+}
+function rotuloLocalQR(){ return !QR_LOCAL ? '' : (QR_LOCAL.tipo === 'mesa' ? 'Mesa ' + QR_LOCAL.n : 'Plaquinha ' + QR_LOCAL.n); }
+function aplicarLocalQR(){
+  if(!QR_LOCAL) return;
+  escolherModalidade(QR_LOCAL.tipo === 'mesa' ? 'Vem comer' : 'Retirada');
+  const pill = document.getElementById('modalidadePill');
+  if(pill) pill.textContent = (QR_LOCAL.tipo === 'mesa' ? '🍽️ ' : '🏷️ ') + rotuloLocalQR();
+  const row = document.getElementById('modalidadePillRow');
+  if(row){ const b = row.querySelector('button'); if(b) b.classList.add('hidden'); }     // sem "trocar": o QR ja diz onde ele esta
+  document.getElementById('headerSub').textContent = QR_LOCAL.tipo === 'mesa' ? 'Pedido para a ' + rotuloLocalQR() : 'Pedido para a ' + rotuloLocalQR() + ' — avisamos quando ficar pronto';
+}
+function padraoPixQR(){          // pelo QR o Pix online ja vem escolhido (o cliente pode trocar)
+  if(!QR_LOCAL || qrPixAplicado || !PIX || !PIX.ativo) return;
+  const sel = document.getElementById('campoPagamento'); if(!sel) return;
+  qrPixAplicado = true; sel.value = PIX_ROTULO; atualizarDicaPix(); atualizarTroco();
+}
+
 function init(){
   const params = new URLSearchParams(window.location.search);
   origemCampanha = params.get('origem');
@@ -1376,6 +1407,7 @@ function init(){
   popularBordasMeio();
   atualizarBadgeCarrinho();
   promoPendente = params.get('promo') ? slugSabor(params.get('promo')) : null;
+  try{ lerLocalQR(params); aplicarLocalQR(); }catch(e){}
   try{ abrirPeloLink(params); }catch(e){ /* link invalido: segue o fluxo normal */ }
   atualizarStatusLoja();
   carregarCardapioDoBanco();
@@ -2116,6 +2148,7 @@ function irParaCheckout(){
     return;
   }
   carregarDadosCliente();
+  try{ padraoPixQR(); }catch(e){}
   const resumo = document.getElementById('resumoCheckout');
   resumo.innerHTML = carrinho.map(i=>`${i.qtd}x ${nomeItemHtml(i.nome)}${i.componentes ? '' : ' (' + i.tamanho + ')'} — ${fmtMoeda(i.precoUnit*i.qtd)}`).join('<br>');
   if(modalidadeAtual==='Entrega'){
@@ -2168,7 +2201,8 @@ function enviarPedidoWhatsapp(){
   const endCompl = (document.getElementById('campoComplemento') || {value:''}).value.trim();
   const endereco = endBase && endCompl ? endBase + ' - ' + endCompl : endBase;
   let pagamento = document.getElementById('campoPagamento').value;
-  const obs = document.getElementById('campoObs').value.trim();
+  const obsCliente = document.getElementById('campoObs').value.trim();
+  const obs = !QR_LOCAL ? obsCliente : (QR_LOCAL.tipo === 'mesa' ? (obsCliente ? obsCliente + ' ' : '') + '[MESA ' + QR_LOCAL.n + ']' : 'PLAQUINHA ' + QR_LOCAL.n + (obsCliente ? ' · ' + obsCliente : ''));
   const bairroSel = document.getElementById('campoBairro');
   const bairroIdx = modalidadeAtual==='Entrega' ? bairroSel.value : '';
   const bairro = bairroIdx!=='' ? BAIRROS_TAXA[bairroIdx] : null;
@@ -2213,6 +2247,7 @@ function enviarPedidoWhatsapp(){
   msg += `Cliente: ${nome}\n`;
   msg += `WhatsApp: ${telefone}\n`;
   msg += `Modalidade: ${ROTULO_PEDIDO[modalidadeAtual] || modalidadeAtual}\n`;
+  if(QR_LOCAL) msg += `Local: ${rotuloLocalQR().toUpperCase()}\n`;
   if(modalidadeAtual==='Entrega'){
     msg += `Bairro: ${bairro.nome}\n`;
     msg += `Endereço: ${endereco}\n`;
@@ -2232,7 +2267,7 @@ function enviarPedidoWhatsapp(){
   msg += `\n*Total: ${fmtMoeda(desc.total)}*\n`;
   msg += `Pagamento: ${pagamento}${pagamento===PIX_ROTULO ? ' — o cliente vai pagar pelo QR Code do site; conferir o Pix antes de produzir' : ''}\n`;
   if(cpfDigitos) msg += `CPF na nota: informado\n`;      // o numero vai so para o sistema, nao para o texto do WhatsApp
-  if(obs) msg += `Obs: ${obs}\n`;
+  if(obsCliente) msg += `Obs: ${obsCliente}\n`;
   const txtOrigem = textoOrigem();
   if(txtOrigem) msg += `\n(Campanha: ${txtOrigem})`;
 
@@ -2304,6 +2339,7 @@ async function carregarPix(){
     if(j && j.ativo && j.chave){
       PIX = j;
       const o = document.getElementById('optPixOnline'); if(o){ o.hidden = false; o.disabled = false; }
+      try{ padraoPixQR(); }catch(e){}
     }
   }catch(e){ /* sem internet ou banco sem a Parte I: a opcao simplesmente nao aparece */ }
 }
