@@ -487,6 +487,23 @@ async function telaEstoque(c){
   }
   c.appendChild(rv);
 
+  // ---------- 0000) Cadastrar insumo novo (trigo, acucar, sal...) ----------
+  const ni = el('div', 'cartao'); ni.appendChild(el('div', 'nome', '🧂 Cadastrar insumo novo (trigo, açúcar, sal…)'));
+  ni.appendChild(el('div', 'dica', 'Para ingredientes e materiais que não são vendidos direto. Digite o nome, o preço de 1 kg (ou de 1 unidade) e quanto tem agora no estoque geral (Central).'));
+  const nNi = el('input'); nNi.type = 'text'; nNi.placeholder = 'ex.: Farinha de trigo'; nNi.style.width = '100%';
+  const uNi = el('select'); [['kg', 'Quilo (kg)'], ['un', 'Unidade (un)']].forEach(([v, t])=>{ const op = el('option', '', t); op.value = v; uNi.appendChild(op); });
+  const cNi = inputNum('', ''), qNi = inputNum('', ''); cNi.style.width = '100%'; qNi.style.width = '100%'; cNi.placeholder = 'ex.: 4,20'; qNi.placeholder = 'ex.: 50';
+  const l3 = el('div', 'linha'); l3.appendChild(campo('Nome do insumo', nNi)); l3.appendChild(campo('Medido em', uNi)); ni.appendChild(l3);
+  const l4 = el('div', 'linha'); l4.appendChild(campo('Preço de 1 kg (ou 1 un) em R$', cNi)); l4.appendChild(campo('Quanto tem agora (kg ou un)', qNi)); ni.appendChild(l4);
+  const bNi = el('button', 'btn verde', 'Cadastrar insumo'); bNi.style.marginTop = '8px';
+  bNi.onclick = () => tentar(async()=>{ const nome = (nNi.value || '').trim(), cu = num(cNi.value), q = num(qNi.value), kg = uNi.value === 'kg';
+    if(!nome) throw new Error('Digite o nome do insumo.');
+    if(cu === null || cu < 0) throw new Error('Digite o preço de 1 kg (ou 1 unidade).');
+    if(q === null || q < 0) throw new Error('Digite quanto tem agora.');
+    await rpc('est_cadastrar_insumo', {p_loja:LOJA, p_nome:nome, p_unidade: kg ? 'g' : 'un', p_custo: kg ? cu / 1000 : cu, p_qtd: kg ? q * 1000 : q});
+    recarregarEstoque(); }, 'Insumo cadastrado');
+  ni.appendChild(bNi); c.appendChild(ni);
+
   // ---------- 0) Abastecer a Producao ----------
   const hojeDow = agoraLocal().dow;
   const comPlano = ins.filter(i=>i.unidade === 'g' && Array.isArray(i.ideal_semana) && Number(i.porcao_g) > 0);
