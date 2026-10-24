@@ -535,10 +535,24 @@ function desenharCaixa(R){
   fg.appendChild(iV); fg.appendChild(iD); fg.appendChild(bA); b2.appendChild(fg);
   b2.appendChild(el('p','dica','Pagou no cartão ou é boleto? Não anote aqui: lance em Contas a pagar, na Gestão.')).style.marginTop = '10px';
   j.appendChild(b2);
+  // 2b) aportes (entrada de dinheiro que NAO e venda)
+  const b2b = el('div','bloco'); b2b.appendChild(el('h3','','Dinheiro colocado na gaveta (aporte)'));
+  if(!(R.aportes||[]).length) b2b.appendChild(el('p','dica','Nenhum aporte hoje. Se precisou colocar dinheiro seu na gaveta (troco, empréstimo), anote aqui. Não conta como venda.'));
+  (R.aportes||[]).forEach(x=>{ const l = el('div','linha'); l.appendChild(el('span','',x.descricao)); const d = el('span'); d.appendChild(el('b','','+ ' + money(x.valor) + ' '));
+    const bx = el('button','btn peq','Apagar'); bx.onclick = async ()=>{ if(!confirm('Apagar o aporte "' + x.descricao + '"?')) return; try{ desenharCaixa(await rpc('caixa_aporte_del',{p_loja:LOJA,p_id:x.id})); }catch(e){ aviso(/function|schema cache|does not exist/i.test(e.message) ? 'Falta instalar o SQL do aporte no Supabase.' : e.message); } };
+    d.appendChild(bx); l.appendChild(d); b2b.appendChild(l); });
+  const fa = el('div'); fa.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin-top:10px';
+  const aV = document.createElement('input'); aV.type = 'text'; aV.inputMode = 'decimal'; aV.placeholder = 'Valor'; aV.style.cssText = 'width:110px';
+  const aD = document.createElement('input'); aD.type = 'text'; aD.placeholder = 'De onde veio? (ex.: empréstimo da dona)'; aD.style.cssText = 'flex:1;min-width:150px';
+  const aB = el('button','btn verde','+ Anotar aporte');
+  aB.onclick = async ()=>{ const v = num(aV.value); if(v <= 0){ aviso('Digite o valor do aporte.'); return; } if(!aD.value.trim()){ aviso('Diga de onde veio o dinheiro.'); return; }
+    aB.disabled = true; try{ desenharCaixa(await rpc('caixa_aporte_add',{p_loja:LOJA,p_valor:v,p_descricao:aD.value.trim()})); }catch(e){ aviso(/function|schema cache|does not exist/i.test(e.message) ? 'Falta instalar o SQL do aporte no Supabase.' : e.message); aB.disabled = false; } };
+  fa.appendChild(aV); fa.appendChild(aD); fa.appendChild(aB); b2b.appendChild(fa);
+  j.appendChild(b2b);
   // 3) conta do dinheiro
   const b3 = el('div','bloco'); b3.appendChild(el('h3','','Conta do dinheiro'));
   const lin = (a,b,forte)=>{ const l = el('div','linha'); l.appendChild(el(forte?'b':'span','',a)); l.appendChild(el('b','',b)); b3.appendChild(l); };
-  lin('Vendas em dinheiro', money(R.dinheiro_vendas)); lin('Gastos da gaveta', '− ' + money(R.total_saidas));
+  lin('Vendas em dinheiro', money(R.dinheiro_vendas)); if(Number(R.total_aportes||0) > 0) lin('Aportes (não é venda)', '+ ' + money(R.total_aportes)); lin('Gastos da gaveta', '− ' + money(R.total_saidas));
   lin('Para entregar ao dono', money(R.esperado), true);
   b3.appendChild(el('p','dica','Além disso, deixe ' + money(R.fundo) + ' na gaveta para o dia seguinte.')).style.marginTop = '8px';
   j.appendChild(b3);
@@ -1108,6 +1122,15 @@ function abrirConta(){
     dicaNota.textContent = cbNota.checked ? 'Vai sair nota desta conta. Pode desmarcar se não for emitir.' : (fs.length && fs.every(f=>f === 'Dinheiro') ? 'Dinheiro: marque se o cliente pedir a nota.' : 'Esta conta ficará sem nota.');
   }
   const bRec = el('button','btn verde'); bRec.style.width = '100%'; bpg.appendChild(bRec);
+  const bEq = el('button','btn'); bEq.textContent = '🍕 Consumo da equipe (não cobra, baixa o estoque)'; bEq.style.cssText = 'width:100%;margin-top:8px;background:#fff;border:2px solid var(--verde);color:var(--verde)';
+  bEq.onclick = async ()=>{
+    if(recebido > 0.009){ aviso('Esta conta já tem pagamento recebido. Desfaça antes de marcar como consumo da equipe.'); return; }
+    if(!confirm('Fechar a conta de ' + rotMesa(mesaAtual) + ' como CONSUMO DA EQUIPE?\n\nNão cobra nada, não entra no caixa nem nas vendas. O estoque continua baixado.')) return;
+    bEq.disabled = true;
+    try{ await rpc('mesa_fechar_equipe',{p_loja:LOJA,p_conta:conta.id}); fechar(); aviso('Consumo da equipe registrado. Sem cobrança.'); tela = telaBase(); carrinho = []; await atualizarContas(); desenhar(); }
+    catch(e){ bEq.disabled = false; aviso(/function|schema cache|does not exist/i.test(e.message) ? 'Falta instalar o SQL do consumo da equipe no Supabase.' : 'Não consegui: ' + e.message); }
+  };
+  bpg.appendChild(bEq);
   j.appendChild(bpg);
   const falta = ()=> arred(recalcula() - recebido);
   function atualizaPag(){ const f = falta(); tfalta.innerHTML = ''; tfalta.appendChild(el('span','', f > 0.009 ? 'Falta receber' : 'Tudo recebido')); tfalta.appendChild(el('span','', money(Math.max(f,0))));
