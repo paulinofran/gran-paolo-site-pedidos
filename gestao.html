@@ -462,6 +462,31 @@ async function telaEstoque(c){
   dV.appendChild(ord.length ? tabelaSimples(['Insumo', 'Quantidade', 'Custo por kg', 'Valor'], ord.map(x=>[x.i.nome, fmtQtd(x.cen + x.pro, x.i.unidade), x.i.unidade === 'un' ? money(x.cu) + ' /un' : money(x.cu * 1000) + ' /kg', money(x.vc + x.vp)])) : el('div', 'vazio', 'Ainda não há saldo com custo cadastrado.'));
   vCard.appendChild(dV); c.appendChild(vCard);
 
+  // ---------- 000) Cadastrar bebida / produto de revenda no estoque ----------
+  const rv = el('div', 'cartao'); rv.appendChild(el('div', 'nome', '🥤 Cadastrar bebida ou produto de revenda'));
+  rv.appendChild(el('div', 'dica', 'Escolha o produto do cardápio, diga o custo de cada unidade e quantas você tem agora. Daí em diante cada venda baixa 1 unidade sozinha, e o valor entra no total do estoque.'));
+  const jaTem = new Set(ins.map(i=>normN(i.nome)));
+  const opcRv = [];
+  (D.produtos || []).forEach(pr=>{ const cat = D.categorias.find(x=>x.id === pr.categoria_id); if(!cat || cat.tipo === 'pizza') return;
+    const tams = pr.produto_tamanhos || []; if(!tams.length) return;
+    tams.forEach(t=>{ const so = tams.length === 1; const nm = pr.nome + (so ? '' : ' ' + t.nome); opcRv.push({rot: pr.nome + (so ? '' : ' · ' + t.nome) + (jaTem.has(normN(nm)) ? '  (já cadastrado)' : ''), pr: pr.nome, tam: t.nome, so, ja: jaTem.has(normN(nm))}); }); });
+  if(!opcRv.length) rv.appendChild(el('div', 'vazio', 'Não achei bebidas ou outros produtos no cardápio.'));
+  else {
+    const sRv = el('select'); opcRv.forEach((o, ix)=>{ const op = el('option', '', o.rot); op.value = String(ix); sRv.appendChild(op); });
+    const cRv = inputNum('', ''), qRv = inputNum('', '1'); cRv.style.width = '100%'; qRv.style.width = '100%'; cRv.placeholder = 'ex.: 4,50'; qRv.placeholder = 'ex.: 24';
+    const l1 = el('div', 'linha'); l1.appendChild(campo('Produto do cardápio', sRv)); rv.appendChild(l1);
+    const l2 = el('div', 'linha'); l2.appendChild(campo('Custo de cada unidade (R$)', cRv)); l2.appendChild(campo('Quantas tem agora (unidades)', qRv)); rv.appendChild(l2);
+    const bRv = el('button', 'btn verde', 'Cadastrar no estoque'); bRv.style.marginTop = '8px';
+    bRv.onclick = () => tentar(async()=>{ const o = opcRv[Number(sRv.value)]; const cu = num(cRv.value), q = num(qRv.value);
+      if(o.ja) throw new Error('Esse produto já está no estoque. Para acertar a quantidade, use a conferência.');
+      if(cu === null || cu < 0) throw new Error('Digite o custo de cada unidade.');
+      if(q === null || q < 0) throw new Error('Digite quantas unidades você tem agora.');
+      await rpc('est_cadastrar_revenda', {p_loja:LOJA, p_produto:o.pr, p_tamanho:o.tam, p_custo:cu, p_qtd:q, p_so_nome:o.so});
+      recarregarEstoque(); }, 'Cadastrado no estoque');
+    rv.appendChild(bRv);
+  }
+  c.appendChild(rv);
+
   // ---------- 0) Abastecer a Producao ----------
   const hojeDow = agoraLocal().dow;
   const comPlano = ins.filter(i=>i.unidade === 'g' && Array.isArray(i.ideal_semana) && Number(i.porcao_g) > 0);
