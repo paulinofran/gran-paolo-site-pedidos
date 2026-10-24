@@ -1859,6 +1859,25 @@ const DIAS_SEMANA = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta'
 function erroRelNovo(e, parte, o_que){
   return /PGRST202|Could not find|404|does not exist/i.test(String(e.message || e)) ? 'Este relatório ainda não foi instalado no banco (falta rodar a Parte ' + parte + ' no Supabase).' : 'Não consegui carregar ' + o_que + ' agora. Tente de novo.';
 }
+async function desenharEquipe(box){
+  box.textContent = '';
+  box.appendChild(el('h2', '', '🍕 Consumo da equipe'));
+  box.appendChild(el('p', 'dica', 'Pizzas e itens que a equipe consumiu (não entram nas vendas). O custo é o dos insumos que saíram do estoque, pelo custo cadastrado de cada um.'));
+  const c = el('div'); c.appendChild(el('div', 'vazio', 'Calculando...')); box.appendChild(c);
+  let d;
+  try{ d = await rpc('rel_equipe', {p_loja:LOJA, p_ini:relPeriodo.ini, p_fim:relPeriodo.fim}); }
+  catch(e){ c.textContent = ''; c.appendChild(el('div', 'vazio', 'O relatório do consumo da equipe ainda não foi instalado no banco de dados (falta rodar a parte "Custo da equipe" no Supabase).')); return; }
+  c.textContent = '';
+  if(!Number(d.pedidos)){ c.appendChild(el('div', 'vazio', 'Nenhum consumo da equipe neste período.')); return; }
+  const sd = el('div', 'saldo');
+  [[String(d.pedidos), 'pedidos da equipe'], [money(d.custo), 'custo estimado']].forEach(([n, r])=>{ const x = el('div'); x.appendChild(document.createTextNode(n)); x.appendChild(el('small', '', r)); sd.appendChild(x); });
+  c.appendChild(sd);
+  if(Number(d.sem_ficha) > 0) c.appendChild(el('p', 'dica', '⚠️ ' + d.sem_ficha + ' item(ns) sem ficha técnica: o custo deles não entrou na conta (veja a aba Estoque).')).style.color = '#b45309';
+  c.appendChild(el('div', 'dica', 'O que foi consumido'));
+  c.appendChild(tabelaSimples(['Produto', 'Tam.', 'Qtd'], (d.itens || []).map(x=>[x.nome, x.tamanho || '', x.quantidade])));
+  c.appendChild(el('div', 'dica', 'Por dia'));
+  c.appendChild(tabelaSimples(['Dia', 'Pedidos', 'Custo'], (d.por_dia || []).map(x=>[brData(x.dia), x.pedidos, money(x.custo)])));
+}
 async function desenharDiaHora(box){
   box.textContent = '';
   box.appendChild(el('h2', '', 'Pedidos por dia da semana e hora'));
@@ -2030,6 +2049,7 @@ async function telaRelatorios(c){
   corpo.appendChild(el('p', 'dica', 'Origem das vendas: quanto cada campanha, link ou anúncio vendeu. Pedidos sem origem vieram direto do site.'));
   secaoRel(corpo, 'origem', 'Origem das vendas', 'origem', tabelaSimples(['Origem', 'Pedidos', 'Faturamento', 'Ticket médio'], relDados.origem.map(x=>[x.origem, x.pedidos, money(x.faturamento), money(x.ticket_medio)]), 'Nenhuma venda neste período.'));
   const novosBox = el('div'); corpo.appendChild(novosBox); desenharNovosRecorrentes(novosBox);
+  const equipeBox = el('div'); corpo.appendChild(equipeBox); desenharEquipe(equipeBox);
   const horaBox = el('div'); corpo.appendChild(horaBox); desenharDiaHora(horaBox);
   const roboBox = el('div'); corpo.appendChild(roboBox); desenharRoboNumeros(roboBox);
     const segBox = el('div'); corpo.appendChild(segBox); desenharSegmentos(segBox);
