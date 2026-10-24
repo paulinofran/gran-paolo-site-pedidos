@@ -1015,7 +1015,7 @@ function abrirEnviarEntrega(){
     bo.disabled = true;
     try{
       const itens = carrinho.map(i=>({nome:i.nome, tamanho:i.tamanho, qtd:i.qtd, precoUnit:(primeOn && primeElig(i)) ? precoPrime(i) : i.precoUnit}));
-      const obsFinal = ((primeOn ? '[APP PRIME -30%: desconto ' + money(descPrime()) + '] ' : '') + iObs.value.trim()).trim();
+      const obsFinal = ((primeOn ? '[APP PRIME -30%] ' : '') + iObs.value.trim()).trim();
       const r = await rpc('pdv_criar_entrega',{p_loja:LOJA,p_nome:entrega.nome,p_telefone:entrega.telefone,p_endereco:endCompleto(entrega),p_bairro:entrega.bairro,p_taxa:entrega.taxa,p_pagamento:pagTxt(),p_itens:itens,p_obs:obsFinal || null});
       fechar(); aviso('Entrega #' + (r.numero || r.pedido_id) + ' enviada para a cozinha.');
       entrega = null; carrinho = []; mesaAtual = null; tela = 'inicio'; await atualizarContas(); desenhar();
