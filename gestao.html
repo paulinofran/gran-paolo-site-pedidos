@@ -572,6 +572,31 @@ async function telaEstoque(c){
   }, 'Rendimento salvo: entrou no estoque Central');
   g.appendChild(bg); c.appendChild(g);
 
+  // ---------- 1b) Cozinhar do estoque cru (cru -> pronto) ----------
+  const ck = el('div', 'cartao'); ck.appendChild(el('div', 'nome', '🍳 Cozinhar do estoque cru'));
+  ck.appendChild(el('div', 'dica', 'Use quando for cozinhar mercadoria que você cadastrou como cru (ex.: Frango cru). O cru sai do estoque e o pronto entra no Central, com o custo calculado sozinho.'));
+  const gIns = ins.filter(i=>i.unidade === 'g').slice().sort((a,b)=>a.nome.localeCompare(b.nome, 'pt-BR'));
+  const selCru = el('select'), selPro = el('select');
+  gIns.filter(i=>/cru/i.test(i.nome)).concat(gIns.filter(i=>!/cru/i.test(i.nome))).forEach(i=>{ const op = el('option', '', i.nome + ' (cru: ' + fmtQtd(Number(i.saldo_central) || 0, 'g') + ')'); op.value = i.id; selCru.appendChild(op); });
+  gIns.filter(i=>!/cru/i.test(i.nome)).forEach(i=>{ const op = el('option', '', i.nome); op.value = i.id; selPro.appendChild(op); });
+  const kCru = inputNum('', ''), kPro = inputNum('', ''), kExt = inputNum('', ''); [kCru, kPro, kExt].forEach(x=>{ x.style.width = '100%'; });
+  kCru.placeholder = 'ex.: 15'; kPro.placeholder = 'ex.: 9'; kExt.placeholder = 'opcional';
+  const prevCk = el('div', 'dica');
+  const calcCk = () => { const cr = ins.find(i=>i.id === selCru.value), uc = paraBanco(kCru.value, 'g'), up = paraBanco(kPro.value, 'g'), ex = num(kExt.value) || 0;
+    prevCk.textContent = (cr && uc && up) ? 'Rende ' + Math.round(up / uc * 100) + '% · custo desta leva: R$ ' + (((uc * (Number(cr.custo_por_g) || 0)) + ex) / up * 1000).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' por kg pronto' : ''; };
+  [selCru, selPro, kCru, kPro, kExt].forEach(x=>{ x.oninput = calcCk; x.onchange = calcCk; });
+  const k1 = el('div', 'linha'); k1.appendChild(campo('Sai do cru', selCru)); k1.appendChild(campo('Entra como pronto', selPro)); ck.appendChild(k1);
+  const k2 = el('div', 'linha'); k2.appendChild(campo('Cru usado (kg)', kCru)); k2.appendChild(campo('Pronto que saiu (kg)', kPro)); k2.appendChild(campo('Custo extra: tempero, gás (R$)', kExt)); ck.appendChild(k2);
+  ck.appendChild(prevCk);
+  const bCk = el('button', 'btn verde', 'Cozinhar'); bCk.style.marginTop = '8px';
+  bCk.onclick = () => tentar(async()=>{ const uc = paraBanco(kCru.value, 'g'), up = paraBanco(kPro.value, 'g'), ex = num(kExt.value) || 0;
+    if(!selCru.value || !selPro.value) throw new Error('Escolha o cru e o pronto.');
+    if(!uc || uc <= 0) throw new Error('Informe quantos kg de cru você usou.');
+    if(!up || up <= 0) throw new Error('Informe quantos kg ficaram prontos.');
+    await rpc('est_cozinhar', {p_loja:LOJA, p_cru:selCru.value, p_pronto:selPro.value, p_cru_g:uc, p_final_g:up, p_custo_extra:ex});
+    recarregarEstoque(); }, 'Pronto! O cru saiu e o pronto entrou no Central');
+  ck.appendChild(bCk); c.appendChild(ck);
+
   // ---------- 2) Lista de estoque ----------
   c.appendChild(el('h2', '', 'Saldos'));
   const busca = el('input', 'busca'); busca.placeholder = 'Buscar insumo (ex: frango)'; c.appendChild(busca);
