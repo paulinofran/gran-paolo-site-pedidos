@@ -146,16 +146,20 @@ body.demo #cardDrive{display:none;}
 header.top{padding:10px 16px 10px;padding-top:calc(10px + env(safe-area-inset-top,0px));}
 .aviso-loja{margin:6px 16px 0!important;padding:7px 12px!important;font-size:12px!important;line-height:1.3!important;}
 .aviso-loja strong{display:inline!important;font-size:12.5px!important;margin:0 4px 0 0!important;}
-.wa-duvida{margin-top:5px!important;padding:6px 12px!important;font-size:12.5px!important;gap:6px!important;}
+.aviso-loja{display:flex!important;flex-wrap:wrap;align-items:center;gap:2px 8px;}
+.aviso-loja .wa-duvida{width:auto!important;flex:1 1 100%;margin-top:4px!important;padding:6px 12px!important;font-size:12.5px!important;gap:6px!important;}
+@media (max-height:820px){ header.top .sub{display:none;} header.top{padding:8px 16px!important;} .confianca{display:none;} }
 .wa-duvida .wa-ico{width:16px;height:16px;}
 #screen-home{padding-top:6px;}
 #screen-home .hero{padding:6px 18px 0;}
 #screen-home .hero h2{font-size:20px;margin-bottom:0;}
 .vitrine{margin-top:6px;}
 .vitrine-titulo{font-size:14px;padding-bottom:6px;}
-.vit-card{width:136px;}
-.vit-card strong{min-height:0;font-size:13px;}
-.vit-card .vt{padding:7px 10px 9px;}
+.vit-card{width:clamp(112px,17vh,138px);}
+.vit-card strong{min-height:0;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.vit-card .vp{font-size:10.5px;line-height:1.25;}
+.vit-card .vp b{display:block;font-size:13px;}
+.vit-card .vt{padding:6px 9px 8px;}
 .como-titulo{padding-top:4px;font-size:14px;}
 #screen-home .modalidades{gap:8px;padding:8px 2px 4px;}
 #screen-home .modalidade-card{padding:9px 12px;gap:12px;}
