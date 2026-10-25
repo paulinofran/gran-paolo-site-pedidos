@@ -142,6 +142,26 @@ header.top .sub{font-size:12px;color:rgba(255,255,255,.85);margin-top:3px;}
 @keyframes piscar{50%{color:var(--gold);transform:scale(1.03);}}
 .confianca{display:flex;flex-wrap:wrap;gap:6px 12px;justify-content:center;padding:4px 8px 0;font-size:11.5px;color:var(--ink-soft);}
 body.demo #cardDrive{display:none;}
+/* compacto: foto e canais na primeira tela */
+header.top{padding:10px 16px 10px;padding-top:calc(10px + env(safe-area-inset-top,0px));}
+.aviso-loja{margin:6px 16px 0!important;padding:7px 12px!important;font-size:12px!important;line-height:1.3!important;}
+.aviso-loja strong{display:inline!important;font-size:12.5px!important;margin:0 4px 0 0!important;}
+.wa-duvida{margin-top:5px!important;padding:6px 12px!important;font-size:12.5px!important;gap:6px!important;}
+.wa-duvida .wa-ico{width:16px;height:16px;}
+#screen-home{padding-top:6px;}
+#screen-home .hero{padding:6px 18px 0;}
+#screen-home .hero h2{font-size:20px;margin-bottom:0;}
+.vitrine{margin-top:6px;}
+.vitrine-titulo{font-size:14px;padding-bottom:6px;}
+.vit-card{width:136px;}
+.vit-card strong{min-height:0;font-size:13px;}
+.vit-card .vt{padding:7px 10px 9px;}
+.como-titulo{padding-top:4px;font-size:14px;}
+#screen-home .modalidades{gap:8px;padding:8px 2px 4px;}
+#screen-home .modalidade-card{padding:9px 12px;gap:12px;}
+#screen-home .modalidade-card .icon{width:40px;height:40px;font-size:22px;border-radius:12px;}
+#screen-home .modalidade-card .txt strong{font-size:15px;}
+.confianca{font-size:11px;padding-top:2px;}
 
 /* ---------- Produto ---------- */
 .produto-card{
@@ -366,7 +386,6 @@ body.com-barra #app{padding-bottom:150px;}
     <div class="hero hero-b">
       <span id="statusChip" class="status-chip hidden"></span>
       <h2>Fome de uma Gran Paolo?</h2>
-      <p>Escolha, monte e acompanhe tudo pelo WhatsApp.</p>
     </div>
     <div class="vitrine hidden" id="vitrine">
       <div class="vitrine-titulo">🔥 Hoje no cardápio</div>
@@ -1506,8 +1525,7 @@ escolherModalidade = function(m){
 function renderStatusChip(){
   const c = document.getElementById('statusChip'); if(!c || !lojaStatus) return;
   if(lojaStatus.aberta === false){
-    c.className = 'status-chip off';
-    c.textContent = lojaStatus.proxima ? '⏰ Abrimos ' + lojaStatus.proxima : '⏰ Fechado agora';
+    c.className = 'status-chip hidden';   // o aviso do topo ja diz que estamos fechados
   } else {
     c.className = 'status-chip on'; c.textContent = '🟢 Aberto agora';
   }
