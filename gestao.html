@@ -2048,6 +2048,17 @@ async function desenharSegmentos(box){
       }
     });
     corpo.appendChild(el('p', 'dica', 'A planilha tem nome e telefone: use só para campanhas autorizadas e não compartilhe fora da loja.'));
+    // quadro de resultados das campanhas enviadas (sem precisar de SQL)
+    corpo.appendChild(el('h3', '', 'Resultado das campanhas enviadas'));
+    try{
+      const rs = await rpc('campanha_resumo', {p_loja:LOJA});
+      if(!rs || !rs.length) corpo.appendChild(el('div', 'vazio', 'Nenhuma campanha enviada ainda.'));
+      else{
+        corpo.appendChild(tabelaSimples(['Campanha', 'Enviadas', 'Com erro', 'Pendentes', 'Último envio'], rs.map(c=>[
+          c.campanha, c.enviados, c.erros, c.pendentes, c.ultimo_envio ? new Date(c.ultimo_envio).toLocaleString('pt-BR', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}) : '-'])));
+        corpo.appendChild(el('p', 'dica', 'Enviadas = aceitas pelo WhatsApp. "Pendentes" são envios que ficaram sem confirmação: não são reenviados sozinhos, para ninguém receber duas vezes.'));
+      }
+    }catch(e){ corpo.appendChild(el('div', 'vazio', erroRelNovo(e, 'BB', 'o resultado das campanhas'))); }
   }
 }
 
