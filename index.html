@@ -394,6 +394,7 @@ body.com-barra #app{padding-bottom:150px;}
       <div class="vitrine-titulo">🔥 Hoje no cardápio</div>
       <div class="vitrine-faixa" id="vitrineFaixa"></div>
     </div>
+    <div class="bloco-codigo hidden"></div>
     <div class="como-titulo" id="comoTitulo">Como você quer pedir?</div>
     <div class="modalidades">
       <button class="modalidade-card" id="cardDrive" onclick="escolherModalidade('Drive-thru')">
@@ -436,6 +437,7 @@ body.com-barra #app{padding-bottom:150px;}
 
   <!-- ===================== CARDÁPIO ===================== -->
   <section class="screen" id="screen-cardapio">
+    <div class="bloco-codigo hidden"></div>
     <div class="repetir-box" id="boxRepetir">
       <button class="repetir-toggle" onclick="toggleRepetir()">🔁 Já pediu antes? Pedir de novo</button>
       <div class="repetir-corpo hidden" id="repetirCorpo">
@@ -1127,8 +1129,91 @@ function nomeItemHtml(nome){
 function arred2(n){ return Math.round(n*100)/100; }
 function semPizza(n){ return String(n).replace(/^Pizza /,''); }
 
+/* ---------- Codigo que libera uma promocao escondida (cupom tipo "libera") ---------- */
+let PROMOS_TRAVADAS = [], PROMOS_LIBERADAS = [], CODIGO_LIBERADO = '', CODIGO_JA_USADO = false, codigoTimer = null;
+function rpcAnon(nome, corpo){
+  return fetch(`${SUPABASE_URL}/rest/v1/rpc/${nome}`, {method:'POST', headers:{"apikey":SUPABASE_KEY, "Authorization":`Bearer ${SUPABASE_KEY}`, "Content-Type":"application/json"}, body:JSON.stringify(corpo)})
+    .then(r=>r.ok ? r.json() : Promise.reject(new Error('http ' + r.status)));
+}
+function redesenharPromos(forcarAbaPromo){
+  try{
+    let cat = forcarAbaPromo ? 'Promoção' : (document.querySelector('.tab.active') || {dataset:{}}).dataset.cat;
+    montarTabs();
+    if(!cat || ordemDasAbas().indexOf(cat) < 0) cat = ordemDasAbas()[0];
+    if(forcarAbaPromo) abaManual = true;
+    mostrarCategoria(cat);
+    if(typeof renderVitrine === "function") renderVitrine();
+  }catch(e){}
+}
+function desenharBlocosCodigo(){
+  document.querySelectorAll('.bloco-codigo').forEach(box=>{
+    box.innerHTML = '';
+    if(!PROMOS_TRAVADAS.length && !CODIGO_LIBERADO){ box.classList.add('hidden'); return; }
+    box.classList.remove('hidden'); box.classList.add('repetir-box');
+    if(CODIGO_LIBERADO){
+      const t = document.createElement('div'); t.className = 'repetir-ajuda'; t.style.padding = '10px 14px';
+      t.textContent = '🎟️ Código ' + CODIGO_LIBERADO + ' ativado! Veja a promoção na aba Promoção.'; box.appendChild(t); return;
+    }
+    const tg = document.createElement('button'); tg.type = 'button'; tg.className = 'repetir-toggle'; tg.textContent = '🎟️ Tem um código? Toque aqui';
+    const corpo = document.createElement('div'); corpo.className = 'repetir-corpo hidden';
+    corpo.innerHTML = '<p class="repetir-ajuda">Digite o código que você recebeu para liberar a promoção.</p><div class="repetir-linha"><input type="text" autocapitalize="characters" autocomplete="off" placeholder="Ex.: DUPLA59" maxlength="20"><button type="button">Usar</button></div><div class="repetir-ajuda msg-codigo" style="color:#B3261E"></div>';
+    tg.onclick = ()=>corpo.classList.toggle('hidden');
+    const inp = corpo.querySelector('input'), btn = corpo.querySelector('button'), msg = corpo.querySelector('.msg-codigo');
+    const usar = async()=>{ msg.textContent = ''; btn.disabled = true; const ok = await liberarCodigo(inp.value, msg); btn.disabled = false; };
+    btn.onclick = usar; inp.addEventListener('keydown', e=>{ if(e.key === 'Enter'){ e.preventDefault(); usar(); } });
+    box.appendChild(tg); box.appendChild(corpo);
+  });
+}
+async function liberarCodigo(cod, msgEl){
+  cod = String(cod || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+  if(!cod){ if(msgEl) msgEl.textContent = 'Digite o código.'; return false; }
+  try{
+    const j = await rpcAnon('cupom_liberar', {p_loja: LOJA_ID, p_codigo: cod});
+    if(!j || !j.ok){ if(msgEl) msgEl.textContent = (j && j.motivo) || 'Código não encontrado. Confira e tente de novo.'; return false; }
+    if(PROMOS_LIBERADAS.indexOf(j.promocao_slug) < 0) PROMOS_LIBERADAS.push(j.promocao_slug);
+    if(PROMOS_TRAVADAS.indexOf(j.promocao_slug) < 0) PROMOS_TRAVADAS.push(j.promocao_slug);
+    CODIGO_LIBERADO = j.codigo; CODIGO_JA_USADO = false;
+    try{ sessionStorage.setItem('gp_codigo', j.codigo); }catch(e){}
+    desenharBlocosCodigo();
+    const pm = PROMOS_BANCO.find(x=>x.slug === j.promocao_slug && promoDisponivel(x));
+    redesenharPromos(!!pm);
+    if(pm){ try{ if(modalidadeAtual) mostrarTela('cardapio'); }catch(e){} }
+    else if(msgEl) msgEl.textContent = 'Código válido! Mas essa promoção não está disponível hoje (ou para essa forma de pedir). Veja os dias da promoção.';
+    return true;
+  }catch(e){ if(msgEl) msgEl.textContent = 'Não consegui conferir agora. Tente de novo em instantes.'; return false; }
+}
+async function iniciarCodigos(params){
+  try{
+    const lista = await rpcAnon('promos_travadas', {p_loja: LOJA_ID});
+    if(Array.isArray(lista)) PROMOS_TRAVADAS = lista;
+  }catch(e){ /* sem a lista, nada fica escondido (o site segue normal) */ }
+  desenharBlocosCodigo(); redesenharPromos(false);
+  let cod = params.get('cupom') || '';
+  if(!cod){ try{ cod = sessionStorage.getItem('gp_codigo') || ''; }catch(e){} }
+  if(cod) await liberarCodigo(cod, null);
+}
+// Confere (sem travar o pedido) se este telefone ja usou o codigo
+function conferirCodigoDoTelefone(){
+  if(!CODIGO_LIBERADO) return;
+  const tel = (document.getElementById('campoTelefone') || {value:''}).value.replace(/\D/g, '');
+  if(tel.length < 10) return;
+  rpcAnon('validar_cupom', {p_loja: LOJA_ID, p_codigo: CODIGO_LIBERADO, p_telefone: tel, p_base: 1})
+    .then(j=>{ CODIGO_JA_USADO = !!(j && !j.ok && /já usou/i.test(j.motivo || '')); }).catch(()=>{});
+}
+function carrinhoTemPromoLiberada(){
+  return carrinho.some(i=>i.promo && PROMOS_LIBERADAS.indexOf(i.promoSlug) >= 0 && PROMOS_TRAVADAS.indexOf(i.promoSlug) >= 0);
+}
+function avisarCodigoDoPedido(telefone){
+  try{
+    if(!CODIGO_LIBERADO || !carrinhoTemPromoLiberada()) return;
+    fetch(`${SUPABASE_URL}/rest/v1/rpc/aplicar_cupom_pedido`, {method:'POST', keepalive:true,
+      headers:{"apikey":SUPABASE_KEY, "Authorization":`Bearer ${SUPABASE_KEY}`, "Content-Type":"application/json"},
+      body:JSON.stringify({p_loja: LOJA_ID, p_telefone: telefone, p_codigo: CODIGO_LIBERADO, p_base: 0})}).catch(()=>{});
+  }catch(e){}
+}
+
 function promoDisponivel(pm){
-  return !!pm.disponivel && (!modalidadeAtual || !pm.canais || pm.canais.indexOf(modalidadeAtual) >= 0);
+  return !!pm.disponivel && (PROMOS_TRAVADAS.indexOf(pm.slug) < 0 || PROMOS_LIBERADAS.indexOf(pm.slug) >= 0) && (!modalidadeAtual || !pm.canais || pm.canais.indexOf(modalidadeAtual) >= 0);
 }
 function ordemDasAbas(){
   const base = CATEGORIAS_ORDEM.filter(c=>c!=='Promoção');
@@ -1177,6 +1262,7 @@ function criarCardPromo(pm){
 }
 function abrirPromo(slug){
   const pm = PROMOS_BANCO.find(x=>x.slug===slug); if(!pm) return;
+  if(PROMOS_TRAVADAS.indexOf(slug) >= 0 && PROMOS_LIBERADAS.indexOf(slug) < 0) return;   // promocao com codigo: so abre depois do codigo
   promoAtual = pm; promoQtd = 1; promoEscolhas = pm.etapas.map(et=>{ const ops = opcoesDaEtapa(et); return etapaFixa(et, ops) ? [ops[0]] : []; });
   document.getElementById('promoTitulo').textContent = pm.nome;
   document.getElementById('promoDesc').textContent = pm.descricao || '';
@@ -1467,10 +1553,12 @@ function init(){
   try{ abrirPeloLink(params); }catch(e){ /* link invalido: segue o fluxo normal */ }
   atualizarStatusLoja();
   carregarCardapioDoBanco();
+  iniciarCodigos(params);
   carregarFiscalAtivo();
   carregarPix();
   const campoTel = document.getElementById('campoTelefone');
   if(campoTel) campoTel.addEventListener('input', agendarBuscaSaldo);
+  if(campoTel) campoTel.addEventListener('change', conferirCodigoDoTelefone);
 }
 function popularBordasMeio(){
   const wrap = document.getElementById('meioBordas');
@@ -2320,6 +2408,7 @@ function enviarPedidoWhatsapp(){
     campoCpf.focus(); return;
   }
 
+  if(CODIGO_JA_USADO && carrinhoTemPromoLiberada()){ alert('Este número de WhatsApp já usou o código ' + CODIGO_LIBERADO + '. A promoção vale uma vez por cliente. Tire o item da promoção do carrinho ou fale com a gente.'); return; }
   salvarDadosCliente(nome, endereco, telefone);
   const desc = calcularDescontos();                       // cashback e pontos que o cliente escolheu usar
   if(pagamento === PIX_ROTULO && (!PIX.ativo || !(desc.total > 0.009))) pagamento = 'Pix';     // sem nada a pagar (ou Pix desligado): segue o jeito de sempre
@@ -2327,6 +2416,7 @@ function enviarPedidoWhatsapp(){
   if(pagComTroco === null) return;
   pagamento = pagComTroco;
   enviarSaldoDoPedido(telefone, desc.cashback, desc.pontos);
+  avisarCodigoDoPedido(telefone);
 
   // Salva no CRM em segundo plano — não atrasa nem bloqueia o WhatsApp
   salvarPedidoNoCRM({
