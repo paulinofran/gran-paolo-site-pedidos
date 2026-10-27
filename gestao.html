@@ -1639,9 +1639,13 @@ function telaTaxas(c){
 // Modelo simples: 6 campos. Regras fixas no banco: 1 uso por cliente, nao vale em promocao/combo, nao desconta entrega.
 function dataCupom(iso){ return iso ? String(iso).slice(0,10).split('-').reverse().join('/') : ''; }
 function resumoCupom(cp){
-  const v = cp.tipo === 'percentual' ? (String(Number(cp.valor)).replace('.', ',') + '%') : money(cp.valor);
-  const p = [v + ' de desconto'];
-  if(Number(cp.pedido_minimo) > 0) p.push('pedido mínimo ' + money(cp.pedido_minimo));
+  const p = [];
+  if(cp.tipo === 'libera'){ const pm = (D.promocoes||[]).find(x=>x.slug === cp.promocao_slug); p.push('libera a promoção "' + (pm ? pm.nome : cp.promocao_slug) + '"'); }
+  else{
+    const v = cp.tipo === 'percentual' ? (String(Number(cp.valor)).replace('.', ',') + '%') : money(cp.valor);
+    p.push(v + ' de desconto');
+    if(Number(cp.pedido_minimo) > 0) p.push('pedido mínimo ' + money(cp.pedido_minimo));
+  }
   if(cp.valida_de || cp.valida_ate) p.push((cp.valida_de ? 'de ' + dataCupom(cp.valida_de) + ' ' : '') + (cp.valida_ate ? 'até ' + dataCupom(cp.valida_ate) : ''));
   p.push(cp.limite_usos ? cp.usos + ' de ' + cp.limite_usos + ' usos' : cp.usos + ' usos');
   if(cp.so_primeira_compra) p.push('só para quem nunca pediu');
@@ -1651,21 +1655,28 @@ function formCupom(cp, depois){
   const novo = !cp; cp = cp || {tipo:'percentual', ativo:true, pedido_minimo:0};
   const f = el('div', 'cartao');
   const cod = el('input'); cod.value = cp.codigo || ''; cod.placeholder = 'Ex.: VOLTEI10'; cod.maxLength = 20; cod.style.textTransform = 'uppercase';
-  const tipo = el('select'); [['percentual','% (porcentagem)'],['reais','R$ (valor fixo)']].forEach(([v, t])=>{ const o = el('option', '', t); o.value = v; tipo.appendChild(o); }); tipo.value = cp.tipo;
+  const tipo = el('select'); [['percentual','% (porcentagem)'],['reais','R$ (valor fixo)'],['libera','Libera uma promoção escondida']].forEach(([v, t])=>{ const o = el('option', '', t); o.value = v; tipo.appendChild(o); }); tipo.value = cp.tipo;
   const val = inputNum(cp.valor), min = inputNum(cp.pedido_minimo), lim = inputNum(cp.limite_usos, '1');
   const de = el('input'); de.type = 'date'; de.value = cp.valida_de ? String(cp.valida_de).slice(0,10) : '';
   const ate = el('input'); ate.type = 'date'; ate.value = cp.valida_ate ? String(cp.valida_ate).slice(0,10) : '';
-  const l1 = el('div', 'linha'); l1.appendChild(campo('Código', cod)); l1.appendChild(campo('Tipo', tipo)); l1.appendChild(campo('Valor (10 = 10% ou R$ 10)', val)); f.appendChild(l1);
-  const l2 = el('div', 'linha'); l2.appendChild(campo('Pedido mínimo (R$)', min)); l2.appendChild(campo('Vale de', de)); l2.appendChild(campo('Vale até', ate)); l2.appendChild(campo('Limite de usos (vazio = sem limite)', lim)); f.appendChild(l2);
+  const prom = el('select'); (D.promocoes||[]).forEach(x=>{ const o = el('option', '', x.nome); o.value = x.slug; prom.appendChild(o); }); prom.value = cp.promocao_slug || ((D.promocoes||[])[0] || {}).slug || '';
+  const cValor = campo('Valor (10 = 10% ou R$ 10)', val), cProm = campo('Promoção liberada pelo código', prom), cMin = campo('Pedido mínimo (R$)', min);
+  const l1 = el('div', 'linha'); l1.appendChild(campo('Código', cod)); l1.appendChild(campo('Tipo', tipo)); l1.appendChild(cValor); l1.appendChild(cProm); f.appendChild(l1);
+  const l2 = el('div', 'linha'); l2.appendChild(cMin); l2.appendChild(campo('Vale de', de)); l2.appendChild(campo('Vale até', ate)); l2.appendChild(campo('Limite de usos (vazio = sem limite)', lim)); f.appendChild(l2);
+  const dicaLibera = el('div', 'dica', 'Enquanto este cupom estiver LIGADO, a promoção some do site e só aparece para quem digita o código (ou entra pelo link com o código). Desligar o cupom abre a promoção para todos.');
+  f.appendChild(dicaLibera);
+  const ajustar = ()=>{ const lib = tipo.value === 'libera'; cValor.style.display = lib ? 'none' : ''; cMin.style.display = lib ? 'none' : ''; cProm.style.display = lib ? '' : 'none'; dicaLibera.style.display = lib ? '' : 'none'; };
+  tipo.onchange = ajustar; ajustar();
   const pri = marca('Só para quem nunca fez pedido (primeira compra)', cp.so_primeira_compra); pri.style.marginTop = '8px'; f.appendChild(pri);
   const at = marca('Cupom ligado', cp.ativo !== false); f.appendChild(at);
   const b = el('button', 'btn verde', novo ? 'Criar cupom' : 'Salvar'); b.style.marginTop = '8px';
   b.onclick = ()=>tentar(async()=>{
-    const v = num(val.value); if(v === null || v <= 0) throw new Error('Informe o valor do desconto.');
+    const lib = tipo.value === 'libera';
+    const v = lib ? 0 : num(val.value); if(!lib && (v === null || v <= 0)) throw new Error('Informe o valor do desconto.');
     const l = lim.value.trim() === '' ? null : Math.round(num(lim.value));
     if(l !== null && (!(l > 0))) throw new Error('Limite de usos inválido.');
     const r = await rpc('cupom_salvar', {p_loja:LOJA, p_id:novo ? null : cp.id, p_codigo:cod.value, p_tipo:tipo.value, p_valor:v,
-      p_minimo:num(min.value) || 0, p_de:de.value || null, p_ate:ate.value || null, p_limite:l, p_primeira:pri.input.checked, p_ativo:at.input.checked});
+      p_minimo:lib ? 0 : (num(min.value) || 0), p_de:de.value || null, p_ate:ate.value || null, p_limite:l, p_primeira:pri.input.checked, p_ativo:at.input.checked, p_promo:lib ? prom.value : null});
     if(novo){ cod.value = ''; val.value = ''; lim.value = ''; }
     await depois();
     return r;
@@ -2044,13 +2055,22 @@ async function desenharRoboNumeros(box){
 }
 
 /* ---------- Chamar de volta (WhatsApp): modelo aprovado volta_cliente_sumido ---------- */
-const CAMPANHA_VOLTA = {id:'volta-combo-dupla', custoMsg:0.32};   // mesma campanha toda semana: cada pessoa recebe uma vez; a cada semana você chama gente nova
+const CAMPANHA_VOLTA = {id:'volta-combo-dupla', custoMsg:0.32, codigo:'DUPLA59'};   // mesma campanha toda semana: cada pessoa recebe uma vez; a cada semana você chama gente nova
 function ofertaVolta(){   // a promoção vale de terça a sexta: a mensagem leva a data da próxima sexta
   const d = new Date(); while(d.getDay() !== 5) d.setDate(d.getDate() + 1);
   const dd = String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0');
-  return '2 pizzas pequenas por R$ 59,90 (Combo Dupla), válido de terça a sexta, até ' + dd;
+  return '2 pizzas pequenas por R$ 59,90 com o código ' + CAMPANHA_VOLTA.codigo + ', de terça a sexta, até ' + dd;
 }
 async function chamarDeVolta(seg, rotulo){
+  // trava de seguranca: o codigo que vai na mensagem precisa existir, estar ligado e valer ate sexta
+  try{
+    const cs = await rpc('cupom_lista', {p_loja:LOJA});
+    const cp = (cs || []).find(x=>x.codigo === CAMPANHA_VOLTA.codigo);
+    if(!cp || !cp.ativo || cp.tipo !== 'libera'){ aviso('Antes de enviar: crie/ligue o cupom ' + CAMPANHA_VOLTA.codigo + ' na aba Cupons (tipo "Libera uma promoção" → Combo Dupla). Sem ele o cliente não consegue pedir.', 'erro'); return; }
+    const d = new Date(); while(d.getDay() !== 5) d.setDate(d.getDate() + 1);
+    const sexta = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    if(cp.valida_ate && String(cp.valida_ate).slice(0, 10) < sexta){ aviso('O cupom ' + CAMPANHA_VOLTA.codigo + ' vence antes de sexta (' + dataCupom(cp.valida_ate) + '). Renove a validade na aba Cupons antes de enviar.', 'erro'); return; }
+  }catch(e){ aviso(erroRelNovo(e, 'BD e BE', 'a conferência do cupom da campanha'), 'erro'); return; }
   let pv;
   try{ pv = await rpc('campanha_previa', {p_loja:LOJA, p_segmento:seg, p_campanha:CAMPANHA_VOLTA.id}); }
   catch(e){ aviso(erroRelNovo(e, 'AY', 'o envio da campanha'), 'erro'); return; }
