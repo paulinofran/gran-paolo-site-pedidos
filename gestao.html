@@ -1982,11 +1982,42 @@ async function desenharRoboNumeros(box){
   corpo.appendChild(b);
 }
 
+/* ---------- Chamar de volta (WhatsApp): modelo aprovado volta_cliente_sumido ---------- */
+const CAMPANHA_VOLTA = {id:'volta-combo-dupla-2026-10', oferta:'2 pizzas pequenas por R$ 59,90 (Combo Dupla)', custoMsg:0.32};
+async function chamarDeVolta(seg, rotulo){
+  let pv;
+  try{ pv = await rpc('campanha_previa', {p_loja:LOJA, p_segmento:seg, p_campanha:CAMPANHA_VOLTA.id}); }
+  catch(e){ aviso(erroRelNovo(e, 'AY', 'o envio da campanha'), 'erro'); return; }
+  if(!Number(pv.disponiveis)){ aviso('Neste grupo não há mais ninguém para receber esta campanha (todos já receberam ou responderam SAIR).', 'erro'); return; }
+  const max = Math.min(50, Number(pv.disponiveis));
+  const sug = Math.min(20, max);
+  const r = prompt('Grupo: ' + rotulo + '\nNo grupo: ' + pv.no_grupo + ' pessoas · já receberam esta campanha: ' + pv.ja_receberam + ' · faltam: ' + pv.disponiveis + '\n\nPara quantas pessoas enviar AGORA? (de 1 a ' + max + '). Sugestão: ' + sug + ' para começar.', String(sug));
+  if(r === null) return;
+  const qtd = parseInt(String(r).replace(/\D/g, ''), 10);
+  if(!qtd || qtd < 1 || qtd > max){ aviso('Número inválido. Digite de 1 a ' + max + '.', 'erro'); return; }
+  const custo = (qtd * CAMPANHA_VOLTA.custoMsg).toFixed(2).replace('.', ',');
+  if(!confirm('Vai enviar para ' + qtd + ' pessoas do grupo "' + rotulo + '".\n\nMensagem: "Oi, [nome], quanto tempo! ... condição especial para você voltar: ' + CAMPANHA_VOLTA.oferta + ' ..."\n\nCusto aproximado: R$ ' + custo + ' (a Meta cobra cerca de R$ ' + String(CAMPANHA_VOLTA.custoMsg).replace('.', ',') + ' por mensagem entregue).\nQuem respondeu SAIR e quem já recebeu não entra.\n\nConfirmar o envio?')) return;
+  aviso('Enviando... não feche esta tela.', 'ok');
+  try{
+    if(sessao && sessao.expira - Date.now() < 120000) await renovar();
+    const resp = await fetch(SUPABASE_URL + '/functions/v1/whatsapp-campanha', {
+      method:'POST', headers:{apikey:SUPABASE_KEY, 'Content-Type':'application/json', Authorization:'Bearer ' + (sessao ? sessao.access_token : '')},
+      body:JSON.stringify({segmento:seg, campanha:CAMPANHA_VOLTA.id, oferta:CAMPANHA_VOLTA.oferta, limite:qtd, confirmar:true}),
+    });
+    let j = null; try{ j = await resp.json(); }catch(e){}
+    if(!resp.ok || !j || !j.ok) throw new Error((j && j.erro) || ('erro ' + resp.status));
+    let msg = 'Pronto: ' + j.enviados + ' enviada(s)' + (j.erros ? ' e ' + j.erros + ' com erro' : '') + '. ';
+    if(j.erros && j.exemplos_de_erro && j.exemplos_de_erro.length) msg += 'Motivo: ' + j.exemplos_de_erro[0];
+    aviso(msg, j.erros ? 'erro' : 'ok');
+    desenhar();
+  }catch(e){ aviso('Não consegui enviar: ' + String(e.message || e), 'erro'); }
+}
+
 const SEGMENTOS_PROMO = [['ativos', 'Pediram nos últimos 30 dias'], ['parados_30', 'Sem pedir há 30 a 59 dias'], ['parados_60', 'Sem pedir há 60 a 89 dias'], ['parados_90', 'Sem pedir há 90 dias ou mais'], ['novos', 'Só 1 pedido (novos)'], ['recorrentes', '2 ou mais pedidos (recorrentes)']];
 async function desenharSegmentos(box){
   box.textContent = '';
   box.appendChild(el('h2', '', 'Segmentos para campanhas'));
-  box.appendChild(el('p', 'dica', 'Quantas pessoas de cada grupo poderiam receber uma promoção agora. Entram os clientes que já compraram (site, PDV ou histórico do Suitable) e não responderam SAIR. Os grupos de tempo e os de frequência são duas formas de olhar as mesmas pessoas, então os números se repetem entre eles. Esta tela não envia nada.'));
+  box.appendChild(el('p', 'dica', 'Quantas pessoas de cada grupo poderiam receber uma promoção agora. Entram os clientes que já compraram (site, PDV ou histórico do Suitable) e não responderam SAIR. Os grupos de tempo e os de frequência são duas formas de olhar as mesmas pessoas, então os números se repetem entre eles. Nada é enviado sozinho: o botão "Chamar de volta" (grupos parados) só envia depois que você escolhe quantas pessoas e confirma.'));
   const corpo = el('div'); corpo.appendChild(el('div', 'vazio', 'Calculando...')); box.appendChild(corpo);
   let d;
   try{ d = await rpc('rel_segmentos', {p_loja:LOJA}); }
@@ -2003,6 +2034,11 @@ async function desenharSegmentos(box){
       const b = el('button', 'btn cinza peq', 'Baixar planilha');
       b.onclick = async ()=>{ try{ const l = await rpc('gestao_segmento_lista', {p_loja:LOJA, p_segmento:k}); baixarCsv('segmento-' + k + '.csv', '﻿' + ['Nome', 'Telefone', 'Pedidos', 'Ultimo pedido'].join(',') + '\n' + l.map(x=>[x.nome, x.telefone, x.pedidos, x.ultimo_pedido].map(csvCampo).join(',')).join('\n') + '\n'); }catch(e){ aviso('Não consegui baixar a lista agora.', 'erro'); } };
       td.appendChild(b);
+      if(['parados_30', 'parados_60', 'parados_90'].indexOf(k) >= 0){
+        const bw = el('button', 'btn verde peq', 'Chamar de volta'); bw.style.marginLeft = '6px';
+        bw.onclick = ()=>chamarDeVolta(k, r);
+        td.appendChild(bw);
+      }
     });
     corpo.appendChild(el('p', 'dica', 'A planilha tem nome e telefone: use só para campanhas autorizadas e não compartilhe fora da loja.'));
   }
