@@ -158,7 +158,7 @@ function pnModal(n){ return n === 'Vem comer' ? 'Salão (vem comer)' : (n === 'D
 const CANAIS = ['Entrega','Retirada','Vem comer','Drive-thru','Balcão'];
 const DIAS = ['D','S','T','Q','Q','S','S'];
 const NOME_DIA = ['domingo','segunda','terça','quarta','quinta','sexta','sábado'];
-const ABAS = [['painel','Painel'],['hoje','Hoje'],['cardapio','Cardápio'],['promos','Promoções'],['taxas','Taxas'],['regras','Regras'],['horarios','Horários'],['clientes','Clientes'],['relatorios','Relatórios'],['notas','Notas'],['robo','Robô'],['estoque','Estoque'],['caixa','Caixa'],['motor','Motor'],['simulador','Simulador'],['contas','Contas']];
+const ABAS = [['painel','Painel'],['hoje','Hoje'],['cardapio','Cardápio'],['promos','Promoções'],['cupons','Cupons'],['taxas','Taxas'],['regras','Regras'],['horarios','Horários'],['clientes','Clientes'],['relatorios','Relatórios'],['notas','Notas'],['robo','Robô'],['estoque','Estoque'],['caixa','Caixa'],['motor','Motor'],['simulador','Simulador'],['contas','Contas']];
 
 let sessao = null, aba = (location.hash === '#robo') ? 'robo' : (location.hash === '#hoje' ? 'hoje' : 'painel');
 let PAPEL = 'dono';   // 'leitor' = acesso so de leitura (Marketing): ve apenas os Relatorios
@@ -310,7 +310,7 @@ function desenhar(){
   if(PAPEL === 'leitor') aba = 'relatorios';
   desenharAbas();
   const c = $('conteudo'); c.innerHTML = ''; c.className = '';
-  ({painel:telaPainel, hoje:telaHoje, cardapio:telaCardapio, promos:telaPromos, taxas:telaTaxas, regras:telaRegras, horarios:telaHorarios, clientes:telaClientes, relatorios:telaRelatorios, notas:telaNotas, robo:telaRobo, estoque:telaEstoque, caixa:telaCaixa, motor:telaMotor, simulador:telaSimulador, contas:telaContas})[aba](c);
+  ({painel:telaPainel, hoje:telaHoje, cardapio:telaCardapio, promos:telaPromos, cupons:telaCupons, taxas:telaTaxas, regras:telaRegras, horarios:telaHorarios, clientes:telaClientes, relatorios:telaRelatorios, notas:telaNotas, robo:telaRobo, estoque:telaEstoque, caixa:telaCaixa, motor:telaMotor, simulador:telaSimulador, contas:telaContas})[aba](c);
   if(aba === 'notas') setTimeout(atualizarAvisoNotas, 1500);   // acabou de reenviar/salvar algo: confere o aviso de novo
 }
 
@@ -1633,6 +1633,67 @@ function telaTaxas(c){
   const b = el('button', 'btn verde', 'Adicionar'); b.style.marginTop = '8px';
   b.onclick = ()=>tentar(async()=>{ const n = nome.value.trim(), v = num(tx.value); if(!n || v === null) throw new Error('Informe o bairro e a taxa.'); await inserir('bairros', {loja_id:LOJA, nome:n, taxa:v, ordem:Math.max(0, ...D.bairros.map(z=>z.ordem)) + 1}); await carregarTudo(); desenhar(); }, 'Bairro adicionado');
   f.appendChild(b); nv.appendChild(f); c.appendChild(nv);
+}
+
+/* ============================ CUPONS (Parte BD) ============================ */
+// Modelo simples: 6 campos. Regras fixas no banco: 1 uso por cliente, nao vale em promocao/combo, nao desconta entrega.
+function dataCupom(iso){ return iso ? String(iso).slice(0,10).split('-').reverse().join('/') : ''; }
+function resumoCupom(cp){
+  const v = cp.tipo === 'percentual' ? (String(Number(cp.valor)).replace('.', ',') + '%') : money(cp.valor);
+  const p = [v + ' de desconto'];
+  if(Number(cp.pedido_minimo) > 0) p.push('pedido mínimo ' + money(cp.pedido_minimo));
+  if(cp.valida_de || cp.valida_ate) p.push((cp.valida_de ? 'de ' + dataCupom(cp.valida_de) + ' ' : '') + (cp.valida_ate ? 'até ' + dataCupom(cp.valida_ate) : ''));
+  p.push(cp.limite_usos ? cp.usos + ' de ' + cp.limite_usos + ' usos' : cp.usos + ' usos');
+  if(cp.so_primeira_compra) p.push('só para quem nunca pediu');
+  return p.join(' · ');
+}
+function formCupom(cp, depois){
+  const novo = !cp; cp = cp || {tipo:'percentual', ativo:true, pedido_minimo:0};
+  const f = el('div', 'cartao');
+  const cod = el('input'); cod.value = cp.codigo || ''; cod.placeholder = 'Ex.: VOLTEI10'; cod.maxLength = 20; cod.style.textTransform = 'uppercase';
+  const tipo = el('select'); [['percentual','% (porcentagem)'],['reais','R$ (valor fixo)']].forEach(([v, t])=>{ const o = el('option', '', t); o.value = v; tipo.appendChild(o); }); tipo.value = cp.tipo;
+  const val = inputNum(cp.valor), min = inputNum(cp.pedido_minimo), lim = inputNum(cp.limite_usos, '1');
+  const de = el('input'); de.type = 'date'; de.value = cp.valida_de ? String(cp.valida_de).slice(0,10) : '';
+  const ate = el('input'); ate.type = 'date'; ate.value = cp.valida_ate ? String(cp.valida_ate).slice(0,10) : '';
+  const l1 = el('div', 'linha'); l1.appendChild(campo('Código', cod)); l1.appendChild(campo('Tipo', tipo)); l1.appendChild(campo('Valor (10 = 10% ou R$ 10)', val)); f.appendChild(l1);
+  const l2 = el('div', 'linha'); l2.appendChild(campo('Pedido mínimo (R$)', min)); l2.appendChild(campo('Vale de', de)); l2.appendChild(campo('Vale até', ate)); l2.appendChild(campo('Limite de usos (vazio = sem limite)', lim)); f.appendChild(l2);
+  const pri = marca('Só para quem nunca fez pedido (primeira compra)', cp.so_primeira_compra); pri.style.marginTop = '8px'; f.appendChild(pri);
+  const at = marca('Cupom ligado', cp.ativo !== false); f.appendChild(at);
+  const b = el('button', 'btn verde', novo ? 'Criar cupom' : 'Salvar'); b.style.marginTop = '8px';
+  b.onclick = ()=>tentar(async()=>{
+    const v = num(val.value); if(v === null || v <= 0) throw new Error('Informe o valor do desconto.');
+    const l = lim.value.trim() === '' ? null : Math.round(num(lim.value));
+    if(l !== null && (!(l > 0))) throw new Error('Limite de usos inválido.');
+    const r = await rpc('cupom_salvar', {p_loja:LOJA, p_id:novo ? null : cp.id, p_codigo:cod.value, p_tipo:tipo.value, p_valor:v,
+      p_minimo:num(min.value) || 0, p_de:de.value || null, p_ate:ate.value || null, p_limite:l, p_primeira:pri.input.checked, p_ativo:at.input.checked});
+    if(novo){ cod.value = ''; val.value = ''; lim.value = ''; }
+    await depois();
+    return r;
+  }, novo ? 'Cupom criado' : 'Cupom salvo');
+  f.appendChild(b); return f;
+}
+async function telaCupons(c){
+  c.appendChild(el('p', 'dica', 'Cupons de desconto, do jeito simples. Regras que já vêm prontas: cada cliente usa o mesmo cupom uma vez só; o cupom não vale em promoções e combos; e não desconta a taxa de entrega.'));
+  const lista = el('div'); const criar = el('div');
+  const nv = el('details'); nv.appendChild(el('summary', '', '+ Novo cupom')); c.appendChild(nv); c.appendChild(lista);
+  async function carregar(){
+    let rs;
+    try{ rs = await rpc('cupom_lista', {p_loja:LOJA}); }
+    catch(e){ lista.textContent = ''; lista.appendChild(el('div', 'vazio', erroRelNovo(e, 'BD', 'os cupons'))); return; }
+    if(aba !== 'cupons') return;
+    lista.textContent = '';
+    if(!rs || !rs.length){ lista.appendChild(el('div', 'vazio', 'Nenhum cupom ainda. Clique em "+ Novo cupom".')); return; }
+    rs.forEach(cp=>{
+      const card = el('div', 'cartao'); const t = el('div', 'topo');
+      t.appendChild(el('span', 'nome', cp.codigo + (cp.ativo ? '' : '  (desligado)')));
+      card.appendChild(t); card.appendChild(el('div', 'dica', resumoCupom(cp)));
+      if(cp.usos > 0) card.appendChild(el('div', 'dica', 'Pedidos com este cupom: ' + money(cp.faturamento) + ' · desconto dado: ' + money(cp.desconto_total)));
+      const d = el('details'); d.appendChild(el('summary', '', 'Editar')); d.appendChild(formCupom(cp, carregar)); card.appendChild(d);
+      lista.appendChild(card);
+    });
+  }
+  nv.appendChild(formCupom(null, async()=>{ nv.open = false; await carregar(); }));
+  await carregar();
 }
 
 /* ============================ REGRAS ============================ */
