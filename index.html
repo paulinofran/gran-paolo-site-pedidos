@@ -119,6 +119,53 @@ header.top .sub{font-size:12px;color:rgba(255,255,255,.85);margin-top:3px;}
 .destaque{background:linear-gradient(135deg,var(--gold-soft),#fff);border:1.5px dashed var(--gold);
   border-radius:var(--radius);padding:12px 14px;margin:14px 0;font-size:12.5px;color:#7A5A12;}
 
+
+/* ---------- TESTE: abertura com vitrine ---------- */
+.hero-b{padding:14px 18px 2px;}
+.status-chip{display:inline-block;font-size:12px;font-weight:700;padding:4px 11px;border-radius:20px;margin-bottom:8px;}
+.status-chip.on{background:#E3F4E8;color:#1B7F3B;}
+.status-chip.off{background:#FFF1D6;color:#7A5A12;}
+.vitrine{margin:10px -16px 2px;}
+.vitrine-titulo{font-size:15px;font-weight:700;color:var(--accent-dark);padding:0 18px 8px;}
+.vitrine-faixa{display:flex;gap:10px;overflow-x:auto;padding:0 18px 8px;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch;}
+.vitrine-faixa::-webkit-scrollbar{display:none;}
+.vit-card{flex:none;width:148px;scroll-snap-align:start;background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:var(--shadow);text-align:left;padding:0;font-family:inherit;color:var(--ink);}
+.vit-card img,.vit-card .vit-sem{display:block;width:100%;height:auto;aspect-ratio:4/3;object-fit:cover;background:#EFE9E3;}
+.vit-card .vit-sem{display:flex;align-items:center;justify-content:center;font-size:34px;}
+.vit-card .vt{padding:8px 10px 10px;}
+.vit-card strong{display:block;font-size:13px;line-height:1.25;min-height:33px;}
+.vit-card .vp{font-size:12px;color:var(--ink-soft);}
+.vit-card .vp b{color:var(--accent-dark);font-size:13px;}
+.como-titulo{font-size:15px;font-weight:700;color:var(--accent-dark);padding:10px 2px 0;}
+.como-titulo.piscar{animation:piscar 1.1s ease 2;}
+@keyframes piscar{50%{color:var(--gold);transform:scale(1.03);}}
+.confianca{display:flex;flex-wrap:wrap;gap:6px 12px;justify-content:center;padding:4px 8px 0;font-size:11.5px;color:var(--ink-soft);}
+body.demo #cardDrive{display:none;}
+/* compacto: foto e canais na primeira tela */
+header.top{padding:10px 16px 10px;padding-top:calc(10px + env(safe-area-inset-top,0px));}
+.aviso-loja{margin:6px 16px 0!important;padding:7px 12px!important;font-size:12px!important;line-height:1.3!important;}
+.aviso-loja strong{display:inline!important;font-size:12.5px!important;margin:0 4px 0 0!important;}
+.aviso-loja{display:flex!important;flex-wrap:wrap;align-items:center;gap:2px 8px;}
+.aviso-loja .wa-duvida{width:auto!important;flex:1 1 100%;margin-top:4px!important;padding:6px 12px!important;font-size:12.5px!important;gap:6px!important;}
+@media (max-height:820px){ header.top .sub{display:none;} header.top{padding:8px 16px!important;} .confianca{display:none;} }
+.wa-duvida .wa-ico{width:16px;height:16px;}
+#screen-home{padding-top:6px;}
+#screen-home .hero{padding:6px 18px 0;}
+#screen-home .hero h2{font-size:20px;margin-bottom:0;}
+.vitrine{margin-top:6px;}
+.vitrine-titulo{font-size:14px;padding-bottom:6px;}
+.vit-card{width:clamp(112px,17vh,138px);}
+.vit-card strong{min-height:0;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.vit-card .vp{font-size:10.5px;line-height:1.25;}
+.vit-card .vp b{display:block;font-size:13px;}
+.vit-card .vt{padding:6px 9px 8px;}
+.como-titulo{padding-top:4px;font-size:14px;}
+#screen-home .modalidades{gap:8px;padding:8px 2px 4px;}
+#screen-home .modalidade-card{padding:9px 12px;gap:12px;}
+#screen-home .modalidade-card .icon{width:40px;height:40px;font-size:22px;border-radius:12px;}
+#screen-home .modalidade-card .txt strong{font-size:15px;}
+.confianca{font-size:11px;padding-top:2px;}
+
 /* ---------- Produto ---------- */
 .produto-card{
   display:flex;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
@@ -339,12 +386,17 @@ body.com-barra #app{padding-bottom:150px;}
 
   <!-- ===================== HOME: escolher modalidade ===================== -->
   <section class="screen active" id="screen-home">
-    <div class="hero">
+    <div class="hero hero-b">
+      <span id="statusChip" class="status-chip hidden"></span>
       <h2>Fome de uma Gran Paolo?</h2>
-      <p>Monte seu pedido aqui e acompanhe tudo pelo WhatsApp.</p>
     </div>
+    <div class="vitrine hidden" id="vitrine">
+      <div class="vitrine-titulo">🔥 Hoje no cardápio</div>
+      <div class="vitrine-faixa" id="vitrineFaixa"></div>
+    </div>
+    <div class="como-titulo" id="comoTitulo">Como você quer pedir?</div>
     <div class="modalidades">
-      <button class="modalidade-card" onclick="escolherModalidade('Drive-thru')">
+      <button class="modalidade-card" id="cardDrive" onclick="escolherModalidade('Drive-thru')">
         <span class="icon">🚗</span>
         <span class="txt"><strong>Drive-thru</strong><span>Sem sair do carro</span></span>
       </button>
@@ -357,6 +409,7 @@ body.com-barra #app{padding-bottom:150px;}
         <span class="txt"><strong>Vem comer ou retirar</strong><span>Coma no salão ou leve pra casa</span></span>
       </button>
     </div>
+    <div class="confianca"><span>💬 Acompanhe pelo WhatsApp</span><span>⚡ Pix online</span><span>📍 Av. Ayrton Senna, 32 · Nova Parnamirim</span></div>
   </section>
 
   <!-- ===================== VEM COMER OU RETIRAR ===================== -->
@@ -890,6 +943,7 @@ function textoAvisoLoja(st){
   return ['Encerramos por hoje', `Você pode ver o cardápio à vontade.${prox}`];
 }
 function mostrarAvisoLoja(){
+  try{ renderStatusChip(); }catch(e){}
   try{
     const box = document.getElementById('avisoLoja');
     const chk = document.getElementById('avisoCheckoutLoja');
@@ -1330,6 +1384,7 @@ function aplicarCardapioDoBanco(j){
     promoPendente = null;
     if(pm){ mostrarTela('cardapio'); document.getElementById('headerSub').textContent = 'Monte seu pedido'; abrirPromo(pm.slug); }
   }
+  try{ renderVitrine(); }catch(e){}
   return true;
 }
 
@@ -1431,6 +1486,51 @@ function popularBordasMeio(){
     };
     wrap.appendChild(btn);
   });
+}
+
+
+/* ---------- TESTE: vitrine, status e modo demonstração ---------- */
+let promoAposModalidade = null;
+const MODO_DEMO = new URLSearchParams(location.search).get('demo') === '1';
+if(MODO_DEMO) document.body.classList.add('demo');
+function renderVitrine(){
+  const faixa = document.getElementById('vitrineFaixa'), box = document.getElementById('vitrine');
+  if(!faixa || !box) return;
+  const lista = PROMOS_BANCO.filter(pm=>promoDisponivel(pm) && !(MODO_DEMO && pm.canais && pm.canais.length===1 && pm.canais[0]==='Drive-thru'))
+    .map(pm=>({pm, ap:precoAPartirDe(pm)})).filter(x=>x.ap!==null).slice(0,6);
+  faixa.innerHTML = '';
+  if(!lista.length){ box.classList.add('hidden'); return; }
+  lista.forEach(({pm, ap})=>{
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'vit-card';
+    const foto = FOTOS_PROMO[pm.slug] ? `<img src="img/promo/${pm.slug}.webp?v=1" alt="" width="400" height="300" decoding="async" onerror="this.outerHTML='<div class=&quot;vit-sem&quot;>🍕</div>'">` : '<div class="vit-sem">🍕</div>';
+    b.innerHTML = foto + '<div class="vt"><strong></strong><div class="vp">a partir de <b>' + fmtMoeda(ap) + '</b></div></div>';
+    b.querySelector('strong').textContent = pm.nome;
+    b.onclick = ()=>tocarVitrine(pm.slug);
+    faixa.appendChild(b);
+  });
+  box.classList.remove('hidden');
+}
+function tocarVitrine(slug){
+  const pm = PROMOS_BANCO.find(x=>x.slug===slug); if(!pm) return;
+  if(modalidadeAtual){ mostrarTela('cardapio'); abrirPromo(slug); return; }
+  promoAposModalidade = slug;
+  const t = document.getElementById('comoTitulo');
+  t.textContent = 'Como você quer pedir? (para montar: ' + pm.nome + ')';
+  t.classList.remove('piscar'); void t.offsetWidth; t.classList.add('piscar');
+  t.scrollIntoView({behavior:'smooth', block:'center'});
+}
+const _escolherModalidade = escolherModalidade;
+escolherModalidade = function(m){
+  _escolherModalidade(m);
+  if(promoAposModalidade){ const sl = promoAposModalidade; promoAposModalidade = null; setTimeout(()=>{ try{ abrirPromo(sl); }catch(e){} }, 0); }
+};
+function renderStatusChip(){
+  const c = document.getElementById('statusChip'); if(!c || !lojaStatus) return;
+  if(lojaStatus.aberta === false){
+    c.className = 'status-chip hidden';   // o aviso do topo ja diz que estamos fechados
+  } else {
+    c.className = 'status-chip on'; c.textContent = '🟢 Aberto agora';
+  }
 }
 
 /* ---------- Navegação ---------- */
