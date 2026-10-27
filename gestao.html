@@ -2054,11 +2054,13 @@ async function desenharSegmentos(box){
       const rs = await rpc('campanha_resumo', {p_loja:LOJA});
       if(!rs || !rs.length) corpo.appendChild(el('div', 'vazio', 'Nenhuma campanha enviada ainda.'));
       else{
-        corpo.appendChild(tabelaSimples(['Campanha', 'Enviadas', 'Com erro', 'Pendentes', 'Último envio'], rs.map(c=>[
-          c.campanha, c.enviados, c.erros, c.pendentes, c.ultimo_envio ? new Date(c.ultimo_envio).toLocaleString('pt-BR', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}) : '-'])));
-        corpo.appendChild(el('p', 'dica', 'Enviadas = aceitas pelo WhatsApp. "Pendentes" são envios que ficaram sem confirmação: não são reenviados sozinhos, para ninguém receber duas vezes.'));
+        corpo.appendChild(tabelaSimples(['Campanha', 'Enviadas', 'Responderam', 'Pediram sair', 'Pediram o combo', 'Com erro', 'Último envio'], rs.map(c=>[
+          c.campanha, c.enviados, c.responderam == null ? '-' : c.responderam, c.pediram_sair == null ? '-' : c.pediram_sair, c.pediram_combo == null ? '-' : c.pediram_combo, c.erros,
+          c.ultimo_envio ? new Date(c.ultimo_envio).toLocaleString('pt-BR', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}) : '-'])));
+        const pend = rs.reduce((a, c)=>a + Number(c.pendentes || 0), 0);
+        corpo.appendChild(el('p', 'dica', 'Enviadas = aceitas pelo WhatsApp. "Pediram o combo" conta quem fez pedido com o Combo Dupla depois de receber a mensagem. "Responderam" são respostas no WhatsApp do robô.' + (pend ? ' Atenção: ' + pend + ' envio(s) ficaram pendentes (sem confirmação) e não são reenviados sozinhos.' : '')));
       }
-    }catch(e){ corpo.appendChild(el('div', 'vazio', erroRelNovo(e, 'BB', 'o resultado das campanhas'))); }
+    }catch(e){ corpo.appendChild(el('div', 'vazio', erroRelNovo(e, 'BB e BC', 'o resultado das campanhas'))); }
   }
 }
 
