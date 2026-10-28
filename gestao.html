@@ -1708,9 +1708,41 @@ async function telaCupons(c){
 }
 
 
-/* ============================ FICHAS: preco dos insumos (o CMV de tudo se refaz sozinho) ============================ */
+/* ============================ FICHAS: receitas + preco dos insumos (o CMV de tudo se refaz sozinho) ============================ */
+let fichasSub = 'receitas';
+const estiloSelect = 'padding:9px 10px;border:1.5px solid var(--line);border-radius:9px;color:var(--ink);font-size:15px;min-width:0;max-width:100%;background:#fff';
 async function telaFichas(c){
+  const topo = el('div', 'linha'); topo.style.marginTop = '0';
+  [['receitas', 'Receitas (fichas)'], ['precos', 'Preço dos insumos']].forEach(([id, rot])=>{
+    const b = el('button', 'btn peq ' + (fichasSub === id ? 'verde' : 'cinza'), rot);
+    b.onclick = ()=>{ fichasSub = id; desenhar(); };
+    topo.appendChild(b);
+  });
+  c.appendChild(topo);
+  const corpo = el('div'); c.appendChild(corpo);
+  if(fichasSub === 'precos') await fichasPrecos(corpo); else await fichasReceitas(corpo);
+}
+
+/* ---------- preco dos insumos + insumo novo ---------- */
+async function fichasPrecos(c){
   c.appendChild(el('p', 'dica', 'Preço dos insumos. Digite o preço do kg (ou da unidade) da semana e clique em Salvar: o CMV de todas as pizzas se atualiza na hora, pelas fichas técnicas. O histórico de cada troca fica guardado.'));
+  const nv = el('details', 'cartao'); nv.appendChild(el('summary', '', '+ Novo insumo'));
+  const nNome = el('input'); nNome.placeholder = 'Ex.: Frango desfiado'; nNome.style.width = '100%';
+  const nUn = el('select'); nUn.style.cssText = estiloSelect; [['g', 'Por quilo (g)'], ['un', 'Por unidade']].forEach(([v, t])=>{ const o = el('option', '', t); o.value = v; nUn.appendChild(o); });
+  const nPreco = inputNum('');
+  const rotPreco = el('span', '', 'Preço (R$ por kg)');
+  const campoP = el('label', 'campo'); campoP.appendChild(rotPreco); campoP.appendChild(nPreco);
+  nUn.onchange = ()=>{ rotPreco.textContent = nUn.value === 'g' ? 'Preço (R$ por kg)' : 'Preço (R$ por unidade)'; };
+  const nl = el('div', 'linha'); nl.appendChild(campo('Unidade', nUn)); nl.appendChild(campoP);
+  const nb = el('button', 'btn verde', 'Criar insumo'); nb.style.alignSelf = 'flex-end';
+  nb.onclick = ()=>tentar(async()=>{
+    const v = num(nPreco.value); if(!nNome.value.trim()) throw new Error('Digite o nome do insumo.'); if(v === null || v <= 0) throw new Error('Digite o preço (maior que zero).');
+    await rpc('est_insumo_criar', {p_loja:LOJA, p_nome:nNome.value.trim(), p_unidade:nUn.value, p_preco:v});
+    desenhar();
+  }, 'Insumo criado. Agora ele já pode entrar nas receitas.');
+  nl.appendChild(nb);
+  nv.appendChild(campo('Nome do insumo', nNome)); nv.appendChild(nl);
+  c.appendChild(nv);
   const busca = el('input'); busca.placeholder = 'Buscar insumo (ex.: muçarela)'; busca.style.cssText = 'width:100%;margin:8px 0';
   c.appendChild(busca);
   const lista = el('div'); c.appendChild(lista);
@@ -1721,7 +1753,7 @@ async function telaFichas(c){
   let semBF = false;
   try{ (await rpc('est_insumo_precos_lista', {p_loja:LOJA}) || []).forEach(h=>{ hist[h.insumo] = h; }); }
   catch(e){ semBF = true; }
-  if(aba !== 'fichas') return;
+  if(!c.isConnected) return;
   if(semBF) c.insertBefore(el('div', 'vazio', 'Falta rodar a Parte BF no Supabase para salvar os preços.'), busca);
   const dataCurta = (t)=>{ const d = new Date(t); return d.toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit'}); };
   const precoDe = (i)=> i.unidade === 'g' ? Number(i.custo_por_g) * 1000 : Number(i.custo_por_g);
@@ -1752,7 +1784,148 @@ async function telaFichas(c){
   }
   busca.oninput = desenharLista;
   desenharLista();
-  c.appendChild(el('p', 'dica', 'Em breve nesta aba: criar e editar as fichas (receitas) e o CMV das promoções e combos.'));
+}
+
+/* ---------- receitas (fichas tecnicas): ver, criar, editar, excluir ---------- */
+async function fichasReceitas(corpo){
+  let fichas = [], itens = [], ins = [];
+  try{
+    const f = 'loja_id=eq.' + LOJA;
+    [fichas, itens, ins] = await Promise.all([
+      api(`/rest/v1/est_fichas?select=id,nome,chave&${f}&order=nome.asc&limit=2000`),
+      api(`/rest/v1/est_ficha_itens?select=ficha_id,insumo_id,qtd&${f}&limit=10000`),
+      api(`/rest/v1/est_insumos?select=id,nome,unidade,custo_por_g,ativo&${f}&order=nome.asc&limit=2000`),
+    ]);
+  }catch(e){ corpo.appendChild(el('div', 'vazio', 'Não consegui ler as fichas. O Estoque já foi instalado no banco (Parte J)?')); return; }
+  if(!corpo.isConnected) return;
+  const insMap = {}; ins.forEach(i=>{ insMap[i.id] = i; });
+  const itensDe = {}; itens.forEach(i=>{ (itensDe[i.ficha_id] = itensDe[i.ficha_id] || []).push({insumo:i.insumo_id, qtd:Number(i.qtd)}); });
+  const custoItens = (lista)=> lista.reduce((s, i)=> s + (Number(i.qtd) || 0) * (insMap[i.insumo] ? Number(insMap[i.insumo].custo_por_g) : 0), 0);
+
+  // preco de venda por nome (o mesmo casamento que o CMV do Cardapio usa)
+  const precoPorChave = {}; const semFicha = [];
+  const chaves = new Set(fichas.map(f=>normN(f.chave)));
+  (D.produtos || []).filter(p=>p.ativo !== false).forEach(p=>{
+    const tams = p.produto_tamanhos || [];
+    tams.forEach(t=>{
+      const cands = [normN('pizza ' + p.nome + ' ' + t.nome), normN(p.nome + ' ' + t.nome), normN(p.nome)];
+      cands.forEach(k=>{ if(precoPorChave[k] === undefined) precoPorChave[k] = Number(t.preco); });
+      if(!cands.some(k=>chaves.has(k))) semFicha.push({nome: tams.length === 1 ? p.nome : p.nome + ' ' + t.nome, preco: Number(t.preco)});
+    });
+  });
+
+  function abrirEditor(ini){
+    corpo.textContent = '';
+    const ed = {id: ini.id || null, itens: (ini.itens || []).map(i=>({insumo:i.insumo, qtd:i.qtd}))};
+    const voltar = el('button', 'btn cinza peq', '← Voltar às receitas'); voltar.onclick = ()=>desenhar(); corpo.appendChild(voltar);
+    const card = el('div', 'cartao'); card.style.marginTop = '10px';
+    card.appendChild(el('div', 'nome', ed.id ? 'Editar ficha' : 'Nova ficha'));
+    const nome = el('input'); nome.value = ini.nome || ''; nome.style.width = '100%'; nome.placeholder = 'Ex.: Pizza Frango Grande';
+    card.appendChild(campo('Nome da ficha', nome));
+    card.appendChild(el('div', 'dica', 'O nome tem que ser igual ao do produto no Cardápio + o tamanho (ex.: "Pizza Frango Grande"). É assim que o sistema liga a ficha ao produto e calcula o CMV.'));
+    if(!ed.id){
+      const cp = el('select'); cp.style.cssText = estiloSelect;
+      const o0 = el('option', '', '— começar do zero —'); o0.value = ''; cp.appendChild(o0);
+      fichas.forEach(f=>{ const o = el('option', '', f.nome); o.value = f.id; cp.appendChild(o); });
+      cp.onchange = ()=>{ ed.itens = (itensDe[cp.value] || []).map(i=>({insumo:i.insumo, qtd:i.qtd})); redesenhar(); };
+      card.appendChild(campo('Começar copiando de uma ficha (opcional)', cp));
+    }
+    const linhas = el('div'); card.appendChild(linhas);
+    const total = el('div', 'nome'); total.style.margin = '10px 0 2px';
+    const cmvBox = el('div', 'dica');
+    const spans = [];
+    const unidadeDe = (id)=> (insMap[id] && insMap[id].unidade === 'un') ? 'un' : 'g';
+    function atualizaTotal(){
+      let t = 0;
+      spans.forEach(([it, sp])=>{ const c1 = (Number(it.qtd) || 0) * (insMap[it.insumo] ? Number(insMap[it.insumo].custo_por_g) : 0); t += c1; sp.textContent = 'R$ ' + num2r(c1); });
+      total.textContent = 'Custo da ficha: R$ ' + num2r(t);
+      cmvBox.textContent = '';
+      const pr = precoPorChave[normN(nome.value)];
+      if(pr > 0 && t > 0){ cmvBox.appendChild(document.createTextNode('Preço de venda R$ ' + num2r(pr) + ' → ')); const s = seloCmv(t, pr); if(s) cmvBox.appendChild(s); }
+      else if(nome.value.trim()) cmvBox.textContent = 'Ainda não achei um produto no Cardápio com esse nome, então não dá para mostrar o CMV.';
+    }
+    function redesenhar(){
+      linhas.textContent = ''; spans.length = 0;
+      ed.itens.forEach((it, idx)=>{
+        const l = el('div', 'linha');
+        const sel = el('select'); sel.style.cssText = estiloSelect;
+        ins.filter(i=>i.ativo !== false || i.id === it.insumo).forEach(i=>{ const o = el('option', '', i.nome + (i.unidade === 'un' ? ' (un)' : ' (g)')); o.value = i.id; sel.appendChild(o); });
+        sel.value = it.insumo;
+        sel.onchange = ()=>{ it.insumo = sel.value; redesenhar(); };
+        const q = inputNum(it.qtd === null || it.qtd === undefined ? '' : it.qtd); q.oninput = ()=>{ it.qtd = num(q.value); atualizaTotal(); };
+        const un = el('span', 'dica', unidadeDe(it.insumo)); un.style.margin = '0';
+        const sp = el('span', 'dica', ''); sp.style.margin = '0'; sp.style.minWidth = '70px'; spans.push([it, sp]);
+        const x = el('button', 'btn cinza peq', '✕'); x.title = 'Tirar este ingrediente'; x.onclick = ()=>{ ed.itens.splice(idx, 1); redesenhar(); };
+        l.appendChild(sel); l.appendChild(q); l.appendChild(un); l.appendChild(sp); l.appendChild(x);
+        linhas.appendChild(l);
+      });
+      if(!ed.itens.length) linhas.appendChild(el('div', 'vazio', 'Nenhum ingrediente ainda. Clique em "+ Ingrediente".'));
+      atualizaTotal();
+    }
+    nome.oninput = atualizaTotal;
+    const add = el('button', 'btn cinza peq', '+ Ingrediente'); add.style.marginTop = '8px';
+    add.onclick = ()=>{ const usados = new Set(ed.itens.map(i=>i.insumo)); const livre = ins.find(i=>i.ativo !== false && !usados.has(i.id)); if(!livre){ aviso('Não há mais insumos para adicionar.', 'erro'); return; } ed.itens.push({insumo:livre.id, qtd:null}); redesenhar(); };
+    card.appendChild(add); card.appendChild(total); card.appendChild(cmvBox);
+    redesenhar();
+    const bl = el('div', 'linha');
+    const salvar = el('button', 'btn verde', 'Salvar ficha');
+    salvar.onclick = ()=>tentar(async()=>{
+      const nm = nome.value.trim(); if(!nm) throw new Error('Digite o nome da ficha.');
+      if(!ed.itens.length) throw new Error('Coloque pelo menos um ingrediente.');
+      if(ed.itens.some(i=>!(Number(i.qtd) > 0))) throw new Error('Preencha a quantidade de todos os ingredientes.');
+      const ids = ed.itens.map(i=>i.insumo); if(new Set(ids).size !== ids.length) throw new Error('Tem ingrediente repetido. Deixe cada um uma vez só.');
+      await rpc('est_ficha_salvar', {p_loja:LOJA, p_id:ed.id || '', p_nome:nm, p_itens:ed.itens.map(i=>({insumo:i.insumo, qtd:Number(i.qtd)}))});
+      await carregarCustos(); desenhar();
+    }, 'Ficha salva. O CMV foi atualizado.');
+    bl.appendChild(salvar);
+    if(ed.id){
+      const ex = el('button', 'btn vermelho', 'Excluir ficha');
+      ex.onclick = ()=>{ if(!confirm('Excluir a ficha "' + (ini.nome || '') + '"? O produto fica sem CMV e sem baixa de estoque até ter outra ficha.')) return;
+        tentar(async()=>{ await rpc('est_ficha_excluir', {p_loja:LOJA, p_id:ed.id}); await carregarCustos(); desenhar(); }, 'Ficha excluída.'); };
+      bl.appendChild(ex);
+    }
+    card.appendChild(bl);
+    corpo.appendChild(card);
+    window.scrollTo(0, 0);
+  }
+
+  corpo.appendChild(el('p', 'dica', 'Receitas (fichas técnicas): quanto de cada ingrediente vai em cada produto. É daqui que sai o CMV e a baixa automática do estoque. Mude uma receita e o CMV do Cardápio se atualiza na hora.'));
+  const nova = el('button', 'btn verde', '+ Nova ficha'); nova.onclick = ()=>abrirEditor({}); corpo.appendChild(nova);
+
+  if(semFicha.length){
+    const d = el('details', 'cartao'); d.open = true; d.style.marginTop = '10px';
+    d.appendChild(el('summary', '', '⚠️ ' + semFicha.length + ' produto(s) do Cardápio sem ficha (sem CMV)'));
+    semFicha.forEach(s=>{
+      const l = el('div', 'linha'); l.appendChild(el('span', '', s.nome + ' · R$ ' + num2r(s.preco)));
+      const b = el('button', 'btn cinza peq', 'Criar ficha'); b.onclick = ()=>abrirEditor({nome:s.nome});
+      l.appendChild(b); d.appendChild(l);
+    });
+    corpo.appendChild(d);
+  }
+
+  const busca = el('input'); busca.placeholder = 'Buscar receita (ex.: calabresa)'; busca.style.cssText = 'width:100%;margin:10px 0';
+  corpo.appendChild(busca);
+  const lista = el('div'); corpo.appendChild(lista);
+  function desenharLista(){
+    lista.textContent = '';
+    const q = normN(busca.value);
+    const vis = fichas.filter(f=>!q || normN(f.nome).indexOf(q) >= 0);
+    if(!vis.length){ lista.appendChild(el('div', 'vazio', 'Nenhuma receita encontrada.')); return; }
+    vis.forEach(f=>{
+      const li = itensDe[f.id] || []; const custo = custoItens(li);
+      const card = el('div', 'cartao'); const l = el('div', 'linha'); l.style.marginTop = '0';
+      const nm = el('div', 'nome', f.nome); nm.style.flex = '1'; l.appendChild(nm);
+      l.appendChild(el('span', 'chip az', 'R$ ' + num2r(custo)));
+      const pr = precoPorChave[normN(f.chave)]; const s = pr > 0 ? seloCmv(custo, pr) : null; if(s) l.appendChild(s);
+      const b = el('button', 'btn cinza peq', 'Editar'); b.onclick = ()=>abrirEditor({id:f.id, nome:f.nome, itens:li});
+      l.appendChild(b); card.appendChild(l);
+      card.appendChild(el('div', 'dica', li.length + ' ingrediente(s)'));
+      lista.appendChild(card);
+    });
+  }
+  busca.oninput = desenharLista;
+  desenharLista();
+  corpo.appendChild(el('p', 'dica', 'Em breve nesta aba: o CMV das promoções e combos (Natal em Dobro, Prime, Combo Dupla).'));
 }
 
 /* ============================ REGRAS ============================ */
