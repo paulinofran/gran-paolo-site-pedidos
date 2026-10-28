@@ -1713,14 +1713,14 @@ let fichasSub = 'receitas';
 const estiloSelect = 'padding:9px 10px;border:1.5px solid var(--line);border-radius:9px;color:var(--ink);font-size:15px;min-width:0;max-width:100%;background:#fff';
 async function telaFichas(c){
   const topo = el('div', 'linha'); topo.style.marginTop = '0';
-  [['receitas', 'Receitas (fichas)'], ['precos', 'Preço dos insumos']].forEach(([id, rot])=>{
+  [['receitas', 'Receitas (fichas)'], ['precos', 'Preço dos insumos'], ['promos', 'CMV das promoções']].forEach(([id, rot])=>{
     const b = el('button', 'btn peq ' + (fichasSub === id ? 'verde' : 'cinza'), rot);
     b.onclick = ()=>{ fichasSub = id; desenhar(); };
     topo.appendChild(b);
   });
   c.appendChild(topo);
   const corpo = el('div'); c.appendChild(corpo);
-  if(fichasSub === 'precos') await fichasPrecos(corpo); else await fichasReceitas(corpo);
+  if(fichasSub === 'precos') await fichasPrecos(corpo); else if(fichasSub === 'promos') await fichasPromos(corpo); else await fichasReceitas(corpo);
 }
 
 /* ---------- preco dos insumos + insumo novo ---------- */
@@ -1810,7 +1810,7 @@ async function fichasReceitas(corpo){
     tams.forEach(t=>{
       const cands = [normN('pizza ' + p.nome + ' ' + t.nome), normN(p.nome + ' ' + t.nome), normN(p.nome)];
       cands.forEach(k=>{ if(precoPorChave[k] === undefined) precoPorChave[k] = Number(t.preco); });
-      if(!cands.some(k=>chaves.has(k))) semFicha.push({nome: tams.length === 1 ? p.nome : p.nome + ' ' + t.nome, preco: Number(t.preco)});
+      if(!cands.some(k=>chaves.has(k))) semFicha.push({nome: tams.length === 1 ? nomeProd(p) : nomeProd(p) + ' ' + t.nome, preco: Number(t.preco)});
     });
   });
 
@@ -1925,7 +1925,106 @@ async function fichasReceitas(corpo){
   }
   busca.oninput = desenharLista;
   desenharLista();
-  corpo.appendChild(el('p', 'dica', 'Em breve nesta aba: o CMV das promoções e combos (Natal em Dobro, Prime, Combo Dupla).'));
+}
+
+/* ---------- CMV das promocoes, combos e apps parceiros (Natal em Dobro, Prime) ---------- */
+// CMV = so ingredientes (custo das fichas) / o que o cliente paga. Nao inclui embalagem, taxas nem comissao de app.
+let promoCats = null;   // ids das categorias de pizza consideradas nas contas
+async function fichasPromos(corpo){
+  await carregarCustos();
+  if(!corpo.isConnected) return;
+  const cats = (D.categorias || []).filter(c=>c.tipo === 'pizza');
+  if(promoCats === null) promoCats = new Set(cats.map(c=>c.id));
+  const ehTam = (t, nome)=> normN(t.nome) === normN(nome);
+  const pizzasDe = (tamNome)=>{
+    const lista = [], sem = [];
+    (D.produtos || []).filter(p=>p.ativo !== false && promoCats.has(p.categoria_id)).forEach(p=>{
+      const t = (p.produto_tamanhos || []).find(x=>ehTam(x, tamNome)); if(!t) return;
+      const custo = custoDe(p, t);
+      if(custo === null) sem.push(nomeProd(p)); else lista.push({nome:nomeProd(p), custo, preco:Number(t.preco)});
+    });
+    return {lista, sem};
+  };
+  const chip = (rot, custo, paga)=>{ const s = seloCmv(custo, paga); if(!s) return null; s.textContent = rot + ' ' + s.textContent; return s; };
+  const linhaCmv = (card, cenarios)=>{
+    const l = el('div', 'linha');
+    cenarios.forEach(([rot, custo, paga, dica])=>{ const s = chip(rot, custo, paga); if(s){ if(dica) s.title = dica + ' · ' + s.title; l.appendChild(s); } });
+    card.appendChild(l);
+  };
+
+  corpo.appendChild(el('p', 'dica', 'CMV das promoções, combos e apps parceiros: custo dos ingredientes (pelas fichas) dividido pelo que o cliente paga. Não inclui embalagem, taxas nem comissão. Quando o cliente escolhe o sabor, mostro o melhor caso, o médio e o pior.'));
+
+  // categorias de pizza consideradas
+  if(cats.length > 1){
+    const cx = el('div', 'cheios'); cx.appendChild(el('span', 'dica', 'Pizzas consideradas nas contas:'));
+    cats.forEach(cat=>{ const m = marca(cat.nome, promoCats.has(cat.id)); m.input.onchange = ()=>{ if(m.input.checked) promoCats.add(cat.id); else promoCats.delete(cat.id); desenhar(); }; cx.appendChild(m); });
+    corpo.appendChild(cx);
+  }
+
+  // ---- apps parceiros (so no PDV) ----
+  corpo.appendChild(el('h3', '', 'Apps parceiros (valem só no PDV)'));
+  function cartaoApp(titulo, explica, tam){
+    const card = el('div', 'cartao'); card.appendChild(el('div', 'nome', titulo)); card.appendChild(el('div', 'dica', explica));
+    const {lista, sem} = pizzasDe(tam);
+    if(lista.length < 1){ card.appendChild(el('div', 'vazio', 'Nenhuma pizza ' + tam.toLowerCase() + ' com ficha.')); return card; }
+    let soma = 0, pagaSoma = 0, n = 0, pior = null, melhor = null;
+    for(let i = 0; i < lista.length; i++) for(let j = i; j < lista.length; j++){
+      const c = lista[i].custo + lista[j].custo, p = Math.max(lista[i].preco, lista[j].preco);
+      soma += c; pagaSoma += p; n++;
+      const r = c / p;
+      if(!pior || r > pior.r) pior = {r, c, p, a:lista[i].nome, b:lista[j].nome};
+      if(!melhor || r < melhor.r) melhor = {r, c, p, a:lista[i].nome, b:lista[j].nome};
+    }
+    linhaCmv(card, [['Melhor', melhor.c, melhor.p, melhor.a + ' + ' + melhor.b], ['Médio', soma / n, pagaSoma / n, 'todas as combinações possíveis'], ['Pior', pior.c, pior.p, pior.a + ' + ' + pior.b]]);
+    card.appendChild(el('div', 'dica', 'Pior caso: ' + pior.a + ' + ' + pior.b + ' → custo R$ ' + num2r(pior.c) + ' e o cliente paga R$ ' + num2r(pior.p) + '. Melhor: ' + melhor.a + ' + ' + melhor.b + ' (R$ ' + num2r(melhor.c) + ' de R$ ' + num2r(melhor.p) + ').'));
+    if(sem.length) card.appendChild(el('div', 'dica', '⚠️ Sem ficha (fora da conta): ' + sem.join(', ')));
+    return card;
+  }
+  corpo.appendChild(cartaoApp('Natal em Dobro', '2 pizzas pequenas e o cliente paga a de maior valor.', 'Pequena'));
+  corpo.appendChild(cartaoApp('Prime (no salão)', '2 pizzas grandes e o cliente paga a de maior valor.', 'Grande'));
+  (function(){
+    const card = el('div', 'cartao'); card.appendChild(el('div', 'nome', 'Prime (entrega, 30% de desconto)')); card.appendChild(el('div', 'dica', 'Pizza fora de promoção com 30% de desconto. Vale para grande e pequena.'));
+    ['Grande', 'Pequena'].forEach(tam=>{
+      const {lista, sem} = pizzasDe(tam); if(!lista.length) return;
+      let c = 0, p = 0, pior = null, melhor = null;
+      lista.forEach(x=>{ c += x.custo; p += x.preco * 0.7; const r = x.custo / (x.preco * 0.7); if(!pior || r > pior.r) pior = {r, x}; if(!melhor || r < melhor.r) melhor = {r, x}; });
+      card.appendChild(el('div', 'dica', tam + ':'));
+      linhaCmv(card, [['Melhor', melhor.x.custo, melhor.x.preco * 0.7, melhor.x.nome], ['Médio', c / lista.length, p / lista.length, 'média das pizzas'], ['Pior', pior.x.custo, pior.x.preco * 0.7, pior.x.nome]]);
+      card.appendChild(el('div', 'dica', 'Pior: ' + pior.x.nome + ' (custo R$ ' + num2r(pior.x.custo) + ' de R$ ' + num2r(pior.x.preco * 0.7) + ').' + (sem.length ? ' ⚠️ Sem ficha: ' + sem.join(', ') : '')));
+    });
+    corpo.appendChild(card);
+  })();
+
+  // ---- promocoes e combos cadastrados na aba Promocoes ----
+  corpo.appendChild(el('h3', '', 'Promoções e combos do site'));
+  if(!(D.promocoes || []).length) corpo.appendChild(el('div', 'vazio', 'Nenhuma promoção cadastrada.'));
+  (D.promocoes || []).forEach(pm=>{
+    const card = el('div', 'cartao'); const topo = el('div', 'topo');
+    topo.appendChild(el('span', 'nome', pm.nome)); topo.appendChild(el('span', 'chip ' + (pm.ativa ? 'az' : 'nao'), pm.ativa ? 'Ativa' : 'Pausada')); card.appendChild(topo);
+    let tMelhor = 0, tMedio = 0, tPior = 0, pMelhor = 0, pMedio = 0, pPior = 0, ok = true; const avisos = []; let pagoCheio = 0;
+    (pm.promocao_etapas || []).forEach(et=>{
+      if(et.tipo !== 'pizza'){ avisos.push('Etapa "' + et.titulo + '" (' + et.tipo + ') não entra na conta.'); return; }
+      const d = Number(et.desconto_pct) || 0; let ops = [];
+      const prods = et.qualquer_pizza ? (D.produtos || []).filter(p=>p.ativo !== false && promoCats.has(p.categoria_id)) : (et.promocao_opcoes || []).map(o=>(D.produtos || []).find(x=>x.id === o.produto_id)).filter(Boolean);
+      prods.forEach(p=>{
+        const t = (p.produto_tamanhos || []).find(x=>ehTam(x, et.tamanho || ''));
+        if(!t) return; const c = custoDe(p, t);
+        if(c === null){ avisos.push('Sem ficha: ' + nomeProd(p) + ' ' + t.nome); return; }
+        ops.push({c, paga:Number(t.preco) * (1 - d / 100), nome:nomeProd(p)});
+      });
+      if(!ops.length){ ok = false; avisos.push('Etapa "' + et.titulo + '": nenhuma opção com ficha.'); return; }
+      ops.sort((a, b)=>a.c - b.c);
+      const med = (k)=> ops.reduce((s, o)=>s + o[k], 0) / ops.length;
+      tMelhor += ops[0].c; pMelhor += ops[0].paga; tPior += ops[ops.length - 1].c; pPior += ops[ops.length - 1].paga; tMedio += med('c'); pMedio += med('paga');
+    });
+    if(ok && pMedio > 0){
+      linhaCmv(card, [['Melhor', tMelhor, pMelhor, 'sabores mais baratos'], ['Médio', tMedio, pMedio, 'média dos sabores'], ['Pior', tPior, pPior, 'sabores mais caros']]);
+      card.appendChild(el('div', 'dica', 'Cliente paga cerca de R$ ' + num2r(pMedio) + ' · custo médio R$ ' + num2r(tMedio) + '.'));
+    }else if(ok) card.appendChild(el('div', 'dica', 'Sem preço a calcular (promoção gratuita ou sem etapas de pizza).'));
+    [...new Set(avisos)].slice(0, 6).forEach(a=>card.appendChild(el('div', 'dica', '⚠️ ' + a)));
+    corpo.appendChild(card);
+  });
+  corpo.appendChild(el('p', 'dica', 'Combos que são produto do Cardápio (ex.: Combo Casal) aparecem com CMV no próprio Cardápio, quando têm ficha.'));
 }
 
 /* ============================ REGRAS ============================ */
