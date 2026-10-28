@@ -158,7 +158,7 @@ function pnModal(n){ return n === 'Vem comer' ? 'Salão (vem comer)' : (n === 'D
 const CANAIS = ['Entrega','Retirada','Vem comer','Drive-thru','Balcão'];
 const DIAS = ['D','S','T','Q','Q','S','S'];
 const NOME_DIA = ['domingo','segunda','terça','quarta','quinta','sexta','sábado'];
-const ABAS = [['painel','Painel'],['hoje','Hoje'],['cardapio','Cardápio'],['promos','Promoções'],['cupons','Cupons'],['taxas','Taxas'],['regras','Regras'],['horarios','Horários'],['clientes','Clientes'],['relatorios','Relatórios'],['notas','Notas'],['robo','Robô'],['estoque','Estoque'],['caixa','Caixa'],['motor','Motor'],['simulador','Simulador'],['contas','Contas']];
+const ABAS = [['painel','Painel'],['hoje','Hoje'],['cardapio','Cardápio'],['promos','Promoções'],['cupons','Cupons'],['taxas','Taxas'],['regras','Regras'],['horarios','Horários'],['clientes','Clientes'],['relatorios','Relatórios'],['notas','Notas'],['robo','Robô'],['estoque','Estoque'],['caixa','Caixa'],['motor','Motor'],['fichas','Fichas'],['simulador','Simulador'],['contas','Contas']];
 
 let sessao = null, aba = (location.hash === '#robo') ? 'robo' : (location.hash === '#hoje' ? 'hoje' : 'painel');
 let PAPEL = 'dono';   // 'leitor' = acesso so de leitura (Marketing): ve apenas os Relatorios
@@ -310,7 +310,7 @@ function desenhar(){
   if(PAPEL === 'leitor') aba = 'relatorios';
   desenharAbas();
   const c = $('conteudo'); c.innerHTML = ''; c.className = '';
-  ({painel:telaPainel, hoje:telaHoje, cardapio:telaCardapio, promos:telaPromos, cupons:telaCupons, taxas:telaTaxas, regras:telaRegras, horarios:telaHorarios, clientes:telaClientes, relatorios:telaRelatorios, notas:telaNotas, robo:telaRobo, estoque:telaEstoque, caixa:telaCaixa, motor:telaMotor, simulador:telaSimulador, contas:telaContas})[aba](c);
+  ({painel:telaPainel, hoje:telaHoje, cardapio:telaCardapio, promos:telaPromos, cupons:telaCupons, taxas:telaTaxas, regras:telaRegras, horarios:telaHorarios, clientes:telaClientes, relatorios:telaRelatorios, notas:telaNotas, robo:telaRobo, estoque:telaEstoque, caixa:telaCaixa, motor:telaMotor, fichas:telaFichas, simulador:telaSimulador, contas:telaContas})[aba](c);
   if(aba === 'notas') setTimeout(atualizarAvisoNotas, 1500);   // acabou de reenviar/salvar algo: confere o aviso de novo
 }
 
@@ -1705,6 +1705,54 @@ async function telaCupons(c){
   }
   nv.appendChild(formCupom(null, async()=>{ nv.open = false; await carregar(); }));
   await carregar();
+}
+
+
+/* ============================ FICHAS: preco dos insumos (o CMV de tudo se refaz sozinho) ============================ */
+async function telaFichas(c){
+  c.appendChild(el('p', 'dica', 'Preço dos insumos. Digite o preço do kg (ou da unidade) da semana e clique em Salvar: o CMV de todas as pizzas se atualiza na hora, pelas fichas técnicas. O histórico de cada troca fica guardado.'));
+  const busca = el('input'); busca.placeholder = 'Buscar insumo (ex.: muçarela)'; busca.style.cssText = 'width:100%;margin:8px 0';
+  c.appendChild(busca);
+  const lista = el('div'); c.appendChild(lista);
+  let ins = [], hist = {};
+  try{
+    ins = await api('/rest/v1/est_insumos?select=id,nome,unidade,custo_por_g,ativo&loja_id=eq.' + LOJA + '&order=nome.asc&limit=1000');
+  }catch(e){ lista.appendChild(el('div', 'vazio', 'Não consegui ler os insumos. O Estoque já foi instalado no banco (Parte J)?')); return; }
+  let semBF = false;
+  try{ (await rpc('est_insumo_precos_lista', {p_loja:LOJA}) || []).forEach(h=>{ hist[h.insumo] = h; }); }
+  catch(e){ semBF = true; }
+  if(aba !== 'fichas') return;
+  if(semBF) c.insertBefore(el('div', 'vazio', 'Falta rodar a Parte BF no Supabase para salvar os preços.'), busca);
+  const dataCurta = (t)=>{ const d = new Date(t); return d.toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit'}); };
+  const precoDe = (i)=> i.unidade === 'g' ? Number(i.custo_por_g) * 1000 : Number(i.custo_por_g);
+  function desenharLista(){
+    lista.textContent = '';
+    const q = normN(busca.value);
+    const vis = ins.filter(i=>i.ativo !== false && (!q || normN(i.nome).indexOf(q) >= 0));
+    if(!vis.length){ lista.appendChild(el('div', 'vazio', 'Nenhum insumo encontrado.')); return; }
+    vis.forEach(i=>{
+      const card = el('div', 'cartao'); const linha = el('div', 'linha');
+      const campoPreco = inputNum(precoDe(i).toFixed(2));
+      linha.appendChild(campo((i.unidade === 'g' ? 'R$ por kg' : 'R$ por unidade'), campoPreco));
+      const b = el('button', 'btn verde', 'Salvar'); b.style.alignSelf = 'flex-end';
+      b.onclick = ()=>tentar(async()=>{
+        const v = num(campoPreco.value); if(v === null || v <= 0) throw new Error('Digite o preço (maior que zero).');
+        const r = await rpc('est_insumo_preco', {p_loja:LOJA, p_insumo:i.id, p_preco:v});
+        i.custo_por_g = i.unidade === 'g' ? v / 1000 : v;
+        hist[i.id] = {insumo:i.id, preco:v, anterior:r.anterior, em:new Date().toISOString()};
+        await carregarCustos();
+        desenharLista();
+      }, 'Preço salvo. O CMV foi atualizado.');
+      linha.appendChild(b);
+      card.appendChild(el('div', 'nome', i.nome)); card.appendChild(linha);
+      const h = hist[i.id];
+      if(h && h.anterior !== null && h.anterior !== undefined) card.appendChild(el('div', 'dica', 'Última troca em ' + dataCurta(h.em) + ': de R$ ' + num2r(h.anterior) + ' para R$ ' + num2r(h.preco)));
+      lista.appendChild(card);
+    });
+  }
+  busca.oninput = desenharLista;
+  desenharLista();
+  c.appendChild(el('p', 'dica', 'Em breve nesta aba: criar e editar as fichas (receitas) e o CMV das promoções e combos.'));
 }
 
 /* ============================ REGRAS ============================ */
