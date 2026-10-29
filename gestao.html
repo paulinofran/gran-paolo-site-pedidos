@@ -947,7 +947,7 @@ const mtNum = (v)=>{ let t = String(v == null ? '' : v).trim().replace(/[^0-9.,]
   else if(ip >= 0){ const pt = t.split('.'); if(pt.length > 2 || (pt.length === 2 && pt[1].length === 3 && pt[0] !== '0')) t = t.replace(/\./g, ''); }
   const x = parseFloat(t); return isFinite(x) ? x : 0; };
 const mtPct = (v, d)=> (Math.round(v * 100 * Math.pow(10, d || 0)) / Math.pow(10, d || 0)).toLocaleString('pt-BR') + '%';
-const MT_REF = {margem:0.70, ticketPizza:59.9};   // referencia quando ainda ha poucas vendas reais
+const MT_REF = {margem:0.64, ticketPizza:59.9};   // referencia quando ainda ha poucas vendas reais
 function mtDiasAbertos(iniISO, fimISO){   // terca a domingo (segunda fechado)
   let n = 0, d = iniISO; while(d <= fimISO){ if(new Date(d + 'T12:00:00').getDay() !== 1) n++; d = somaDias(d, 1); } return n; }
 async function telaMotor(c){
@@ -998,7 +998,7 @@ async function telaMotor(c){
   [['Faturamento até agora' + (ext > 0 ? ' (sistema + Suitable)' : ''), money(fat)], ['CMV pelas fichas (' + money(cmv) + ')', fatSis > 0 ? mtPct(cmv / fatSis, 1) : '—'], ['Margem usada' + (pouco ? ' (referência)' : ' (real)'), mtPct(margem, 1)], ['Custos fixos + folha + equipe', money(custos)]].forEach(([rot, val])=>{
     const t = el('div', 'pn-tile'); t.appendChild(el('div', 'rot', rot)); t.appendChild(el('div', 'val', val)); tiles.appendChild(t); });
   topo.appendChild(tiles); corpo.appendChild(topo);
-  if(pouco) corpo.appendChild(el('div', '', 'ℹ️ A margem usada é a de referência (' + mtPct(MT_REF.margem, 0) + ', do Motor antigo), porque ainda há poucas vendas com baixa pela ficha técnica no sistema (precisa de 20 pedidos e 80% das vendas com ficha; hoje: ' + pnInt(ped) + ' pedidos e ' + Math.round(cobertura * 100) + '%). Ela passa para a margem real sozinha conforme as vendas entram.')).style.cssText = 'background:#E6EEFA;border-radius:12px;padding:12px;margin:12px 0;font-size:14px';
+  if(pouco) corpo.appendChild(el('div', '', 'ℹ️ A margem usada é a de referência (' + mtPct(MT_REF.margem, 0) + ', medida nos relatórios do Suitable de set/out: o custo da comida ficou entre 31% e 36%), porque ainda há poucas vendas com baixa pela ficha técnica no sistema (precisa de 20 pedidos e 80% das vendas com ficha; hoje: ' + pnInt(ped) + ' pedidos e ' + Math.round(cobertura * 100) + '%). Ela passa para a margem real sozinha conforme as vendas entram.')).style.cssText = 'background:#E6EEFA;border-radius:12px;padding:12px;margin:12px 0;font-size:14px';
   else if(pnNum(R.itens_sem_ficha) > 0) corpo.appendChild(el('div', '', 'ℹ️ ' + pnInt(R.itens_sem_ficha) + ' pedido(s) do período têm item sem ficha técnica (ex.: bebidas). O CMV conta só o que tem ficha, então a margem real pode ser um pouco menor.')).style.cssText = 'background:#FFF1CC;border-radius:12px;padding:12px;margin:12px 0;font-size:14px';
 
   /* vendas fora do sistema (Suitable) */
