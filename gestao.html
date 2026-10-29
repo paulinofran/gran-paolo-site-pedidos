@@ -1713,14 +1713,14 @@ let fichasSub = 'receitas';
 const estiloSelect = 'padding:9px 10px;border:1.5px solid var(--line);border-radius:9px;color:var(--ink);font-size:15px;min-width:0;max-width:100%;background:#fff';
 async function telaFichas(c){
   const topo = el('div', 'linha'); topo.style.marginTop = '0';
-  [['receitas', 'Receitas (fichas)'], ['precos', 'Preço dos insumos'], ['promos', 'CMV das promoções']].forEach(([id, rot])=>{
+  [['receitas', 'Receitas (fichas)'], ['precos', 'Preço dos insumos'], ['promos', 'CMV das promoções'], ['real', 'CMV real']].forEach(([id, rot])=>{
     const b = el('button', 'btn peq ' + (fichasSub === id ? 'verde' : 'cinza'), rot);
     b.onclick = ()=>{ fichasSub = id; desenhar(); };
     topo.appendChild(b);
   });
   c.appendChild(topo);
   const corpo = el('div'); c.appendChild(corpo);
-  if(fichasSub === 'precos') await fichasPrecos(corpo); else if(fichasSub === 'promos') await fichasPromos(corpo); else await fichasReceitas(corpo);
+  if(fichasSub === 'precos') await fichasPrecos(corpo); else if(fichasSub === 'promos') await fichasPromos(corpo); else if(fichasSub === 'real') await fichasCmvReal(corpo); else await fichasReceitas(corpo);
 }
 
 /* ---------- preco dos insumos + insumo novo ---------- */
@@ -2025,6 +2025,98 @@ async function fichasPromos(corpo){
     corpo.appendChild(card);
   });
   corpo.appendChild(el('p', 'dica', 'Combos que são produto do Cardápio (ex.: Combo Casal) aparecem com CMV no próprio Cardápio, quando têm ficha.'));
+}
+
+/* ---------- CMV REAL: o que foi vendido de verdade (fichas x pedidos concluidos) ---------- */
+// Custo = ficha tecnica de cada item vendido (+ borda). Receita = o que o cliente pagou, sem o frete.
+// Pedido com item sem ficha fica de fora da conta (e aparece na lista), para nao baratear o CMV.
+function calcCmvReal(peds, custoMap, norm){
+  const achar = (nome, tam)=>{ for(const k of [norm('pizza ' + nome + ' ' + tam), norm(nome + ' ' + tam), norm(nome)]){ if(custoMap[k] !== undefined) return custoMap[k]; } return null; };
+  const R = {geral:{pedidos:0, receita:0, bruto:0, custo:0}, promo:{}, mod:{}, itens:{}, semFicha:{}, excluidos:0, total:0};
+  const soma = (o, k, v)=>{ (o[k] = o[k] || {pedidos:0, receita:0, bruto:0, custo:0}); o[k].pedidos += v.pedidos; o[k].receita += v.receita; o[k].bruto += v.bruto; o[k].custo += v.custo; };
+  (peds || []).forEach(p=>{
+    R.total++;
+    let custo = 0, bruto = 0, ok = true; const promos = new Set(), linhas = [];
+    (Array.isArray(p.itens) ? p.itens : []).forEach(it=>{
+      const nome = String(it.nome || '').trim(); if(!nome) return;
+      const qtd = Math.max(1, Number(it.qtd) || 1); const preco = Number(it.precoUnit) || 0;
+      const bruta = String(it.tamanho || ''); let tam = bruta, borda = null;
+      if(tam.indexOf(' • Borda: ') >= 0){ borda = tam.split(' • Borda: ')[1].split(' — ')[0].replace(/\(gr[aá]tis\)/i, '').trim(); tam = tam.split(' • Borda: ')[0]; }
+      if(bruta.indexOf(' — ') >= 0) promos.add(bruta.split(' — ').slice(1).join(' — ').split(' • ')[0].trim());
+      tam = tam.split(' — ')[0].trim();
+      let c = null;
+      if(nome.slice(0, 13) === 'Meio a Meio: '){
+        const sab = nome.slice(13).split(' / '); const cs = sab.map(s=>achar(s.trim(), tam));
+        if(cs.every(x=>x !== null)) c = cs.reduce((a, b)=>a + b, 0) / cs.length; else sab.forEach((s, i)=>{ if(cs[i] === null) R.semFicha[s.trim() + ' ' + tam] = (R.semFicha[s.trim() + ' ' + tam] || 0) + 1; });
+      }else{
+        c = achar(nome, tam); if(c === null) R.semFicha[nome + ' ' + tam] = (R.semFicha[nome + ' ' + tam] || 0) + 1;
+      }
+      if(c === null){ ok = false; return; }
+      let cb = 0;
+      if(borda && norm(borda) !== 'sem borda'){
+        const v = custoMap[norm('borda ' + borda)];
+        if(v === undefined){ R.semFicha['Borda ' + borda] = (R.semFicha['Borda ' + borda] || 0) + 1; ok = false; return; }
+        cb = v;
+      }
+      const cItem = (c + cb) * qtd, rItem = preco * qtd;
+      custo += cItem; bruto += rItem; linhas.push({chave:nome + ' | ' + tam, nome, tam, qtd, custo:cItem, receita:rItem});
+    });
+    if(!ok){ R.excluidos++; return; }
+    const receita = Math.max(0, (Number(p.total) || 0) - (Number(p.taxa_entrega) || 0));
+    const v = {pedidos:1, receita, bruto, custo};
+    soma(R, 'geral', v);
+    promos.forEach(n=>soma(R.promo, n, v));
+    soma(R.mod, p.modalidade || 'Nao informado', v);
+    linhas.forEach(l=>{ const a = (R.itens[l.chave] = R.itens[l.chave] || {nome:l.nome, tam:l.tam, qtd:0, custo:0, receita:0}); a.qtd += l.qtd; a.custo += l.custo; a.receita += l.receita; });
+  });
+  return R;
+}
+
+let cmvPer = {preset:'mes', ...periodoDoPreset('mes')};
+const pctTxt = (c, r)=>{ if(!(r > 0)) return '—'; const x = c / r * 100; return (x <= 30 ? '🟢 ' : x <= 35 ? '🟡 ' : '🔴 ') + x.toFixed(0) + '%'; };
+async function fichasCmvReal(corpo){
+  await carregarCustos();
+  if(!corpo.isConnected) return;
+  corpo.appendChild(el('p', 'dica', 'CMV real = o custo das fichas de tudo o que foi vendido ÷ o que o cliente pagou (sem o frete), só pedidos finalizados. Aqui o peso é o que realmente saiu: sabor que vende mais pesa mais. Não inclui embalagem, taxas nem comissão de app. Pedido com item sem ficha fica de fora da conta e aparece na lista no final.'));
+  const barra = el('div', 'cartao'); barra.appendChild(el('div', 'nome', 'Período'));
+  const chips = el('div', 'cheios'); chips.style.marginTop = '8px';
+  [['hoje', 'Hoje'], ['7', 'Últimos 7 dias'], ['30', 'Últimos 30 dias'], ['mes', 'Este mês'], ['passado', 'Mês passado']].forEach(([id, rot])=>{
+    const b = el('button', 'btn peq ' + (cmvPer.preset === id ? 'verde' : 'cinza'), rot); b.onclick = ()=>{ cmvPer = {preset:id, ...periodoDoPreset(id)}; desenhar(); }; chips.appendChild(b);
+  });
+  barra.appendChild(chips);
+  const di = el('input'); di.type = 'date'; di.value = cmvPer.ini; const df = el('input'); df.type = 'date'; df.value = cmvPer.fim;
+  const l = el('div', 'linha'); l.appendChild(campo('De', di)); l.appendChild(campo('Até', df));
+  const ver = el('button', 'btn verde peq', 'Ver'); ver.style.alignSelf = 'flex-end';
+  ver.onclick = ()=>{ if(!di.value || !df.value || di.value > df.value){ aviso('Confira as datas: o início precisa ser antes do fim.', 'erro'); return; } cmvPer = {preset:'', ini:di.value, fim:df.value}; desenhar(); };
+  l.appendChild(ver); barra.appendChild(l); corpo.appendChild(barra);
+  const res = el('div'); res.appendChild(el('div', 'vazio', 'Calculando...')); corpo.appendChild(res);
+  let peds;
+  try{
+    peds = await api('/rest/v1/pedidos?select=id,numero,total,taxa_entrega,itens,modalidade,criado_em&loja_id=eq.' + LOJA + '&status=eq.concluido&criado_em=gte.' + cmvPer.ini + 'T00:00:00-03:00&criado_em=lt.' + somaDias(cmvPer.fim, 1) + 'T00:00:00-03:00&order=criado_em.desc&limit=3000');
+  }catch(e){ res.textContent = ''; res.appendChild(el('div', 'vazio', 'Não consegui carregar os pedidos agora. Tente de novo.')); return; }
+  if(!corpo.isConnected) return;
+  res.textContent = '';
+  if(!Object.keys(CUSTO).length){ res.appendChild(el('div', 'vazio', 'Não achei as fichas (custos). Confira em Receitas.')); return; }
+  const R = calcCmvReal(peds, CUSTO, normN), g = R.geral;
+  if(!R.total){ res.appendChild(el('div', 'vazio', 'Nenhum pedido finalizado neste período.')); return; }
+  const sd = el('div', 'saldo');
+  [[pctTxt(g.custo, g.receita), 'CMV real (sobre o que o cliente pagou)'], [pctTxt(g.custo, g.bruto), 'CMV pelo valor dos itens (antes de cupom/desconto no pedido)'], [money(g.receita), 'recebido (sem frete)'], [money(g.custo), 'custo das fichas'], [String(g.pedidos) + ' de ' + R.total, 'pedidos na conta']].forEach(([n, r])=>{ const d = el('div'); d.appendChild(document.createTextNode(n)); d.appendChild(el('small', '', r)); sd.appendChild(d); });
+  res.appendChild(sd);
+  if(R.excluidos) res.appendChild(el('p', 'dica', '⚠️ ' + R.excluidos + ' pedido(s) ficaram de fora por ter item sem ficha (lista no final). Quanto mais fichas, mais exato o CMV.'));
+  const nl = (o)=>Object.keys(o).map(k=>[k, o[k]]);
+  const pp = nl(R.promo).sort((a, b)=>b[1].pedidos - a[1].pedidos).map(([n, v])=>[n, v.pedidos, money(v.receita), money(v.custo), pctTxt(v.custo, v.receita)]);
+  res.appendChild(el('h3', '', 'Por promoção'));
+  res.appendChild(el('p', 'dica', 'Considera o pedido inteiro em que a promoção foi usada (inclui bebida e o que mais veio junto).'));
+  res.appendChild(tabelaSimples(['Promoção', 'Pedidos', 'Recebido', 'Custo', 'CMV real'], pp, 'Nenhuma promoção usada neste período.'));
+  const pm = nl(R.mod).sort((a, b)=>b[1].receita - a[1].receita).map(([n, v])=>[n, v.pedidos, money(v.receita), money(v.custo), pctTxt(v.custo, v.receita)]);
+  res.appendChild(el('h3', '', 'Por forma de pedido'));
+  res.appendChild(tabelaSimples(['Modalidade', 'Pedidos', 'Recebido', 'Custo', 'CMV real'], pm));
+  const it = nl(R.itens).map(([, v])=>v).sort((a, b)=>b.qtd - a.qtd).slice(0, 30).map(v=>[v.nome + (v.tam ? ' (' + v.tam + ')' : ''), v.qtd, money(v.custo / v.qtd), money(v.receita / v.qtd), pctTxt(v.custo, v.receita)]);
+  res.appendChild(el('h3', '', 'O que mais saiu (30 primeiros)'));
+  res.appendChild(el('p', 'dica', 'CMV de cada item pelo preço em que foi vendido no pedido (já com promoção).'));
+  res.appendChild(tabelaSimples(['Item', 'Qtd', 'Custo unit.', 'Preço médio', 'CMV'], it));
+  const sf = nl(R.semFicha).sort((a, b)=>b[1] - a[1]).map(([n, q])=>[n, q]);
+  if(sf.length){ res.appendChild(el('h3', '', 'Itens sem ficha (fora da conta)')); res.appendChild(tabelaSimples(['Item', 'Vezes'], sf)); }
 }
 
 /* ============================ REGRAS ============================ */
