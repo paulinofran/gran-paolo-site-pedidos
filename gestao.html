@@ -2078,6 +2078,7 @@ async function fichasCmvReal(corpo){
   await carregarCustos();
   if(!corpo.isConnected) return;
   corpo.appendChild(el('p', 'dica', 'CMV real = o custo das fichas de tudo o que foi vendido ÷ o que o cliente pagou (sem o frete), só pedidos finalizados. Aqui o peso é o que realmente saiu: sabor que vende mais pesa mais. Não inclui embalagem, taxas nem comissão de app. Pedido com item sem ficha fica de fora da conta e aparece na lista no final.'));
+  blocoSuitable(corpo);
   const barra = el('div', 'cartao'); barra.appendChild(el('div', 'nome', 'Período'));
   const chips = el('div', 'cheios'); chips.style.marginTop = '8px';
   [['hoje', 'Hoje'], ['7', 'Últimos 7 dias'], ['30', 'Últimos 30 dias'], ['mes', 'Este mês'], ['passado', 'Mês passado']].forEach(([id, rot])=>{
@@ -2117,6 +2118,100 @@ async function fichasCmvReal(corpo){
   res.appendChild(tabelaSimples(['Item', 'Qtd', 'Custo unit.', 'Preço médio', 'CMV'], it));
   const sf = nl(R.semFicha).sort((a, b)=>b[1] - a[1]).map(([n, q])=>[n, q]);
   if(sf.length){ res.appendChild(el('h3', '', 'Itens sem ficha (fora da conta)')); res.appendChild(tabelaSimples(['Item', 'Vezes'], sf)); }
+}
+
+
+/* ---------- CMV de um mes do Suitable (arquivos exportados: Produtos vendidos + Complementos vendidos) ---------- */
+// Os .xls do Suitable sao tabelas HTML. O sabor da pizza vem nos "Complementos" (ex.: "Calabresa G"); o "Produtos vendidos" traz so "Pizza Grande Grande".
+// Estimativa: custo medio do sabor (pelas nossas fichas) x numero de pizzas. Meio a meio entra como dois sabores, entao ajusto pelo numero real de pizzas.
+function lerTabelaSuitable(txt){
+  const dec = (s)=>String(s).replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#39;|&apos;/g, "'").replace(/&quot;/g, '"').replace(/\s+/g, ' ').trim();
+  const linhas = [];
+  String(txt).split(/<tr[\s>]/i).slice(1).forEach(tr=>{
+    const cel = []; tr.replace(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi, (m, c)=>{ cel.push(dec(c)); return m; });
+    if(cel.length) linhas.push(cel);
+  });
+  return linhas;
+}
+const dinSuit = (s)=>{ const t = String(s || '').replace(/R\$/g, '').trim(); if(!t) return 0; const n = parseFloat(t.replace(/\./g, '').replace(',', '.')); return isNaN(n) ? 0 : n; };
+function calcSuitable(txtProd, txtComp, custoMap, norm){
+  const P = lerTabelaSuitable(txtProd).slice(1).map(c=>({prod:c[0] || '', cat:c[1] || '', local:c[2] || '', vt:dinSuit(c[4]), qtd:Number(String(c[5] || '0').replace(/\./g, '')) || 0}));
+  const C = lerTabelaSuitable(txtComp).slice(1).map(c=>({desc:c[0] || '', qtd:Number(String(c[2] || '0').replace(/\./g, '')) || 0}));
+  const R = {pizzas:{Grande:0, Pequena:0}, receita:0, itensPizza:0, sabores:{Grande:[], Pequena:[]}, bordas:[], semFicha:[], custoPizzas:0, custoBordas:0, ifood:0, cobertura:{}};
+  // pizzas proprias (sem iFood): conta unidades por tamanho e a receita (ja com adicionais)
+  P.forEach(r=>{
+    if(/ifood/i.test(r.cat)){ R.ifood += r.vt; return; }
+    if(/^pizza\s/i.test(r.prod) || /^combo/i.test(r.prod) && false){
+      R.receita += r.vt;
+      if(/grande/i.test(r.prod)) R.pizzas.Grande += r.qtd; else if(/pequena/i.test(r.prod)) R.pizzas.Pequena += r.qtd;
+    }
+  });
+  const tentar = (nome, tam)=>{
+    const base = nome.replace(/catupity/ig, 'catupiry').replace(/\.$/, '').trim();
+    const vars = new Set([base, base.replace(/\bc\//ig, 'com '), base.replace(/\bc\//ig, 'c '), base.replace(/\s*c\/\s*/ig, ' com '), base.replace(/\bcom\b/ig, 'c')]);
+    for(const v of vars){ for(const k of [norm('pizza ' + v + ' ' + tam), norm(v + ' ' + tam), norm('pizza ' + v)]){ if(custoMap[k] !== undefined) return custoMap[k]; } }
+    return null;
+  };
+  const acha = (nome, tam)=> tentar(nome, tam);
+  const somaB = {};
+  C.forEach(c=>{
+    const d = c.desc.trim(); if(!d || c.qtd <= 0) return;
+    // bordas
+    let b = null;
+    if(/^massa tradicional \+ borda tradicional$/i.test(d)) return;
+    let m = d.match(/^massa tradicional \+ borda (.+)$/i); if(m) b = m[1];
+    else if((m = d.match(/^borda (?:de )?(.+)$/i))) b = m[1];
+    else if(/^(chocolate|catupiry)$/i.test(d)) b = d;
+    if(b){ const k = norm('borda ' + b); const v = custoMap[k]; if(v === undefined) R.semFicha.push({nome:'Borda ' + b, qtd:c.qtd}); else { R.custoBordas += v * c.qtd; somaB[b.toLowerCase()] = (somaB[b.toLowerCase()] || 0) + c.qtd; } return; }
+    if(/^1\//.test(d)) return;                                   // meio a meio do iFood: fora (iFood fica separado)
+    let tam = null, nome = d;
+    if(/ G$/.test(d)){ tam = 'Grande'; nome = d.slice(0, -2); } else if(/ P$/.test(d)){ tam = 'Pequena'; nome = d.slice(0, -2); } else if(/ pequena$/i.test(d)){ tam = 'Pequena'; nome = d.replace(/ pequena$/i, ''); }
+    if(!tam) return;                                              // linhas sem tamanho sao do iFood/bebida: fora
+    if(/guaran|coca|pepsi|suco/i.test(nome)) return;
+    const custo = acha(nome.trim(), tam);
+    if(custo === null){ R.semFicha.push({nome:nome.trim() + ' ' + tam, qtd:c.qtd}); return; }
+    R.sabores[tam].push({nome:nome.trim(), qtd:c.qtd, custo});
+  });
+  ['Grande', 'Pequena'].forEach(t=>{
+    const L = R.sabores[t], q = L.reduce((a, x)=>a + x.qtd, 0), cs = L.reduce((a, x)=>a + x.qtd * x.custo, 0);
+    const semQ = R.semFicha.filter(x=>/ (Grande|Pequena)$/.test(x.nome) && x.nome.endsWith(t)).reduce((a, x)=>a + x.qtd, 0);
+    R.cobertura[t] = (q + semQ) > 0 ? q / (q + semQ) : 0;
+    const medio = q > 0 ? cs / q : 0;                             // custo medio por "sabor" (sem ajustar)
+    R['medio' + t] = medio; R['saboresQtd' + t] = q;
+    R.custoPizzas += medio * R.pizzas[t];                         // ajusta pelo numero de pizzas de verdade
+  });
+  R.custo = R.custoPizzas + R.custoBordas;
+  return R;
+}
+
+function blocoSuitable(corpo){
+  const det = el('details', 'cartao'); const sm = el('summary', 'nome', '📥 CMV de um mês do Suitable (importar os 2 relatórios)'); sm.style.cursor = 'pointer'; det.appendChild(sm);
+  det.appendChild(el('p', 'dica', 'No Suitable, para o MESMO mês (máx. 31 dias): Relatórios > Produtos vendidos > baixar, e Relatórios > Complementos vendidos > Exportar. Escolha os dois arquivos aqui. Nada é enviado para fora: a conta é feita no seu navegador com as suas fichas. É uma ESTIMATIVA: custo médio do sabor × número de pizzas. Só pizzas da casa (iFood, bebidas e sobremesas ficam de fora).'));
+  const f1 = el('input'); f1.type = 'file'; f1.accept = '.xls,.html,.htm'; const f2 = el('input'); f2.type = 'file'; f2.accept = '.xls,.html,.htm';
+  const l = el('div', 'linha'); l.appendChild(campo('1) Produtos vendidos', f1)); l.appendChild(campo('2) Complementos vendidos', f2));
+  const bt = el('button', 'btn verde peq', 'Calcular'); bt.style.alignSelf = 'flex-end'; l.appendChild(bt); det.appendChild(l);
+  const out = el('div'); det.appendChild(out);
+  const ler = (f)=>new Promise((ok, no)=>{ const r = new FileReader(); r.onload = ()=>ok(String(r.result)); r.onerror = ()=>no(r.error); r.readAsText(f, 'UTF-8'); });
+  bt.onclick = ()=>tentar(async()=>{
+    if(!f1.files[0] || !f2.files[0]) throw new Error('Escolha os dois arquivos.');
+    await carregarCustos();
+    const R = calcSuitable(await ler(f1.files[0]), await ler(f2.files[0]), CUSTO, normN);
+    out.textContent = '';
+    if(!(R.receita > 0)){ out.appendChild(el('div', 'vazio', 'Não achei pizzas no arquivo de Produtos vendidos. Confira se escolheu os arquivos certos (1 = Produtos, 2 = Complementos).')); return; }
+    const sd = el('div', 'saldo');
+    [[pctTxt(R.custo, R.receita), 'CMV estimado das pizzas da casa'], [money(R.receita), 'vendido em pizzas (com adicionais)'], [money(R.custo), 'custo estimado (fichas + bordas)'], [R.pizzas.Grande + ' G / ' + R.pizzas.Pequena + ' P', 'pizzas vendidas']].forEach(([n, r])=>{ const d = el('div'); d.appendChild(document.createTextNode(n)); d.appendChild(el('small', '', r)); sd.appendChild(d); });
+    out.appendChild(sd);
+    const cg = Math.round(R.cobertura.Grande * 100), cp = Math.round(R.cobertura.Pequena * 100);
+    out.appendChild(el('p', 'dica', 'Sabores com ficha: ' + cg + '% das grandes e ' + cp + '% das pequenas. Quanto mais fichas, mais exata a conta. iFood (' + money(R.ifood) + ') ficou de fora.'));
+    const rk = []; ['Grande', 'Pequena'].forEach(t=>R.sabores[t].forEach(x=>rk.push({t, nome:x.nome, qtd:x.qtd, custo:x.custo, tot:x.qtd * x.custo})));
+    const tot = rk.reduce((a, x)=>a + x.tot, 0) || 1;
+    rk.sort((a, b)=>b.tot - a.tot);
+    out.appendChild(el('h3', '', 'Quem mais pesa no custo (sabor × quantidade)'));
+    out.appendChild(tabelaSimples(['Sabor', 'Tam.', 'Vezes', 'Custo da ficha', '% do custo'], rk.slice(0, 15).map(x=>[x.nome, x.t === 'Grande' ? 'G' : 'P', x.qtd, money(x.custo), (x.tot / tot * 100).toFixed(0) + '%'])));
+    const sf = R.semFicha.sort((a, b)=>b.qtd - a.qtd).slice(0, 25).map(x=>[x.nome, x.qtd]);
+    if(sf.length){ out.appendChild(el('h3', '', 'Sem ficha ou nome diferente (fora da conta)')); out.appendChild(el('p', 'dica', 'Se o sabor existe, o nome da ficha precisa ficar igual ao do cardápio + tamanho. Me mande esta lista que eu acerto.')); out.appendChild(tabelaSimples(['Sabor', 'Vezes'], sf)); }
+  });
+  corpo.appendChild(det);
 }
 
 /* ============================ REGRAS ============================ */
