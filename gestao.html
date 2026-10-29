@@ -2135,7 +2135,11 @@ function lerTabelaSuitable(txt){
 }
 const dinSuit = (s)=>{ const t = String(s || '').replace(/R\$/g, '').trim(); if(!t) return 0; const n = parseFloat(t.replace(/\./g, '').replace(',', '.')); return isNaN(n) ? 0 : n; };
 function calcSuitable(txtProd, txtComp, custoMap, norm){
-  const P = lerTabelaSuitable(txtProd).slice(1).map(c=>({prod:c[0] || '', cat:c[1] || '', local:c[2] || '', vt:dinSuit(c[4]), qtd:Number(String(c[5] || '0').replace(/\./g, '')) || 0}));
+  // O Suitable tem mais de um modelo de "Produtos vendidos": acha as colunas pelo nome do cabecalho
+  const TP = lerTabelaSuitable(txtProd), cab = (TP[0] || []).map(x=>String(x).toLowerCase());
+  const ix = (re, pad)=>{ const i = cab.findIndex(x=>re.test(x)); return i >= 0 ? i : pad; };
+  const iProd = ix(/^produto/, 0), iCat = ix(/categoria/, -1), iVt = ix(/valor total/, 4), iQtd = ix(/^quantidade|^qtd/, 5);
+  const P = TP.slice(1).map(c=>({prod:c[iProd] || '', cat:iCat >= 0 ? (c[iCat] || '') : '', vt:dinSuit(c[iVt]), qtd:Number(String(c[iQtd] || '0').replace(/\./g, '')) || 0}));
   const C = lerTabelaSuitable(txtComp).slice(1).map(c=>({desc:c[0] || '', qtd:Number(String(c[2] || '0').replace(/\./g, '')) || 0}));
   const R = {pizzas:{Grande:0, Pequena:0}, receita:0, itensPizza:0, sabores:{Grande:[], Pequena:[]}, bordas:[], semFicha:[], custoPizzas:0, custoBordas:0, ifood:0, cobertura:{}};
   // pizzas proprias (sem iFood): conta unidades por tamanho e a receita (ja com adicionais)
@@ -2202,7 +2206,7 @@ function blocoSuitable(corpo){
     [[pctTxt(R.custo, R.receita), 'CMV estimado das pizzas da casa'], [money(R.receita), 'vendido em pizzas (com adicionais)'], [money(R.custo), 'custo estimado (fichas + bordas)'], [R.pizzas.Grande + ' G / ' + R.pizzas.Pequena + ' P', 'pizzas vendidas']].forEach(([n, r])=>{ const d = el('div'); d.appendChild(document.createTextNode(n)); d.appendChild(el('small', '', r)); sd.appendChild(d); });
     out.appendChild(sd);
     const cg = Math.round(R.cobertura.Grande * 100), cp = Math.round(R.cobertura.Pequena * 100);
-    out.appendChild(el('p', 'dica', 'Sabores com ficha: ' + cg + '% das grandes e ' + cp + '% das pequenas. Quanto mais fichas, mais exata a conta. iFood (' + money(R.ifood) + ') ficou de fora.'));
+    out.appendChild(el('p', 'dica', 'Sabores com ficha: ' + cg + '% das grandes e ' + cp + '% das pequenas. Quanto mais fichas, mais exata a conta. iFood, bebidas e sobremesas ficaram de fora' + (R.ifood > 0 ? ' (iFood: ' + money(R.ifood) + ')' : '') + '.'));
     const rk = []; ['Grande', 'Pequena'].forEach(t=>R.sabores[t].forEach(x=>rk.push({t, nome:x.nome, qtd:x.qtd, custo:x.custo, tot:x.qtd * x.custo})));
     const tot = rk.reduce((a, x)=>a + x.tot, 0) || 1;
     rk.sort((a, b)=>b.tot - a.tot);
