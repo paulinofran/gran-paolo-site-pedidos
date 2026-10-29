@@ -950,6 +950,43 @@ const mtPct = (v, d)=> (Math.round(v * 100 * Math.pow(10, d || 0)) / Math.pow(10
 const MT_REF = {margem:0.64, ticketPizza:59.9};   // referencia quando ainda ha poucas vendas reais
 function mtDiasAbertos(iniISO, fimISO){   // terca a domingo (segunda fechado)
   let n = 0, d = iniISO; while(d <= fimISO){ if(new Date(d + 'T12:00:00').getDay() !== 1) n++; d = somaDias(d, 1); } return n; }
+
+/* ---------- Descontos do mes (cashback, fidelidade, cupons, desconto manual do salao) ---------- */
+async function blocoDescontos(corpo, ini, fim){
+  const c = pnCartao('Descontos do mês', 'Quanto você deu de desconto em cashback, fidelidade, cupons e no salão. Não inclui o desconto das promoções e combos (esse já vem dentro do preço dos itens).');
+  const caixa = el('div', 'vazio', 'Somando os descontos...'); c.appendChild(caixa); corpo.appendChild(c);
+  let D;
+  try{ D = await rpc('rel_descontos', {p_loja:LOJA, p_ini:ini, p_fim:fim}); }
+  catch(e){ caixa.textContent = /PGRST202|Could not find|404|does not exist/i.test(String(e.message || e)) ? 'Falta instalar a Parte BJ no banco (arquivo parte-BJ-descontos.sql).' : 'Não consegui somar os descontos agora.'; return; }
+  c.removeChild(caixa);
+  const n = (x)=>pnNum(x), fat = n(D.faturamento);
+  const cb = n(D.cashback_usado), fi = n(D.fidelidade), cu = n(D.cupons), ma = n(D.manual_salao), ga = n(D.cashback_ganho);
+  const tot = cb + fi + cu + ma, bruto = fat + tot, pc = (v)=> bruto > 0 ? mtPct(v / bruto, 1) : '—';
+  let meta = 10; try{ const m = parseFloat(localStorage.getItem('gp_meta_desc')); if(isFinite(m) && m > 0) meta = m; }catch(e){}
+  const acima = bruto > 0 && tot / bruto * 100 > meta;
+  const topo = el('div'); topo.style.cssText = 'font-size:18px;font-weight:800;margin:4px 0 6px';
+  topo.textContent = money(tot) + ' de desconto (' + pc(tot) + ' da venda antes dos descontos)' + (acima ? ' ⚠️ acima da meta de ' + meta + '%' : ' ✅ dentro da meta de ' + meta + '%');
+  c.appendChild(topo);
+  c.appendChild(tabelaSimples(['Tipo', 'Valor', '% da venda'], [
+    ['Cashback usado pelos clientes', money(cb), pc(cb)],
+    ['Fidelidade (pontos usados)', money(fi), pc(fi)],
+    ['Cupons', money(cu), pc(cu)],
+    ['Desconto manual no salão (' + pnInt(n(D.manual_salao_contas)) + ' contas)', money(ma), pc(ma)],
+    ['TOTAL', money(tot), pc(tot)]]));
+  const g = el('div', 'pn-sub', 'Cashback ganho no mês: ' + money(ga) + '. É dinheiro que os clientes ainda podem usar nos próximos pedidos, ou seja, um desconto que vai chegar.'); g.style.marginTop = '8px'; c.appendChild(g);
+  const canais = (D.canais || []).map(x=>[x.canal, pnInt(n(x.pedidos)), money(n(x.faturamento)), money(n(x.cashback_usado)), money(n(x.fidelidade)), money(n(x.cupons)), money(n(x.cashback_ganho))]);
+  const dt = el('details'); dt.style.marginTop = '10px'; dt.appendChild(el('summary', '', 'Ver por canal (entrega, drive, salão...)'));
+  dt.appendChild(tabelaSimples(['Canal', 'Pedidos', 'Vendido', 'Cashback usado', 'Fidelidade', 'Cupons', 'Cashback ganho'], canais, 'Sem pedidos no período.'));
+  const nota = el('div', 'pn-sub', 'O desconto manual do salão é de toda a conta e aparece só no total acima.'); nota.style.marginTop = '6px'; dt.appendChild(nota);
+  c.appendChild(dt);
+  const cl = (D.cupons_lista || []).map(x=>[x.cupom, pnInt(n(x.usos)), money(n(x.desconto))]);
+  if(cl.length){ const d2 = el('details'); d2.style.marginTop = '8px'; d2.appendChild(el('summary', '', 'Ver cupons usados')); d2.appendChild(tabelaSimples(['Cupom', 'Usos', 'Desconto'], cl)); c.appendChild(d2); }
+  const lm = el('div'); lm.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px';
+  const im = document.createElement('input'); im.type = 'text'; im.inputMode = 'decimal'; im.value = String(meta).replace('.', ','); im.style.cssText = 'width:70px;padding:6px';
+  const bm = el('button', 'btn peq cinza', 'Salvar meta'); bm.onclick = ()=>{ const v = mtNum(im.value); if(v > 0){ try{ localStorage.setItem('gp_meta_desc', String(v)); }catch(e){} desenhar(); } };
+  lm.appendChild(el('span', '', 'Meta de desconto (% da venda):')); lm.appendChild(im); lm.appendChild(bm); c.appendChild(lm);
+}
+
 async function telaMotor(c){
   c.className = 'larga';
   const hoje = agoraLocal().data;
@@ -1009,6 +1046,7 @@ async function telaMotor(c){
   fe2.appendChild(el('span', '', 'Faturamento do Suitable no mês:')); fe2.appendChild(ie2); fe2.appendChild(be2); cE.appendChild(fe2);
   cE.appendChild(el('div', 'pn-sub', 'Sistema novo: ' + money(fatSis) + (ext > 0 ? ' + Suitable: ' + money(ext) + ' = ' + money(fat) : ''))).style.marginTop = '8px';
   corpo.appendChild(cE);
+  blocoDescontos(corpo, mesIni, ateFim);
 
   /* ponto de equilibrio */
   const cPE = pnCartao('Ponto de equilíbrio', 'Quanto precisa vender no mês para pagar todos os custos (sem lucro, sem prejuízo).');
