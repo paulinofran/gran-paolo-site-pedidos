@@ -428,6 +428,92 @@ async function telaHorarios(c){
 const fmtQtd = (v, un) => un === 'un' ? (Math.round(Number(v) * 10) / 10).toLocaleString('pt-BR') + ' un' : (Number(v) / 1000).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' kg';
 const paraBanco = (txt, un) => { const n = num(txt); return n === null ? null : (un === 'un' ? n : Math.round(n * 1000 * 100) / 100); };
 
+
+/* ---------- Estoque por grupos (Insumos, Embutidos, Frios e congelados, Descartaveis, Limpeza, Escritorio) ---------- */
+const EST_GRUPOS = ['Insumos', 'Embutidos', 'Frios e congelados', 'Descartáveis', 'Limpeza', 'Escritório'];
+const EST_COMIDA = ['Insumos', 'Embutidos', 'Frios e congelados'];
+let estGrupo = 'Todos';
+const estQtdTxt = (v, i)=> i.unidade === 'un' ? (Math.round(Number(v) * 10) / 10).toLocaleString('pt-BR') + ' ' + (i.rotulo || 'un') : fmtQtd(v, 'g');
+function blocoGrupos(c, ins, recarregar){
+  const card = el('div', 'cartao'); card.appendChild(el('div', 'nome', '📦 Estoque por grupos'));
+  if(ins.length && !('grupo' in ins[0])){ card.appendChild(el('div', 'dica', 'Falta instalar a Parte BK no banco (arquivo parte-BK-estoque-grupos.sql). Depois é só recarregar esta página.')); c.appendChild(card); return; }
+  card.appendChild(el('div', 'dica', 'Um cadastro só para tudo: comida, descartáveis, limpeza e escritório. O saldo atualiza na hora: compra soma, saída subtrai, contagem acerta. Para a comida, as vendas das pizzas já baixam sozinhas.'));
+  const baixo = (i)=> Number(i.minimo_central) > 0 && Number(i.saldo_central) <= Number(i.minimo_central);
+  const chips = el('div', 'cheios');
+  ['Todos'].concat(EST_GRUPOS).forEach(g=>{
+    const lista = ins.filter(i=>g === 'Todos' || (i.grupo || 'Insumos') === g), nb = lista.filter(baixo).length;
+    const b = el('button', 'btn peq ' + (estGrupo === g ? 'verde' : 'cinza'), g + ' (' + lista.length + ')' + (nb ? ' ⚠️' + nb : ''));
+    b.onclick = ()=>{ estGrupo = g; recarregar(); }; chips.appendChild(b); });
+  card.appendChild(chips);
+  const area = el('div'); area.style.cssText = 'margin:10px 0'; 
+  const formulario = (titulo, campos, salvar, textoBtn)=>{
+    area.innerHTML = ''; const f = el('div', 'cartao'); f.style.background = '#FFF8E6'; f.appendChild(el('div', 'nome', titulo));
+    const ent = {};
+    campos.forEach(cp=>{ const l = el('div'); l.style.cssText = 'margin:6px 0'; l.appendChild(el('div', 'dica', cp.rot));
+      let x; if(cp.opcoes){ x = document.createElement('select'); cp.opcoes.forEach(o=>{ const op = document.createElement('option'); op.value = o[0]; op.textContent = o[1]; x.appendChild(op); }); if(cp.valor != null) x.value = cp.valor; }
+      else { x = document.createElement('input'); x.type = 'text'; if(cp.num) x.inputMode = 'decimal'; x.value = cp.valor == null ? '' : cp.valor; if(cp.dica) x.placeholder = cp.dica; }
+      x.style.cssText = 'padding:8px;width:100%;max-width:340px'; ent[cp.id] = x; l.appendChild(x); f.appendChild(l); });
+    const bs = el('button', 'btn verde', textoBtn || 'Salvar'); bs.onclick = ()=>tentar(async()=>{ const v = {}; Object.keys(ent).forEach(k=>{ v[k] = ent[k].value; }); await salvar(v); recarregar(); }, 'Salvo.');
+    const bc = el('button', 'btn cinza', 'Cancelar'); bc.onclick = ()=>{ area.innerHTML = ''; };
+    const bb = el('div'); bb.style.cssText = 'display:flex;gap:8px;margin-top:8px'; bb.appendChild(bs); bb.appendChild(bc); f.appendChild(bb); area.appendChild(f); f.scrollIntoView && f.scrollIntoView({block:'nearest'});
+  };
+  const un = (i)=> i.unidade === 'un' ? (i.rotulo || 'unidades') : 'kg';
+  const qtd = (txt, i)=>{ const q = paraBanco(txt, i.unidade); if(q === null || q <= 0) throw new Error('Digite uma quantidade maior que zero.'); return q; };
+  const nenhum = (txt, i)=>{ const q = paraBanco(txt, i.unidade); if(q === null || q < 0) throw new Error('Digite a quantidade.'); return q; };
+  const emBase = (txt, uni)=> txt === '' || txt == null ? 0 : (paraBanco(txt, uni) || 0);
+
+  // ---- botoes de cima
+  const bar = el('div'); bar.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin:10px 0';
+  const bN = el('button', 'btn peq verde', '➕ Novo item'); bN.onclick = ()=>formulario('Novo item no estoque', [
+    {id:'nome', rot:'Nome do item', dica:'Ex.: Detergente'},
+    {id:'grupo', rot:'Grupo', opcoes:EST_GRUPOS.map(g=>[g, g]), valor:(EST_GRUPOS.indexOf(estGrupo) >= 0 ? estGrupo : 'Insumos')},
+    {id:'un', rot:'Como você conta este item?', opcoes:[['kg','Quilo (kg)'], ['unidade','Unidade'], ['pacote','Pacote'], ['caixa','Caixa'], ['fardo','Fardo'], ['rolo','Rolo'], ['litro','Litro'], ['galão','Galão']], valor:'unidade'},
+    {id:'saldo', rot:'Quanto tem agora? (na mesma medida; deixe vazio se não souber)', num:true},
+    {id:'minimo', rot:'Estoque mínimo (quando chegar nisso, entra na lista de compra)', num:true},
+    {id:'ideal', rot:'Quanto quer ter depois de comprar? (opcional)', num:true},
+    {id:'preco', rot:'Preço (R$ por kg ou por unidade/pacote/caixa). Opcional', num:true}],
+    async(v)=>{ const nome = (v.nome || '').trim(); if(!nome) throw new Error('Digite o nome do item.');
+      const ja = ins.find(i=>normN(i.nome) === normN(nome)); if(ja) throw new Error('Já existe "' + ja.nome + '" no estoque (grupo ' + (ja.grupo || 'Insumos') + '). Use o que já existe.');
+      const uni = v.un === 'kg' ? 'g' : 'un', rot = v.un === 'kg' || v.un === 'unidade' ? null : v.un;
+      await rpc('est_item_criar', {p_loja:LOJA, p_nome:nome, p_grupo:v.grupo, p_unidade:uni, p_rotulo:rot, p_minimo:emBase(v.minimo, uni), p_ideal:emBase(v.ideal, uni), p_preco:num(v.preco) || 0, p_saldo:emBase(v.saldo, uni)}); }, 'Cadastrar');
+  bar.appendChild(bN);
+  const bL = el('button', 'btn peq cinza', '🛒 Lista de compra'); bL.onclick = ()=>tentar(async()=>{
+    const L = await rpc('est_lista_compra', {p_loja:LOJA}) || [];
+    area.innerHTML = ''; const f = el('div', 'cartao'); f.style.background = '#FFF8E6'; f.appendChild(el('div', 'nome', '🛒 Lista de compra'));
+    if(!L.length){ f.appendChild(el('div', 'dica', 'Nada no mínimo agora. (Só entram itens que têm estoque mínimo preenchido.)')); area.appendChild(f); return; }
+    const hoje = new Date().toLocaleDateString('pt-BR'); let txt = '🛒 Lista de compra - Gran Paolo (' + hoje + ')\n', gr = '';
+    L.forEach(x=>{ if(x.grupo !== gr){ gr = x.grupo; txt += '\n' + gr + ':\n'; } const it = {unidade:x.unidade, rotulo:x.rotulo};
+      txt += '- ' + x.nome + ': comprar ' + (x.comprar > 0 ? estQtdTxt(x.comprar, it) : '(ver quanto)') + ' (tem ' + estQtdTxt(x.saldo, it) + ', mínimo ' + estQtdTxt(x.minimo, it) + ')\n'; });
+    const ta = document.createElement('textarea'); ta.value = txt; ta.rows = Math.min(16, txt.split('\n').length + 1); ta.style.cssText = 'width:100%;max-width:520px;padding:8px'; f.appendChild(ta);
+    const bc = el('button', 'btn peq verde', 'Copiar para colar no WhatsApp'); bc.style.marginTop = '8px'; bc.onclick = ()=>{ ta.select(); try{ document.execCommand('copy'); aviso('Copiado.'); }catch(e){} }; f.appendChild(bc); area.appendChild(f); }, null);
+  bar.appendChild(bL); card.appendChild(bar); card.appendChild(area);
+
+  // ---- tabela
+  const lista = ins.filter(i=>estGrupo === 'Todos' || (i.grupo || 'Insumos') === estGrupo).sort((a, b)=>(baixo(b) - baixo(a)) || a.nome.localeCompare(b.nome, 'pt-BR'));
+  if(!lista.length) card.appendChild(el('div', 'vazio', 'Nenhum item neste grupo ainda. Clique em "Novo item".'));
+  lista.forEach(i=>{
+    const sal = Number(i.saldo_central) || 0, mn = Number(i.minimo_central) || 0, zer = sal <= 0, bx = baixo(i);
+    const l = el('div'); l.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 0;border-bottom:1px dashed var(--line)';
+    const nm = el('div', '', (zer && mn > 0 ? '🔴 ' : bx ? '🟡 ' : '🟢 ') + i.nome); nm.style.cssText = 'flex:1 1 180px;font-weight:700'; l.appendChild(nm);
+    const sd = el('div', 'dica', 'Tem: ' + estQtdTxt(sal, i) + (mn > 0 ? ' · mínimo ' + estQtdTxt(mn, i) : '') + ' · ' + (i.grupo || 'Insumos')); sd.style.cssText = 'flex:1 1 200px'; l.appendChild(sd);
+    const mk = (rot, fn)=>{ const b = el('button', 'btn peq cinza', rot); b.onclick = fn; l.appendChild(b); };
+    mk('➕ Entrada', ()=>formulario('Entrada de compra: ' + i.nome, [{id:'q', rot:'Quanto chegou? (em ' + un(i) + ')', num:true}].concat(EST_COMIDA.indexOf(i.grupo || 'Insumos') >= 0 ? [] : [{id:'p', rot:'Quanto pagou nesta compra? (R$, opcional. Atualiza o custo do item)', num:true}]),
+      async(v)=>{ await rpc('est_entrada', {p_loja:LOJA, p_insumo:i.id, p_qtd:qtd(v.q, i), p_preco_total:num(v.p) || 0, p_obs:null}); }, 'Somar ao estoque'));
+    mk('➖ Saída', ()=>formulario('Saída: ' + i.nome, [{id:'q', rot:'Quanto saiu? (em ' + un(i) + ')', num:true}, {id:'o', rot:'Motivo (opcional)', dica:'Ex.: uso da semana, estragou'}],
+      async(v)=>{ await rpc('est_saida', {p_loja:LOJA, p_insumo:i.id, p_qtd:qtd(v.q, i), p_obs:v.o || null}); }, 'Tirar do estoque'));
+    mk('🔢 Contagem', ()=>formulario('Contagem: ' + i.nome, [{id:'q', rot:'Quanto você contou na prateleira agora? (em ' + un(i) + ')', num:true}],
+      async(v)=>{ await rpc('est_contagem', {p_loja:LOJA, p_insumo:i.id, p_contado:nenhum(v.q, i)}); }, 'Acertar o saldo'));
+    mk('⚙️', ()=>formulario('Ajustar: ' + i.nome, [
+      {id:'g', rot:'Grupo', opcoes:EST_GRUPOS.map(g=>[g, g]), valor:i.grupo || 'Insumos'},
+      {id:'r', rot:'Como contar (pacote, caixa, rolo... deixe vazio para kg ou unidade)', valor:i.rotulo || ''},
+      {id:'m', rot:'Estoque mínimo (em ' + un(i) + ')', num:true, valor:mn > 0 ? (i.unidade === 'un' ? mn : mn / 1000).toString().replace('.', ',') : ''},
+      {id:'d', rot:'Quanto quer ter depois de comprar (opcional)', num:true, valor:Number(i.ideal_central) > 0 ? (i.unidade === 'un' ? Number(i.ideal_central) : Number(i.ideal_central) / 1000).toString().replace('.', ',') : ''}],
+      async(v)=>{ await rpc('est_item_editar', {p_loja:LOJA, p_insumo:i.id, p_grupo:v.g, p_rotulo:v.r || null, p_minimo:emBase(v.m, i.unidade), p_ideal:emBase(v.d, i.unidade)}); }, 'Salvar'));
+    card.appendChild(l);
+  });
+  c.appendChild(card);
+}
+
 async function telaEstoque(c){
   c.appendChild(el('h2', '', 'Estoque de insumos'));
   c.appendChild(el('p', 'dica', 'Cada pedido que entra no site já desconta daqui, pela ficha técnica. O estoque da Produção é o da linha de pizza; o Central abastece a Produção.'));
@@ -446,6 +532,8 @@ async function telaEstoque(c){
   topo.remove();
   const porId = {}; ins.forEach(i=>{ porId[i.id] = i; });
   const recarregarEstoque = () => { if(aba === 'estoque') desenhar(); };
+
+  blocoGrupos(c, ins, recarregarEstoque);
 
   // ---------- 00) Valor do estoque em dinheiro, agora ----------
   const vCard = el('div', 'cartao'); vCard.appendChild(el('div', 'nome', '💰 Valor do estoque agora'));
