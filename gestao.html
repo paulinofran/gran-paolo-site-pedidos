@@ -430,14 +430,29 @@ const paraBanco = (txt, un) => { const n = num(txt); return n === null ? null : 
 
 
 /* ---------- Estoque por grupos (Insumos, Embutidos, Frios e congelados, Descartaveis, Limpeza, Escritorio) ---------- */
-const EST_GRUPOS = ['Insumos', 'Embutidos', 'Frios e congelados', 'Descartáveis', 'Limpeza', 'Escritório'];
+const EST_GRUPOS = ['Insumos', 'Embutidos', 'Frios e congelados', 'Bebidas', 'Descartáveis', 'Limpeza', 'Escritório'];
 const EST_COMIDA = ['Insumos', 'Embutidos', 'Frios e congelados'];
 let estGrupo = 'Todos';
 const estQtdTxt = (v, i)=> i.unidade === 'un' ? (Math.round(Number(v) * 10) / 10).toLocaleString('pt-BR') + ' ' + (i.rotulo || 'un') : fmtQtd(v, 'g');
-function blocoGrupos(c, ins, recarregar){
+function blocoGrupos(c, insTodos, recarregar){
+  const temBM = insTodos.length > 0 && ('controlar' in insTodos[0]);
+  const ins = temBM ? insTodos.filter(i=>i.controlar !== false) : insTodos, semControle = temBM ? insTodos.filter(i=>i.controlar === false) : [];
   const card = el('div', 'cartao'); card.appendChild(el('div', 'nome', '📦 Estoque por grupos'));
-  if(ins.length && !('grupo' in ins[0])){ card.appendChild(el('div', 'dica', 'Falta instalar a Parte BK no banco (arquivo parte-BK-estoque-grupos.sql). Depois é só recarregar esta página.')); c.appendChild(card); return; }
+  if(insTodos.length && !('grupo' in insTodos[0])){ card.appendChild(el('div', 'dica', 'Falta instalar a Parte BK no banco (arquivo parte-BK-estoque-grupos.sql). Depois é só recarregar esta página.')); c.appendChild(card); return; }
   card.appendChild(el('div', 'dica', 'Um cadastro só para tudo: comida, descartáveis, limpeza e escritório. O saldo atualiza na hora: compra soma, saída subtrai, contagem acerta. Para a comida, as vendas das pizzas já baixam sozinhas.'));
+  const temBL = insTodos.length > 0 && ('preco_compra' in insTodos[0]);
+  if(temBL && !temBM) card.appendChild(el('div', 'dica', '⚠️ Falta instalar a Parte BM no banco (arquivo parte-BM-controlar-estoque.sql) para esconder os itens que você não quer controlar.')).style.color = '#b45309';
+  if(!temBL) card.appendChild(el('div', 'dica', '⚠️ Falta instalar a Parte BL no banco (arquivo parte-BL-estoque-custo-real.sql) para ligar o custo real, o botão "Passar para a produção" e o grupo Bebidas.')).style.color = '#b45309';
+  const pagoDe = (i)=> Number(i.preco_compra) > 0 ? Number(i.preco_compra) : (Number(i.custo_por_g) || 0);
+  /* valor em dinheiro por grupo: Central pelo preco pago, Producao pelo custo real (com perda) */
+  const vg = EST_GRUPOS.map(g=>{ const l = ins.filter(i=>(i.grupo || 'Insumos') === g); let c1 = 0, p1 = 0;
+    l.forEach(i=>{ c1 += Math.max(0, Number(i.saldo_central) || 0) * pagoDe(i); p1 += Math.max(0, Number(i.saldo_producao) || 0) * (Number(i.custo_por_g) || 0); });
+    return {g, n:l.length, c1, p1}; });
+  const totG = vg.reduce((a, x)=>a + x.c1 + x.p1, 0);
+  const dvg = el('details'); dvg.open = true; dvg.appendChild(el('summary', '', '💰 Valor em dinheiro por grupo: ' + money(totG)));
+  dvg.appendChild(tabelaSimples(['Grupo', 'Itens', 'Central (preço pago)', 'Produção (custo real)', 'Total'], vg.map(x=>[x.g, x.n, money(x.c1), money(x.p1), money(x.c1 + x.p1)]).concat([['TOTAL', ins.length, money(vg.reduce((a, x)=>a + x.c1, 0)), money(vg.reduce((a, x)=>a + x.p1, 0)), money(totG)]])));
+  dvg.appendChild(el('div', 'dica', 'Saldo negativo conta como zero. O Central é avaliado pelo preço que você pagou; a Produção, pelo custo real (preço pago ÷ rendimento).'));
+  card.appendChild(dvg);
   const baixo = (i)=> Number(i.minimo_central) > 0 && Number(i.saldo_central) <= Number(i.minimo_central);
   const chips = el('div', 'cheios');
   ['Todos'].concat(EST_GRUPOS).forEach(g=>{
@@ -495,22 +510,43 @@ function blocoGrupos(c, ins, recarregar){
     const sal = Number(i.saldo_central) || 0, mn = Number(i.minimo_central) || 0, zer = sal <= 0, bx = baixo(i);
     const l = el('div'); l.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 0;border-bottom:1px dashed var(--line)';
     const nm = el('div', '', (zer && mn > 0 ? '🔴 ' : bx ? '🟡 ' : '🟢 ') + i.nome); nm.style.cssText = 'flex:1 1 180px;font-weight:700'; l.appendChild(nm);
-    const sd = el('div', 'dica', 'Tem: ' + estQtdTxt(sal, i) + (mn > 0 ? ' · mínimo ' + estQtdTxt(mn, i) : '') + ' · ' + (i.grupo || 'Insumos')); sd.style.cssText = 'flex:1 1 200px'; l.appendChild(sd);
+    const pro = Number(i.saldo_producao) || 0, rd = Number(i.rendimento_pct) || 100, mul = i.unidade === 'g' ? 1000 : 1, uni = i.unidade === 'g' ? '/kg' : '/' + (i.rotulo || 'un');
+    const sd = el('div', 'dica', 'Central: ' + estQtdTxt(sal, i) + (pro !== 0 ? ' · Produção: ' + estQtdTxt(pro, i) : '') + (mn > 0 ? ' · mínimo ' + estQtdTxt(mn, i) : '') + ' · ' + (i.grupo || 'Insumos')
+      + (Number(i.preco_compra) > 0 ? ' · pago ' + money(Number(i.preco_compra) * mul) + uni + (rd < 100 ? ' · rende ' + (Math.round(rd * 10) / 10).toLocaleString('pt-BR') + '% · custo real ' + money((Number(i.custo_por_g) || 0) * mul) + uni : '') : (Number(i.custo_por_g) > 0 ? ' · custo ' + money(Number(i.custo_por_g) * mul) + uni : '')));
+    sd.style.cssText = 'flex:1 1 240px'; l.appendChild(sd);
     const mk = (rot, fn)=>{ const b = el('button', 'btn peq cinza', rot); b.onclick = fn; l.appendChild(b); };
-    mk('➕ Entrada', ()=>formulario('Entrada de compra: ' + i.nome, [{id:'q', rot:'Quanto chegou? (em ' + un(i) + ')', num:true}].concat(EST_COMIDA.indexOf(i.grupo || 'Insumos') >= 0 ? [] : [{id:'p', rot:'Quanto pagou nesta compra? (R$, opcional. Atualiza o custo do item)', num:true}]),
+    mk('➕ Entrada', ()=>formulario('Entrada de compra: ' + i.nome, [{id:'q', rot:'Quanto chegou? (em ' + un(i) + ')', num:true}, {id:'p', rot:'Quanto pagou nesta compra? (R$ total, opcional). Atualiza o preço pago e o custo real do item', num:true}],
       async(v)=>{ await rpc('est_entrada', {p_loja:LOJA, p_insumo:i.id, p_qtd:qtd(v.q, i), p_preco_total:num(v.p) || 0, p_obs:null}); }, 'Somar ao estoque'));
     mk('➖ Saída', ()=>formulario('Saída: ' + i.nome, [{id:'q', rot:'Quanto saiu? (em ' + un(i) + ')', num:true}, {id:'o', rot:'Motivo (opcional)', dica:'Ex.: uso da semana, estragou'}],
       async(v)=>{ await rpc('est_saida', {p_loja:LOJA, p_insumo:i.id, p_qtd:qtd(v.q, i), p_obs:v.o || null}); }, 'Tirar do estoque'));
+    if(temBL) mk('🍕 Passar p/ produção', ()=>formulario('Passar para a produção: ' + i.nome, [{id:'r', rot:'Quanto você TIROU do estoque grande? (em ' + un(i) + ')', num:true}, {id:'f', rot:'Quanto ficou PRONTO para a linha? (em ' + un(i) + '). Se não tem perda, digite o mesmo número', num:true}],
+      async(v)=>{ const r = qtd(v.r, i), f = qtd(v.f, i); if(f > r) throw new Error('O pronto não pode ser maior do que o que você tirou.');
+        const x = await rpc('est_passar_producao', {p_loja:LOJA, p_insumo:i.id, p_retirado:r, p_pronto:f}); if(x && x.rendeu_pct != null) aviso('Rendeu ' + Math.round(x.rendeu_pct * 10) / 10 + '% (média ' + Math.round(x.rendimento_medio * 10) / 10 + '%).'); }, 'Passar para a produção'));
     mk('🔢 Contagem', ()=>formulario('Contagem: ' + i.nome, [{id:'q', rot:'Quanto você contou na prateleira agora? (em ' + un(i) + ')', num:true}],
       async(v)=>{ await rpc('est_contagem', {p_loja:LOJA, p_insumo:i.id, p_contado:nenhum(v.q, i)}); }, 'Acertar o saldo'));
     mk('⚙️', ()=>formulario('Ajustar: ' + i.nome, [
       {id:'g', rot:'Grupo', opcoes:EST_GRUPOS.map(g=>[g, g]), valor:i.grupo || 'Insumos'},
       {id:'r', rot:'Como contar (pacote, caixa, rolo... deixe vazio para kg ou unidade)', valor:i.rotulo || ''},
       {id:'m', rot:'Estoque mínimo (em ' + un(i) + ')', num:true, valor:mn > 0 ? (i.unidade === 'un' ? mn : mn / 1000).toString().replace('.', ',') : ''},
-      {id:'d', rot:'Quanto quer ter depois de comprar (opcional)', num:true, valor:Number(i.ideal_central) > 0 ? (i.unidade === 'un' ? Number(i.ideal_central) : Number(i.ideal_central) / 1000).toString().replace('.', ',') : ''}],
-      async(v)=>{ await rpc('est_item_editar', {p_loja:LOJA, p_insumo:i.id, p_grupo:v.g, p_rotulo:v.r || null, p_minimo:emBase(v.m, i.unidade), p_ideal:emBase(v.d, i.unidade)}); }, 'Salvar'));
+      {id:'d', rot:'Quanto quer ter depois de comprar (opcional)', num:true, valor:Number(i.ideal_central) > 0 ? (i.unidade === 'un' ? Number(i.ideal_central) : Number(i.ideal_central) / 1000).toString().replace('.', ',') : ''}]
+      .concat(!temBM ? [] : [{id:'ct', rot:'Controlar o estoque deste item?', opcoes:[['sim', 'Sim, controlar'], ['nao', 'Não controlar (some desta tela; o custo na ficha continua)']], valor:'sim'}])
+      .concat(!temBL ? [] : [
+      {id:'pc', rot:'Preço que você paga (R$ por ' + (i.unidade === 'g' ? 'kg' : (i.rotulo || 'unidade')) + ')', num:true, valor:Number(i.preco_compra) > 0 ? (Math.round(Number(i.preco_compra) * mul * 100) / 100).toString().replace('.', ',') : ''},
+      {id:'rd', rot:'Rendimento % (1 kg rende quantos gramas? 900 g = 90. Sem perda = 100)', num:true, valor:String(Math.round(rd * 10) / 10).replace('.', ',')}]),
+      async(v)=>{ await rpc('est_item_editar', {p_loja:LOJA, p_insumo:i.id, p_grupo:v.g, p_rotulo:v.r || null, p_minimo:emBase(v.m, i.unidade), p_ideal:emBase(v.d, i.unidade)});
+        if(temBM && v.ct === 'nao') await rpc('est_item_controlar', {p_loja:LOJA, p_insumo:i.id, p_controlar:false});
+        if(temBL){ const pc = num(v.pc), rdn = num(v.rd); if((pc && pc > 0) || (rdn && Math.abs(rdn - rd) > 0.001)) await rpc('est_item_custo', {p_loja:LOJA, p_insumo:i.id, p_preco:pc && pc > 0 ? pc : null, p_rend:rdn && rdn > 0 ? rdn : null}); } }, 'Salvar'));
     card.appendChild(l);
   });
+  if(semControle.length){
+    const ds = el('details'); ds.style.marginTop = '12px'; ds.appendChild(el('summary', '', 'Itens sem controle de estoque (' + semControle.length + ')'));
+    ds.appendChild(el('div', 'dica', 'O custo deles continua entrando na ficha e no CMV. Se algum começar a pesar no bolso, é só clicar em Controlar.'));
+    semControle.sort((a, b)=>a.nome.localeCompare(b.nome, 'pt-BR')).forEach(i=>{
+      const l = el('div'); l.style.cssText = 'display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px dashed var(--line)';
+      const t = el('div', '', i.nome + ' · ' + (i.grupo || 'Insumos')); t.style.flex = '1'; l.appendChild(t);
+      const b = el('button', 'btn peq cinza', 'Controlar'); b.onclick = ()=>tentar(async()=>{ await rpc('est_item_controlar', {p_loja:LOJA, p_insumo:i.id, p_controlar:true}); recarregar(); }, 'Agora este item é controlado.'); l.appendChild(b); ds.appendChild(l); });
+    card.appendChild(ds);
+  }
   c.appendChild(card);
 }
 
@@ -537,10 +573,10 @@ async function telaEstoque(c){
 
   // ---------- 00) Valor do estoque em dinheiro, agora ----------
   const vCard = el('div', 'cartao'); vCard.appendChild(el('div', 'nome', '💰 Valor do estoque agora'));
-  const linhasV = ins.map(i=>{ const cen = Math.max(0, Number(i.saldo_central) || 0), pro = Math.max(0, Number(i.saldo_producao) || 0), cu = Number(i.custo_por_g) || 0;
-    return {i, cen, pro, cu, vc: cen * cu, vp: pro * cu}; });
+  const linhasV = ins.filter(i=>i.controlar !== false).map(i=>{ const cen = Math.max(0, Number(i.saldo_central) || 0), pro = Math.max(0, Number(i.saldo_producao) || 0), cu = Number(i.custo_por_g) || 0, cp = Number(i.preco_compra) > 0 ? Number(i.preco_compra) : cu;
+    return {i, cen, pro, cu, vc: cen * cp, vp: pro * cu}; });
   const totC = linhasV.reduce((a,x)=>a + x.vc, 0), totP = linhasV.reduce((a,x)=>a + x.vp, 0), totV = totC + totP;
-  const semCusto = linhasV.filter(x=>x.cu <= 0 && (x.cen + x.pro) > 0), negativos = ins.filter(i=>Number(i.saldo_central) < 0 || Number(i.saldo_producao) < 0);
+  const semCusto = linhasV.filter(x=>x.cu <= 0 && (x.cen + x.pro) > 0), negativos = ins.filter(i=>i.controlar !== false && (Number(i.saldo_central) < 0 || Number(i.saldo_producao) < 0));
   const vBig = el('div', 'nome', money(totV)); vBig.style.cssText = 'font-size:1.9em;margin:6px 0'; vCard.appendChild(vBig);
   vCard.appendChild(el('div', 'dica', 'Central: ' + money(totC) + ' · Produção (linha): ' + money(totP) + ' · calculado com o custo por kg de cada insumo.'));
   if(semCusto.length) vCard.appendChild(el('div', 'dica', '⚠️ Sem custo cadastrado (não entram na soma): ' + semCusto.map(x=>x.i.nome).join(', ') + '.')).style.color = '#b45309';
