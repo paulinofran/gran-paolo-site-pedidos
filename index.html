@@ -16,8 +16,10 @@
     <div class="pix-caixa">
       <h3 id="pixTitulo">Pague por Pix</h3>
       <div class="pix-valor" id="pixValor"></div>
+      <div class="pix-status hidden" id="pixStatus" aria-live="polite"></div>
       <div id="pixQr" aria-label="QR Code do Pix"></div>
       <div class="pix-chave" id="pixRecebedor"></div>
+      <div id="pixCorpo">
       <label for="pixCodigo" style="font-size:13px;font-weight:600;">Pix Copia e Cola</label>
       <textarea id="pixCodigo" class="pix-codigo" readonly rows="3"></textarea>
       <button class="btn-full btn-primary" id="btnCopiarPix" type="button" onclick="copiarPix()" style="margin-top:10px;">Copiar código Pix</button>
@@ -26,7 +28,8 @@
         <li>Use <b>Pix Copia e Cola</b> (ou aponte a câmera para o QR Code).</li>
         <li>Confira o valor e pague.</li>
       </ol>
-      <div class="pix-aviso">Seu pedido já foi enviado para nós. Ele só começa a ser feito <b>depois que o Pix cair</b>. Depois de pagar, toque em <b>"Já paguei"</b> para nos avisar pelo WhatsApp e agilizar.</div>
+      <div class="pix-aviso" id="pixAviso">Seu pedido já foi enviado para nós. Ele só começa a ser feito <b>depois que o Pix cair</b>. Depois de pagar, toque em <b>"Já paguei"</b> para nos avisar pelo WhatsApp e agilizar.</div>
+      </div>
       <a class="btn-full btn-primary" id="pixZap" href="#" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;margin-bottom:8px;">Já paguei: avisar no WhatsApp</a>
       <button class="btn-full btn-ghost" id="btnFecharPix" type="button" onclick="fecharPix()">Fechar</button>
     </div>
@@ -357,6 +360,9 @@ body.com-barra #app{padding-bottom:150px;}
 #pixQr svg{width:230px;height:230px;}
 .pix-codigo{width:100%;font-size:12px;border:1px solid var(--line);border-radius:10px;padding:10px;background:#faf7f2;min-height:74px;resize:none;color:var(--ink);font-family:ui-monospace,Menlo,Consolas,monospace;word-break:break-all;}
 .pix-passos{font-size:13.5px;color:var(--ink);padding-left:20px;margin:12px 0;line-height:1.5;}
+.pix-status{border-radius:12px;padding:12px;font-size:14px;margin:10px 0;line-height:1.45;text-align:center;background:var(--gold-soft);}
+.pix-status.ok{background:#e3f4e6;color:#14602b;font-weight:700;}
+.pix-status.erro{background:#fde8e6;color:#8a2117;}
 .pix-aviso{background:var(--gold-soft);border-radius:12px;padding:10px 12px;font-size:13px;margin:10px 0;line-height:1.45;}
 .pix-chave{font-size:12.5px;color:var(--ink-soft);margin:6px 0 10px;}
 .dica-pix{display:block;margin-top:6px;font-size:12.5px;color:var(--ink-soft);}
@@ -2477,7 +2483,7 @@ function enviarPedidoWhatsapp(){
   if(ehPix){
     // O WhatsApp NAO abre sozinho: senao ele fica na frente do QR. O cliente avisa depois de pagar, pelo botao "Ja paguei".
     const zap = document.getElementById('pixZap'); if(zap) zap.href = url;
-    mostrarPix(desc.total);
+    if(PIX.mp) mostrarPixMP(desc.total, telefone); else mostrarPix(desc.total);
     return;
   }
 
@@ -2536,7 +2542,8 @@ async function carregarPix(){
 }
 function atualizarDicaPix(){
   const sel = document.getElementById('campoPagamento'), d = document.getElementById('dicaPixOnline');
-  if(sel && d) d.classList.toggle('hidden', sel.value !== PIX_ROTULO);
+  if(sel && d){ d.classList.toggle('hidden', sel.value !== PIX_ROTULO);
+    if(PIX && PIX.mp) d.textContent = 'Depois de enviar o pedido, mostramos o QR Code. Assim que o Pix for confirmado, seu pedido entra na produção sozinho, sem espera.'; }
 }
 
 /* ---------- Troco (so quando paga em dinheiro) ---------- */
@@ -2588,7 +2595,109 @@ function mostrarPix(valor){
   document.getElementById('btnCopiarPix').textContent = 'Copiar código Pix';
   document.getElementById('modalPix').classList.remove('hidden');
 }
-function fecharPix(){ document.getElementById('modalPix').classList.add('hidden'); }
+function fecharPix(){ pararPixMP(); document.getElementById('modalPix').classList.add('hidden'); }
+
+/* ---------- Pix com confirmacao automatica (Mercado Pago) ---------- */
+let mpTimer = null, mpOrder = null, mpFim = false, mpTentativas = 0, mpVisHandler = null;
+function mpUrl(acao, extra){ return `${SUPABASE_URL}/functions/v1/mercadopago?acao=${acao}${extra||''}`; }
+function mpHeaders(){ return {"apikey":SUPABASE_KEY,"Authorization":`Bearer ${SUPABASE_KEY}`,"Content-Type":"application/json"}; }
+function pararPixMP(){
+  if(mpTimer){ clearTimeout(mpTimer); mpTimer = null; }
+  if(mpVisHandler){ document.removeEventListener('visibilitychange', mpVisHandler); mpVisHandler = null; }
+  mpOrder = null; mpFim = true;
+}
+function pixStatus(tipo, html){
+  const el = document.getElementById('pixStatus'); if(!el) return;
+  el.className = 'pix-status' + (tipo ? ' ' + tipo : '');
+  el.innerHTML = html || ''; el.classList.toggle('hidden', !html);
+}
+let pixAvisoOriginal = null;
+function pixModoManual(){            // volta ao jeito antigo (QR fixo + "Ja paguei")
+  const av = document.getElementById('pixAviso');
+  if(pixAvisoOriginal !== null) av.innerHTML = pixAvisoOriginal;
+  document.getElementById('pixCorpo').classList.remove('hidden');
+  av.classList.remove('hidden');
+  document.getElementById('pixZap').classList.remove('hidden');
+}
+function pixPago(){
+  pararPixMP();
+  document.getElementById('pixCorpo').classList.add('hidden');
+  document.getElementById('pixAviso').classList.add('hidden');
+  document.getElementById('pixZap').classList.add('hidden');
+  document.getElementById('pixTitulo').textContent = 'Pix confirmado';
+  pixStatus('ok', '✅ Pix confirmado!<br><span style="font-weight:400">Seu pedido já está na cozinha. Obrigado!</span>');
+  document.getElementById('btnFecharPix').textContent = 'Fechar';
+  try{ fbq('trackCustom', 'PixConfirmado'); }catch(e){}
+}
+async function conferirPixMP(){
+  if(mpFim || !mpOrder) return;
+  mpTentativas++;
+  let proximo = mpTentativas < 40 ? 3000 : 8000;            // 3 s no comeco, depois mais espacado
+  try{
+    const r = await fetch(mpUrl('consultar', '&id=' + encodeURIComponent(mpOrder)), {headers: mpHeaders()});
+    const j = await r.json();
+    if(j && j.ok){
+      if(j.estado === 'pago'){ pixPago(); return; }
+      if(j.estado === 'expirado' || j.estado === 'cancelado' || j.estado === 'falhou'){
+        pararPixMP();
+        document.getElementById('pixCorpo').classList.add('hidden');
+        document.getElementById('pixAviso').classList.add('hidden');
+        document.getElementById('pixZap').classList.remove('hidden');
+        pixStatus('erro', 'Esse Pix expirou. Toque no botão abaixo e fale com a gente no WhatsApp para gerar outro.');
+        return;
+      }
+    }
+  }catch(e){ /* sem internet por um instante: tenta de novo */ }
+  if(mpTentativas > 400){ return; }                           // ~40 min: para de perguntar
+  mpTimer = setTimeout(conferirPixMP, proximo);
+}
+async function mostrarPixMP(valor, telefone){
+  if(!(valor > 0)) return;
+  pararPixMP(); mpFim = false; mpTentativas = 0;
+  if(pixAvisoOriginal === null) pixAvisoOriginal = document.getElementById('pixAviso').innerHTML;
+  document.getElementById('pixTitulo').textContent = 'Pague por Pix';
+  document.getElementById('pixValor').textContent = fmtMoeda(valor);
+  document.getElementById('pixQr').innerHTML = '';
+  document.getElementById('pixCodigo').value = '';
+  document.getElementById('pixRecebedor').textContent = '';
+  document.getElementById('btnCopiarPix').textContent = 'Copiar código Pix';
+  document.getElementById('pixCorpo').classList.add('hidden');
+  document.getElementById('pixAviso').classList.add('hidden');
+  document.getElementById('pixZap').classList.add('hidden');
+  pixStatus('', 'Gerando seu Pix…');
+  document.getElementById('modalPix').classList.remove('hidden');
+  let j = null;
+  try{
+    const r = await fetch(mpUrl('criar'), {method:'POST', headers: mpHeaders(), body: JSON.stringify({telefone: String(telefone||'').replace(/\D/g,'')})});
+    j = await r.json();
+  }catch(e){ j = null; }
+  if(mpFim) return;                                           // cliente fechou a tela enquanto gerava
+  if(!j || !j.ok){                                            // deu ruim: volta para o Pix de sempre (QR fixo + conferencia da equipe)
+    pixStatus('', '');
+    pixModoManual();
+    mostrarPix(valor);
+    return;
+  }
+  if(j.ja_pago){ mpOrder = j.order_id; pixPago(); return; }
+  document.getElementById('pixCodigo').value = j.qr_code;
+  document.getElementById('pixRecebedor').textContent = 'Recebedor: ' + (PIX.recebedor || 'Gran Paolo');
+  try{
+    const qr = qrcode(0, 'M'); qr.addData(j.qr_code); qr.make();
+    document.getElementById('pixQr').innerHTML = qr.createSvgTag({cellSize: 4, margin: 2, scalable: true});
+  }catch(e){
+    if(j.qr_code_base64) document.getElementById('pixQr').innerHTML = '<img alt="QR Code do Pix" style="width:220px;height:220px" src="data:image/png;base64,' + j.qr_code_base64 + '">';
+    else document.getElementById('pixQr').textContent = 'Use o Pix Copia e Cola abaixo.';
+  }
+  document.getElementById('pixCorpo').classList.remove('hidden');
+  const av = document.getElementById('pixAviso');
+  av.innerHTML = 'Seu pedido já foi enviado. <b>Assim que o Pix for confirmado, ele entra na produção sozinho.</b> Não precisa avisar ninguém. Pode deixar esta tela aberta.';
+  av.classList.remove('hidden');
+  pixStatus('', '⏳ Aguardando o pagamento…');
+  mpOrder = j.order_id;
+  mpVisHandler = function(){ if(!document.hidden && !mpFim){ if(mpTimer){ clearTimeout(mpTimer); } conferirPixMP(); } };
+  document.addEventListener('visibilitychange', mpVisHandler);   // voltou do app do banco: confere na hora
+  mpTimer = setTimeout(conferirPixMP, 2500);
+}
 async function copiarPix(){
   const campo = document.getElementById('pixCodigo'), b = document.getElementById('btnCopiarPix');
   let ok = false;
