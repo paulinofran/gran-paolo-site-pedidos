@@ -2624,6 +2624,8 @@ function pixPago(){
   document.getElementById('pixCorpo').classList.add('hidden');
   document.getElementById('pixAviso').classList.add('hidden');
   document.getElementById('pixZap').classList.add('hidden');
+  document.getElementById('pixQr').innerHTML = '';
+  document.getElementById('pixRecebedor').textContent = '';
   document.getElementById('pixTitulo').textContent = 'Pix confirmado';
   pixStatus('ok', '✅ Pix confirmado!<br><span style="font-weight:400">Seu pedido já está na cozinha. Obrigado!</span>');
   document.getElementById('btnFecharPix').textContent = 'Fechar';
@@ -2640,6 +2642,7 @@ async function conferirPixMP(){
       if(j.estado === 'pago'){ pixPago(); return; }
       if(j.estado === 'expirado' || j.estado === 'cancelado' || j.estado === 'falhou'){
         pararPixMP();
+        document.getElementById('pixQr').innerHTML = ''; document.getElementById('pixRecebedor').textContent = '';
         document.getElementById('pixCorpo').classList.add('hidden');
         document.getElementById('pixAviso').classList.add('hidden');
         document.getElementById('pixZap').classList.remove('hidden');
