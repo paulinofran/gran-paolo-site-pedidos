@@ -2399,7 +2399,7 @@ let NOTA_LIGADA = false;
 function pagamentoEhCartao(v){ return /^Cart[ãa]o de (cr[ée]dito|d[ée]bito)/i.test(String(v || '')); }
 function atualizarBandeira(){
   const sel = document.getElementById('campoPagamento'), b = document.getElementById('blocoBandeira'); if(!sel || !b) return;
-  const mostra = NOTA_LIGADA && pagamentoEhCartao(sel.value);
+  const mostra = false;   // a Fran decidiu: o cliente NAO escolhe a bandeira (muitas opcoes, ele erra). O site manda 99 (Outros) sozinho.
   b.classList.toggle('hidden', !mostra);
   if(!mostra){ const c = document.getElementById('campoBandeira'); if(c){ c.value = ''; c.classList.remove('invalido'); } }
 }
@@ -2444,10 +2444,7 @@ function enviarPedidoWhatsapp(){
     campoCpf.focus(); return;
   }
 
-  const selBand = document.getElementById('campoBandeira'), bandeiraSel = (selBand && !document.getElementById('blocoBandeira').classList.contains('hidden')) ? selBand.value : '';
-  if(NOTA_LIGADA && pagamentoEhCartao(pagamento) && !QR_LOCAL && !bandeiraSel){
-    selBand.classList.add('invalido'); alert('Escolha a bandeira do cartão (Visa, Mastercard, Elo...). É para emitirmos a sua nota fiscal na hora.'); selBand.focus(); return;
-  }
+  const bandeiraSel = (NOTA_LIGADA && pagamentoEhCartao(pagamento) && !QR_LOCAL) ? '99' : '';   // 99 = Outros (a nota sai como cartao de credito/debito)
   if(CODIGO_JA_USADO && carrinhoTemPromoLiberada()){ alert('Este número de WhatsApp já usou o código ' + CODIGO_LIBERADO + '. A promoção vale uma vez por cliente. Tire o item da promoção do carrinho ou fale com a gente.'); return; }
   salvarDadosCliente(nome, endereco, telefone);
   const desc = calcularDescontos();                       // cashback e pontos que o cliente escolheu usar
