@@ -252,6 +252,7 @@ header.top{padding:10px 16px 10px;padding-top:calc(10px + env(safe-area-inset-to
 .dica-cpf{display:block;margin-top:5px;font-size:12px;color:var(--ink-soft);}
 .dica-cpf.erro{color:#b3261e;font-weight:600;}
 #campoCpf.invalido{border-color:#b3261e !important;}
+#campoBandeira.invalido{border-color:#b3261e !important;}
 
 /* ---------- Nav inferior ---------- */
 nav.bottom{
@@ -510,13 +511,26 @@ body.com-barra #app{padding-bottom:150px;}
 
     <div class="field">
       <label id="rotuloPagamento">Forma de pagamento (na entrega/retirada)</label>
-      <select id="campoPagamento" onchange="atualizarDicaPix(); atualizarTroco()">
+      <select id="campoPagamento" onchange="atualizarDicaPix(); atualizarTroco(); atualizarBandeira()">
         <option>Cartão de crédito (maquininha)</option>
         <option>Cartão de débito (maquininha)</option>
         <option value="Pix">Pix na entrega ou retirada (pago pessoalmente)</option>
         <option>Dinheiro</option>
         <option value="Pix online (QR Code)" id="optPixOnline" hidden disabled>Pix agora pelo site (QR Code) — pedido começa após o Pix cair</option>
       </select>
+      <div class="field hidden" id="blocoBandeira" style="margin-top:10px">
+        <label>Bandeira do cartão</label>
+        <select id="campoBandeira" onchange="this.classList.remove('invalido')">
+          <option value="">Escolha a bandeira…</option>
+          <option value="01">Visa</option>
+          <option value="02">Mastercard</option>
+          <option value="06">Elo</option>
+          <option value="07">Hipercard</option>
+          <option value="03">American Express</option>
+          <option value="99">Outra / vale-refeição</option>
+        </select>
+        <small class="dica-cpf">Só para emitir a sua nota fiscal na hora. Você paga na maquininha, na entrega ou retirada.</small>
+      </div>
       <small class="dica-pix hidden" id="dicaPixOnline">Depois de enviar o pedido, mostramos o QR Code. O pedido só entra na produção depois que conferirmos o seu Pix.</small>
     </div>
 
@@ -2377,7 +2391,23 @@ async function carregarFiscalAtivo(){
     const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/fiscal_ativo`, {method:'POST', headers:{"apikey":SUPABASE_KEY,"Authorization":`Bearer ${SUPABASE_KEY}`,"Content-Type":"application/json"}, body: JSON.stringify({p_loja: LOJA_ID})});
     const ativo = r.ok ? await r.json() : false;
     const b = document.getElementById('blocoCpf'); if(b) b.classList.toggle('hidden', ativo !== true);
+    NOTA_LIGADA = (ativo === true); atualizarBandeira();
   }catch(e){ /* sem internet ou banco sem a Parte G: o campo simplesmente nao aparece */ }
+}
+/* ---------- Bandeira do cartao (so quando a nota fiscal esta ligada): a nota sai sozinha, junto com o pedido ---------- */
+let NOTA_LIGADA = false;
+function pagamentoEhCartao(v){ return /^Cart[ãa]o de (cr[ée]dito|d[ée]bito)/i.test(String(v || '')); }
+function atualizarBandeira(){
+  const sel = document.getElementById('campoPagamento'), b = document.getElementById('blocoBandeira'); if(!sel || !b) return;
+  const mostra = NOTA_LIGADA && pagamentoEhCartao(sel.value);
+  b.classList.toggle('hidden', !mostra);
+  if(!mostra){ const c = document.getElementById('campoBandeira'); if(c){ c.value = ''; c.classList.remove('invalido'); } }
+}
+function enviarBandeiraDoPedido(telefone, bandeira){
+  try{
+    fetch(`${SUPABASE_URL}/rest/v1/rpc/registrar_bandeira_pedido`, {method:"POST", headers:{"apikey":SUPABASE_KEY,"Authorization":`Bearer ${SUPABASE_KEY}`,"Content-Type":"application/json"}, keepalive:true,
+      body: JSON.stringify({p_loja: LOJA_ID, p_telefone: telefone, p_bandeira: bandeira})}).catch(()=>{});
+  }catch(e){}
 }
 function enviarCpfDoPedido(telefone, cpf){
   try{
@@ -2414,6 +2444,10 @@ function enviarPedidoWhatsapp(){
     campoCpf.focus(); return;
   }
 
+  const selBand = document.getElementById('campoBandeira'), bandeiraSel = (selBand && !document.getElementById('blocoBandeira').classList.contains('hidden')) ? selBand.value : '';
+  if(NOTA_LIGADA && pagamentoEhCartao(pagamento) && !QR_LOCAL && !bandeiraSel){
+    selBand.classList.add('invalido'); alert('Escolha a bandeira do cartão (Visa, Mastercard, Elo...). É para emitirmos a sua nota fiscal na hora.'); selBand.focus(); return;
+  }
   if(CODIGO_JA_USADO && carrinhoTemPromoLiberada()){ alert('Este número de WhatsApp já usou o código ' + CODIGO_LIBERADO + '. A promoção vale uma vez por cliente. Tire o item da promoção do carrinho ou fale com a gente.'); return; }
   salvarDadosCliente(nome, endereco, telefone);
   const desc = calcularDescontos();                       // cashback e pontos que o cliente escolheu usar
@@ -2432,6 +2466,7 @@ function enviarPedidoWhatsapp(){
     total: desc.total, pagamento, obs,
   });
   if(cpfDigitos) enviarCpfDoPedido(telefone, cpfDigitos);
+  if(bandeiraSel) enviarBandeiraDoPedido(telefone, bandeiraSel);
 
   // Pixel: "Purchase" = pedido enviado (o pagamento e na entrega/maquininha). Nao repete em 60s.
   const assinaturaPedido = telefone + '|' + (totalCarrinho()+taxa) + '|' + carrinho.map(i=>i.nome+i.qtd).join(',');
