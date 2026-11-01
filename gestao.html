@@ -1542,7 +1542,7 @@ function lerBoleto(txt){
 
 // Procura o codigo de barras numa foto: tenta o leitor nativo do Chrome e depois a biblioteca, em varios tamanhos, giros e recortes.
 async function lerCodigoImagem(arquivo, Z, aoProgresso){
-  const ok = (t)=>{ const d = String(t||'').replace(/\D/g,''); return (d.length === 44 || d.length === 47 || d.length === 48) ? d : null; };
+  const ok = (t)=>{ const d = String(t||'').replace(/\D/g,''); return ((d.length === 44 || d.length === 47 || d.length === 48) && boletoValido(d) && boletoPlausivel(d)) ? d : null; };
   let bmp;
   try{ bmp = await createImageBitmap(arquivo); }
   catch(e){ bmp = await new Promise((res, rej)=>{ const u = URL.createObjectURL(arquivo), im = new Image(); im.onload = ()=>{ URL.revokeObjectURL(u); res(im); }; im.onerror = ()=>rej(new Error('Não consegui abrir essa imagem.')); im.src = u; }); }
@@ -1625,11 +1625,19 @@ function boletoValido(txt){
   }
   return false;
 }
-// procura, no texto lido, uma sequencia de 44/47/48 numeros que passe na conferencia
+// valor e vencimento do codigo precisam fazer sentido (evita aceitar "lixo" que por acaso passa na conferencia)
+function boletoPlausivel(d){
+  const r = lerBoleto(d); if(!r.ok) return false;
+  if(r.valor !== null && (r.valor <= 0 || r.valor > 5000000)) return false;
+  if(r.venc){ const t = Date.parse(r.venc + 'T12:00:00Z'), ano = 365 * 864e5; if(t < Date.now() - 3 * ano || t > Date.now() + 3 * ano) return false; }
+  return true;
+}
+// procura, no texto lido, um codigo de 47/48 numeros que passe na conferencia (4 conferencias, muito seguro).
+// O de 44 (so as listras) nao e aceito na leitura dos numeros: com uma unica conferencia, acha "codigos" falsos por acaso.
 function acharBoletoNoTexto(txt){
   const linhas = String(txt || '').split(/\n+/).map(l=>l.replace(/\D/g, '')).filter(l=>l.length >= 8);
   const blocos = linhas.slice(); for(let i = 0; i + 1 < linhas.length; i++) blocos.push(linhas[i] + linhas[i + 1]); blocos.push(linhas.join(''));
-  for(const b of blocos) for(const n of [47, 48, 44]) for(let i = 0; i + n <= b.length; i++){ const w = b.slice(i, i + n); if(boletoValido(w)) return w; }
+  for(const b of blocos) for(const n of [47, 48]) for(let i = 0; i + n <= b.length; i++){ const w = b.slice(i, i + n); if(boletoValido(w) && boletoPlausivel(w)) return w; }
   return null;
 }
 let tessPromessa = null;
@@ -1657,8 +1665,26 @@ async function lerNumerosImagem(arquivo, aoProgresso){
         if(aoProgresso) aoProgresso(rot, psm);
         await worker.setParameters({tessedit_pageseg_mode: psm});
         const r = await worker.recognize(cv);
-        const d = acharBoletoNoTexto(r && r.data && r.data.text);
+        let d = acharBoletoNoTexto(r && r.data && r.data.text);
         if(d) return d;
+        // a linha de numeros foi achada mas veio cortada no fim: recorta so essa faixa (indo ate a borda direita) e le de novo, maior
+        const cand = ((r && r.data && r.data.lines) || []).map(l=>({l, n:String(l.text || '').replace(/\D/g, '').length})).filter(x=>x.n >= 15 && x.l.bbox).sort((a, b)=>b.n - a.n).slice(0, 2);
+        for(const x of cand){
+          const b = x.l.bbox, alt = Math.max(10, b.y1 - b.y0);
+          const sx = Math.max(0, Math.round(b.x0 - alt)), sy = Math.max(0, Math.round(b.y0 - alt * 0.5));
+          const sw = cv.width - sx, sh = Math.min(cv.height - sy, Math.round(alt * 2));
+          if(sw < 50 || sh < 10) continue;
+          const f = Math.min(3, 2800 / sw), c2 = document.createElement('canvas'); c2.width = Math.round(sw * f); c2.height = Math.round(sh * f);
+          const g2 = c2.getContext('2d'); g2.fillStyle = '#fff'; g2.fillRect(0, 0, c2.width, c2.height); g2.drawImage(cv, sx, sy, sw, sh, 0, 0, c2.width, c2.height);
+          for(const p2 of ['6', '7']){
+            if(Date.now() > limite) return null;
+            await worker.setParameters({tessedit_pageseg_mode: p2});
+            const r2 = await worker.recognize(c2);
+            d = acharBoletoNoTexto(r2 && r2.data && r2.data.text);
+            if(d) return d;
+          }
+          await worker.setParameters({tessedit_pageseg_mode: psm});
+        }
       }
     }
     return null;
@@ -1718,6 +1744,7 @@ async function telaContas(c){
   const dicaCod = el('div', 'dica', 'Se colar o código do boleto, o valor e o vencimento são preenchidos sozinhos. Para ler da foto, tire de perto e reta só a linha de números.');
   cod.oninput = ()=>{ const d = cod.value.replace(/\D/g,''); if(d.length !== 44 && d.length !== 47 && d.length !== 48){ dicaCod.textContent = d.length ? 'Digitados ' + d.length + ' números (precisa de 44, 47 ou 48).' : 'Se colar o código do boleto, o valor e o vencimento são preenchidos sozinhos.'; return; }
     const r = lerBoleto(d); if(!r.ok){ dicaCod.textContent = r.motivo; return; }
+    if(!boletoPlausivel(d)){ dicaCod.textContent = 'Esse código deu valor ou vencimento que não parece certo' + (r.venc ? ' (vence ' + dataBR(r.venc) + ')' : '') + '. Confira se o código está completo e certo; não preenchi nada.'; return; }
     if(r.valor !== null) val.value = String(r.valor.toFixed(2)).replace('.', ','); if(r.venc) ven.value = r.venc;
     let lembrou = false;
     if(r.consumo && !fn.value.trim()){ const k = chaveEmpresa(d); const ant = k && contas.find(x=>x.linha_digitavel && chaveEmpresa(x.linha_digitavel) === k); if(ant){ fn.value = ant.fornecedor; lembrou = true; lembraCat(); } }
@@ -1736,7 +1763,7 @@ async function telaContas(c){
   bCam.onclick = ()=>tentar(async()=>{
     boxScan.style.display = 'block'; stScan.textContent = 'Abrindo a câmera...';
     leitor = await novoLeitor();
-    const achou = (r)=>{ if(!r) return; const d = String(r.getText()).replace(/\D/g,''); if(d.length !== 44 && d.length !== 47 && d.length !== 48) return; fechaScan(); aplicarCodigo(d); aviso('Boleto lido!', 'ok'); };
+    const achou = (r)=>{ if(!r) return; const d = String(r.getText()).replace(/\D/g,''); if(d.length !== 44 && d.length !== 47 && d.length !== 48) return; if(!boletoValido(d) || !boletoPlausivel(d)) return; fechaScan(); aplicarCodigo(d); aviso('Boleto lido!', 'ok'); };
     stScan.textContent = 'Aponte a câmera para as listras do boleto, com boa luz.';
     try{ await leitor.decodeFromConstraints({video:{facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080}}}, video, (r)=>achou(r)); }
     catch(e){ await leitor.decodeFromVideoDevice(null, video, (r)=>achou(r)); }
