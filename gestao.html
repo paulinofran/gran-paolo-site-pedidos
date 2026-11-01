@@ -1090,6 +1090,7 @@ async function telaPainel(c){
 
 /* ============================ CAIXA (fluxo: entrou x saiu) ============================ */
 let cxPreset = 'mes';
+let abrirRapido = false, voltarCaixa = false;   // botao do Caixa que abre o lancamento rapido de gasto pago
 async function telaCaixa(c){
   c.className = 'larga';
   const p = {preset:cxPreset, ...periodoDoPreset(cxPreset)};
@@ -1131,6 +1132,7 @@ async function telaCaixa(c){
   cF.appendChild(tabelaSimples(['Dia', 'Esperado', 'Separado', 'Diferença'], (F.fechamentos || []).map(x=>[brData(x.dia), money(x.esperado), money(x.entregue), (Math.abs(n(x.diferenca)) < 0.005 ? 'Bateu' : (n(x.diferenca) < 0 ? 'Faltou ' : 'Sobrou ') + money(Math.abs(n(x.diferenca))))]), 'Nenhum caixa fechado no período.'));
   corpo.appendChild(cF);
   const bC = el('button', 'btn verde', 'Lançar uma conta a pagar'); bC.style.marginTop = '12px'; bC.onclick = ()=>{ aba = 'contas'; desenhar(); window.scrollTo(0,0); }; corpo.appendChild(bC);
+  const bP = el('button', 'btn verde', '⚡ Lançar gasto já pago'); bP.style.cssText = 'margin-top:8px;display:block'; bP.onclick = ()=>{ abrirRapido = true; voltarCaixa = true; aba = 'contas'; desenhar(); window.scrollTo(0,0); }; corpo.appendChild(bP);
 }
 
 /* ============================ MOTOR FINANCEIRO (real) ============================ */
@@ -1763,10 +1765,11 @@ async function telaContas(c){
     rhist.appendChild(el('div', '', '✔ ' + nome + ' · ' + money(v) + ' · ' + rforma.options[rforma.selectedIndex].textContent.replace('💵 ', '').replace(/ \(.*\)/, '') + ' · ' + dataBR(dia)));
     rd.value = ''; rv.value = ''; rd.focus();
   }, 'Gasto lançado');
-  const rpronto = el('button', 'btn cinza', 'Pronto, atualizar a lista'); rpronto.style.marginTop = '6px'; rpronto.onclick = ()=>desenhar();
+  const rpronto = el('button', 'btn cinza', 'Pronto, atualizar a lista'); rpronto.style.marginTop = '6px'; rpronto.onclick = ()=>{ if(voltarCaixa){ voltarCaixa = false; aba = 'caixa'; window.scrollTo(0,0); } desenhar(); };
   const rl1 = el('div', 'linha'); rl1.appendChild(campo('Com o quê', rd)); rl1.appendChild(campo('Valor (R$)', rv));
   rcx.appendChild(rl1); rcx.appendChild(campo('Como pagou', rforma)); rcx.appendChild(rcampoCat); rcx.appendChild(campo('Dia', rdata));
   rcx.appendChild(rb); rcx.appendChild(rhist); rcx.appendChild(rpronto);
+  if(abrirRapido){ rap.open = true; abrirRapido = false; }
 
   // nova conta
   const nova = el('details'); nova.appendChild(el('summary', '', '+ Nova conta'));
