@@ -1608,6 +1608,63 @@ function carregarZxing(){
   if(!zxPromessa) zxPromessa = new Promise((ok, falha)=>{ const sc = document.createElement('script'); sc.src = 'https://unpkg.com/@zxing/library@0.20.0/umd/index.min.js'; sc.onload = ()=>window.ZXing ? ok(window.ZXing) : falha(new Error('A biblioteca de leitura não carregou.')); sc.onerror = ()=>{ zxPromessa = null; falha(new Error('Não consegui baixar o leitor. Confira a internet.')); }; document.head.appendChild(sc); });
   return zxPromessa;
 }
+/* ---------- leitura dos NUMEROS impressos no boleto (OCR), com conferencia dos digitos verificadores ---------- */
+function dv11banc(t){ let soma = 0, peso = 2; for(let i = t.length - 1; i >= 0; i--){ soma += Number(t[i]) * peso; peso = peso === 9 ? 2 : peso + 1; } const dv = 11 - soma % 11; return (dv === 0 || dv === 10 || dv === 11) ? 1 : dv; }
+function boletoValido(txt){
+  const d = String(txt || '').replace(/\D/g, '');
+  if(d.length === 47){
+    const c1 = d.slice(0, 10), c2 = d.slice(10, 21), c3 = d.slice(21, 32);
+    if(dv10(c1.slice(0, 9)) !== Number(c1[9]) || dv10(c2.slice(0, 10)) !== Number(c2[10]) || dv10(c3.slice(0, 10)) !== Number(c3[10])) return false;
+    const barras = d.slice(0, 4) + d[32] + d.slice(33, 47) + d.slice(4, 9) + d.slice(10, 20) + d.slice(21, 31);
+    return dv11banc(barras.slice(0, 4) + barras.slice(5)) === Number(d[32]);
+  }
+  if(d.length === 44 && d[0] !== '8') return dv11banc(d.slice(0, 4) + d.slice(5)) === Number(d[4]);
+  if(d.length === 48 && d[0] === '8'){
+    const f = '67'.indexOf(d[2]) >= 0 ? dv10 : dv11conv;
+    return [0, 12, 24, 36].every(i=>f(d.slice(i, i + 11)) === Number(d[i + 11]));
+  }
+  return false;
+}
+// procura, no texto lido, uma sequencia de 44/47/48 numeros que passe na conferencia
+function acharBoletoNoTexto(txt){
+  const linhas = String(txt || '').split(/\n+/).map(l=>l.replace(/\D/g, '')).filter(l=>l.length >= 8);
+  const blocos = linhas.slice(); for(let i = 0; i + 1 < linhas.length; i++) blocos.push(linhas[i] + linhas[i + 1]); blocos.push(linhas.join(''));
+  for(const b of blocos) for(const n of [47, 48, 44]) for(let i = 0; i + n <= b.length; i++){ const w = b.slice(i, i + n); if(boletoValido(w)) return w; }
+  return null;
+}
+let tessPromessa = null;
+function carregarTesseract(){
+  if(window.Tesseract) return Promise.resolve(window.Tesseract);
+  if(!tessPromessa) tessPromessa = new Promise((ok, falha)=>{ const sc = document.createElement('script'); sc.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js'; sc.onload = ()=>window.Tesseract ? ok(window.Tesseract) : falha(new Error('O leitor de números não carregou.')); sc.onerror = ()=>{ tessPromessa = null; falha(new Error('Não consegui baixar o leitor de números. Confira a internet.')); }; document.head.appendChild(sc); });
+  return tessPromessa;
+}
+async function lerNumerosImagem(arquivo, aoProgresso){
+  const T = await carregarTesseract();
+  let bmp;
+  try{ bmp = await createImageBitmap(arquivo, {imageOrientation:'from-image'}); }
+  catch(e){ try{ bmp = await createImageBitmap(arquivo); }catch(e2){ throw new Error('Não consegui abrir essa imagem.'); } }
+  const esc = Math.min(1, 1800 / Math.max(bmp.width, bmp.height)), w = Math.round(bmp.width * esc), h = Math.round(bmp.height * esc);
+  const worker = await T.createWorker('eng');
+  const limite = Date.now() + 100000;
+  try{
+    for(const rot of [0, 90, 270, 180]){
+      const girado = rot === 90 || rot === 270;
+      const cv = document.createElement('canvas'); cv.width = girado ? h : w; cv.height = girado ? w : h;
+      const cx = cv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, cv.width, cv.height);
+      cx.translate(cv.width / 2, cv.height / 2); cx.rotate(rot * Math.PI / 180); cx.drawImage(bmp, -w / 2, -h / 2, w, h);
+      for(const psm of ['11', '6']){
+        if(Date.now() > limite) return null;
+        if(aoProgresso) aoProgresso(rot, psm);
+        await worker.setParameters({tessedit_pageseg_mode: psm});
+        const r = await worker.recognize(cv);
+        const d = acharBoletoNoTexto(r && r.data && r.data.text);
+        if(d) return d;
+      }
+    }
+    return null;
+  }finally{ try{ await worker.terminate(); }catch(e){} }
+}
+
 async function telaContas(c){
   c.appendChild(el('h2', '', 'Contas a pagar'));
   const topo = el('div'); c.appendChild(topo);
@@ -1650,14 +1707,15 @@ async function telaContas(c){
   // nova conta
   const nova = el('details'); nova.appendChild(el('summary', '', '+ Nova conta'));
   const fn = el('input'); fn.placeholder = 'Fornecedor'; fn.setAttribute('list', 'listaForn');
-  const dl = el('datalist'); dl.id = 'listaForn'; forn.forEach(x=>{ const o = el('option'); o.value = x.nome; dl.appendChild(o); });
+  const nomesForn = (()=>{ const m = new Map(); forn.forEach(x=>m.set(String(x.nome).toLowerCase(), x.nome)); contas.forEach(x=>{ const n = String(x.fornecedor || '').trim(); if(n && !m.has(n.toLowerCase())) m.set(n.toLowerCase(), n); }); return Array.from(m.values()).sort((a, b)=>a.localeCompare(b, 'pt-BR')); })();
+  const dl = el('datalist'); dl.id = 'listaForn'; nomesForn.forEach(n=>{ const o = el('option'); o.value = n; dl.appendChild(o); });
   const val = inputNum(''); const ven = el('input'); ven.type = 'date';
   const obs = el('input'); obs.placeholder = 'Observação (opcional)';
   const cat = selCategoria('outros'); let catManual = false; cat.onchange = ()=>{ catManual = true; };
   const lembraCat = ()=>{ if(catManual) return; const n = fn.value.trim().toLowerCase(); const ant = n && contas.find(x=>x.fornecedor.toLowerCase() === n); if(ant && ant.categoria) cat.value = ant.categoria; };
   fn.addEventListener('change', lembraCat); fn.addEventListener('input', lembraCat);
   const cod = el('input'); cod.placeholder = 'Cole aqui o código do boleto (opcional)'; cod.inputMode = 'numeric';
-  const dicaCod = el('div', 'dica', 'Se colar o código do boleto, o valor e o vencimento são preenchidos sozinhos.');
+  const dicaCod = el('div', 'dica', 'Se colar o código do boleto, o valor e o vencimento são preenchidos sozinhos. Para ler da foto, tire de perto e reta só a linha de números.');
   cod.oninput = ()=>{ const d = cod.value.replace(/\D/g,''); if(d.length !== 44 && d.length !== 47 && d.length !== 48){ dicaCod.textContent = d.length ? 'Digitados ' + d.length + ' números (precisa de 44, 47 ou 48).' : 'Se colar o código do boleto, o valor e o vencimento são preenchidos sozinhos.'; return; }
     const r = lerBoleto(d); if(!r.ok){ dicaCod.textContent = r.motivo; return; }
     if(r.valor !== null) val.value = String(r.valor.toFixed(2)).replace('.', ','); if(r.venc) ven.value = r.venc;
@@ -1683,7 +1741,26 @@ async function telaContas(c){
     try{ await leitor.decodeFromConstraints({video:{facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080}}}, video, (r)=>achou(r)); }
     catch(e){ await leitor.decodeFromVideoDevice(null, video, (r)=>achou(r)); }
   });
-  const bFoto = el('label', 'btn cinza', '🖼️ Ler da galeria (foto ou print)'); bFoto.style.cursor = 'pointer';
+  const bCola = el('button', 'btn cinza', '📋 Colar código copiado');
+  bCola.onclick = ()=>tentar(async()=>{
+    let t = ''; try{ t = await navigator.clipboard.readText(); }catch(e){ throw new Error('O navegador não deixou colar sozinho. Clique no campo "Código do boleto" e aperte Ctrl+V.'); }
+    const d = String(t || '').replace(/\D/g, '');
+    if(d.length !== 44 && d.length !== 47 && d.length !== 48) throw new Error('O que está copiado não parece um código de boleto (precisa de 44, 47 ou 48 números). Copie de novo o código no app do banco ou no e-mail do boleto.');
+    aplicarCodigo(d); aviso('Código colado!', 'ok');
+  });
+  const bNum = el('label', 'btn verde', '🔢 Ler os números da foto'); bNum.style.cursor = 'pointer';
+  const arqN = el('input'); arqN.type = 'file'; arqN.accept = 'image/*'; arqN.style.display = 'none'; bNum.appendChild(arqN);
+  arqN.onchange = ()=>tentar(async()=>{
+    const f = arqN.files[0]; if(!f) return;
+    boxScan.style.display = 'block'; video.style.display = 'none'; bFecha.style.display = 'none'; stScan.textContent = 'Carregando o leitor de números... (na primeira vez demora um pouco)';
+    try{
+      let n = 0;
+      const d = await lerNumerosImagem(f, ()=>{ n++; stScan.textContent = 'Lendo os números da foto... tentativa ' + n + ' de 8 (pode levar até 1 minuto).'; });
+      if(!d) throw new Error('Não consegui ler os números com segurança. Tire a foto de perto, reta e só da linha de números do boleto, ou cole o código.');
+      aplicarCodigo(d); aviso('Boleto lido pelos números e conferido!', 'ok');
+    }finally{ boxScan.style.display = 'none'; video.style.display = ''; bFecha.style.display = ''; arqN.value = ''; }
+  });
+  const bFoto = el('label', 'btn cinza', '🖼️ Ler as listras (foto ou print)'); bFoto.style.cursor = 'pointer';
   const arq = el('input'); arq.type = 'file'; arq.accept = 'image/*'; arq.style.display = 'none'; bFoto.appendChild(arq);
   arq.onchange = ()=>tentar(async()=>{
     const f = arq.files[0]; if(!f) return;
@@ -1696,16 +1773,27 @@ async function telaContas(c){
     }finally{ boxScan.style.display = 'none'; video.style.display = ''; bFecha.style.display = ''; arq.value = ''; }
   });
   const f1 = el('div', 'cartao'); f1.style.marginTop = '8px';
-  const lBot = el('div', 'linha'); lBot.appendChild(bCam); lBot.appendChild(bFoto); f1.appendChild(lBot); f1.appendChild(boxScan);
+  const lBot = el('div', 'linha'); lBot.appendChild(bNum); lBot.appendChild(bCola); lBot.appendChild(bCam); lBot.appendChild(bFoto); f1.appendChild(lBot); f1.appendChild(boxScan);
   const l1 = el('div', 'linha'); l1.appendChild(campo('Fornecedor', fn)); l1.appendChild(campo('Valor (R$)', val)); l1.appendChild(campo('Vencimento', ven));
-  f1.appendChild(l1); f1.appendChild(campo('Categoria', cat)); f1.appendChild(dl); f1.appendChild(campo('Código do boleto', cod)); f1.appendChild(dicaCod); f1.appendChild(campo('Observação', obs));
+  f1.appendChild(l1);
+  const escolha = el('select'); const o00 = el('option', '', nomesForn.length ? 'Escolher um fornecedor já salvo (' + nomesForn.length + ')...' : 'Nenhum fornecedor salvo ainda'); o00.value = ''; escolha.appendChild(o00);
+  nomesForn.forEach(n=>{ const o = el('option', '', n); o.value = n; escolha.appendChild(o); });
+  escolha.onchange = ()=>{ if(escolha.value){ fn.value = escolha.value; lembraCat(); escolha.value = ''; } };
+  f1.appendChild(campo('Fornecedor já salvo', escolha));
+  const usos = {}; contas.forEach(x=>{ const n = String(x.fornecedor || '').trim(); if(n) usos[n] = (usos[n] || 0) + 1; });
+  const maisUsados = Object.keys(usos).sort((a, b)=>usos[b] - usos[a]).slice(0, 8);
+  if(maisUsados.length){ const ch = el('div'); ch.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;margin:6px 0'; maisUsados.forEach(n=>{ const b = el('button', 'btn peq cinza', n); b.onclick = ()=>{ fn.value = n; lembraCat(); }; ch.appendChild(b); }); f1.appendChild(el('div', 'dica', 'Mais usados (um toque preenche):')); f1.appendChild(ch); }
+  f1.appendChild(campo('Categoria', cat)); f1.appendChild(dl); f1.appendChild(campo('Código do boleto', cod)); f1.appendChild(dicaCod); f1.appendChild(campo('Observação', obs));
   const bs = el('button', 'btn verde', 'Salvar conta'); bs.style.marginTop = '8px';
   bs.onclick = ()=>tentar(async()=>{
     const nome = fn.value.trim(); if(!nome) throw new Error('Falta o fornecedor.');
     const v = num(val.value); if(v === null || v < 0) throw new Error('Valor inválido.');
     const d = cod.value.replace(/\D/g,''); if(d && d.length !== 44 && d.length !== 47 && d.length !== 48) throw new Error('O código precisa de 44, 47 ou 48 números.');
-    if(!forn.some(x=>x.nome.toLowerCase() === nome.toLowerCase())) await inserir('fornecedores_pagar', {loja_id:LOJA, nome});
     await inserir('contas_pagar', {loja_id:LOJA, fornecedor:nome, categoria:cat.value, valor:v, vencimento:ven.value || null, linha_digitavel:d || null, observacao:obs.value.trim() || null, forma_pagamento: d ? 'boleto' : null});
+    if(!forn.some(x=>String(x.nome).toLowerCase() === nome.toLowerCase())){
+      try{ await inserir('fornecedores_pagar', {loja_id:LOJA, nome}); }
+      catch(e){ aviso('Conta salva, mas não consegui guardar o fornecedor na lista: ' + (e && e.message ? e.message : e) + '. Ele continua aparecendo pelas contas já lançadas.', 'erro'); }
+    }
     desenhar();
   }, 'Conta salva');
   f1.appendChild(bs); nova.appendChild(f1); c.appendChild(nova);
