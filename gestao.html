@@ -430,8 +430,76 @@ const paraBanco = (txt, un) => { const n = num(txt); return n === null ? null : 
 
 
 /* ---------- Estoque por grupos (Insumos, Embutidos, Frios e congelados, Descartaveis, Limpeza, Escritorio) ---------- */
-const EST_GRUPOS = ['Insumos', 'Embutidos', 'Frios e congelados', 'Bebidas', 'Descartáveis', 'Limpeza', 'Escritório'];
+const EST_GRUPOS = ['Insumos', 'Embutidos', 'Frios e congelados', 'Bebidas', 'Descartáveis', 'Limpeza e escritório'];
 const EST_COMIDA = ['Insumos', 'Embutidos', 'Frios e congelados'];
+/* nomes antigos (antes da Parte BV) aparecem já no grupo novo */
+const grupoDe = (i)=>{ const g = i.grupo || 'Insumos'; return (g === 'Limpeza' || g === 'Escritório') ? 'Limpeza e escritório' : g; };
+/* o que está (ou deve estar) na linha de produção */
+const emLinha = (i)=> (Number(i.saldo_producao) || 0) !== 0 || Number(i.minimo_producao) > 0 || (Array.isArray(i.ideal_semana) && i.ideal_semana.some(x=>Number(x) > 0));
+const noGrupo = (i, g)=> g === 'Todos' || (g === 'Produção' ? emLinha(i) : g === 'Pizzas' ? false : grupoDe(i) === g);
+/* aba Pizzas: consulta do que cada pizza leva e o que tem na linha */
+function cartaoPizzas(insTodos){
+  const box = el('div', 'cartao'); box.style.background = '#FFF8F0';
+  box.appendChild(el('div', 'nome', '🍕 Pizzas: o que cada uma leva'));
+  box.appendChild(el('div', 'dica', 'Digite o sabor para achar a pizza. Ao abrir, você vê cada ingrediente, quanto leva e quanto tem na linha agora. Para mudar uma receita, use a aba Fichas.'));
+  const busca = el('input'); busca.placeholder = 'Buscar pizza (ex.: frango)'; busca.style.cssText = 'width:100%;padding:10px;margin:8px 0;max-width:420px'; box.appendChild(busca);
+  const lista = el('div'); box.appendChild(lista); lista.appendChild(el('div', 'vazio', 'Carregando as pizzas...'));
+  (async()=>{ try{
+    const f = 'loja_id=eq.' + LOJA;
+    const [fichas, itens] = await Promise.all([
+      api(`/rest/v1/est_fichas?select=id,nome,chave&${f}&order=nome.asc&limit=2000`),
+      api(`/rest/v1/est_ficha_itens?select=ficha_id,insumo_id,qtd&${f}&limit=10000`)]);
+    if(!box.isConnected) return;
+    const mapa = {}; insTodos.forEach(i=>{ mapa[i.id] = i; });
+    const itensDe = {}; itens.forEach(i=>{ (itensDe[i.ficha_id] = itensDe[i.ficha_id] || []).push(i); });
+    lista.textContent = '';
+    const blocos = [];
+    fichas.filter(fc=>normN(fc.nome || fc.chave || '').indexOf('pizza') === 0).forEach(fc=>{
+      const its = itensDe[fc.id] || []; let custo = 0, poss = null;
+      const linhas = its.map(it=>{
+        const ins = mapa[it.insumo_id], q = Number(it.qtd) || 0, un = ins && ins.unidade === 'un' ? 'un' : 'g';
+        const ctl = !!ins && ins.controlar !== false, pro = ins ? Number(ins.saldo_producao) || 0 : 0, cen = ins ? Number(ins.saldo_central) || 0 : 0;
+        if(ins) custo += q * (Number(ins.custo_por_g) || 0);
+        if(ctl && q > 0){ const n = Math.floor(Math.max(0, pro) / q); poss = poss === null ? n : Math.min(poss, n); }
+        return [ins ? ins.nome : '(insumo não encontrado)', fmtQtd(q, un), ctl ? fmtQtd(pro, un) : 'sem controle', ctl ? fmtQtd(cen, un) : '—', !ins ? '❓' : !ctl ? '—' : pro >= q ? '✅ tem' : '⚠️ falta na linha'];
+      });
+      const d = el('details'); d.style.cssText = 'border-bottom:1px dashed var(--line);padding:6px 0';
+      d.appendChild(el('summary', '', fc.nome + ' · custo ' + money(custo) + (poss !== null ? ' · dá para ' + poss + ' na linha agora' : '')));
+      d.appendChild(linhas.length ? tabelaSimples(['Ingrediente', 'Leva', 'Na linha', 'Central', 'Situação'], linhas) : el('div', 'vazio', 'Esta ficha ainda não tem ingredientes.'));
+      lista.appendChild(d); blocos.push([normN(fc.nome || ''), d]);
+    });
+    if(!blocos.length) lista.appendChild(el('div', 'vazio', 'Não achei fichas de pizza. Elas ficam na aba Fichas.'));
+    busca.oninput = ()=>{ const t = normN(busca.value); blocos.forEach(([n, d])=>{ d.style.display = !t || n.indexOf(t) >= 0 ? '' : 'none'; }); };
+  }catch(e){ lista.textContent = ''; lista.appendChild(el('div', 'vazio', 'Não consegui ler as fichas das pizzas.')); } })();
+  return box;
+}
+/* cartão: tudo que está na linha agora, com valor e o que falta repor */
+function cartaoLinha(ins){
+  const lnCard = el('div', 'cartao'); lnCard.style.background = '#F3FAF4';
+  lnCard.appendChild(el('div', 'nome', '📍 Na linha agora (produção)'));
+  lnCard.appendChild(el('div', 'dica', 'Tudo o que o sistema acha que está na linha, com o valor em dinheiro e o que falta repor. Para conferir: compare com a bancada e, se estiver diferente, use "Conferir peso" no cartão do insumo (em Saldos). Os negativos e baixos aparecem primeiro.'));
+  const dowLn = agoraLocal().dow;
+  const linhasLn = ins.filter(i=>i.controlar !== false).map(i=>{
+    const pro = Number(i.saldo_producao) || 0, cen = Number(i.saldo_central) || 0, cu = Number(i.custo_por_g) || 0;
+    const mn = Number(i.minimo_producao) || 0;
+    let ideal = 0; if(i.unidade === 'g' && Array.isArray(i.ideal_semana) && Number(i.porcao_g) > 0) ideal = Number(i.ideal_semana[dowLn] || 0) * Number(i.porcao_g);
+    const neg = pro < 0, baixo = !neg && mn > 0 && pro < mn;
+    const repor = ideal > 0 ? Math.max(0, ideal - Math.max(0, pro)) : (baixo ? Math.max(0, mn - pro) : 0);
+    return {i, pro, cen, cu, neg, baixo, repor, st: neg ? 0 : baixo ? 1 : 2};
+  }).filter(x=>x.pro !== 0 || x.baixo || x.repor > 0);
+  linhasLn.sort((a,b)=> a.st - b.st || String(a.i.nome).localeCompare(String(b.i.nome), 'pt-BR'));
+  const totLn = linhasLn.reduce((s,x)=> s + Math.max(0, x.pro) * x.cu, 0);
+  const bigLn = el('div', 'nome', money(totLn)); bigLn.style.cssText = 'font-size:1.6em;margin:6px 0'; lnCard.appendChild(bigLn);
+  lnCard.appendChild(el('div', 'dica', 'Valor de tudo que está na linha agora (itens negativos contam como zero).'));
+  if(!linhasLn.length) lnCard.appendChild(el('div', 'vazio', 'Nada na linha ainda. Use "Passar p/ produção" nos itens abaixo.'));
+  else lnCard.appendChild(tabelaSimples(['Item', 'Na linha', 'Valor', 'Falta repor', 'Situação'], linhasLn.map(x=>[
+    x.i.nome + ' · ' + grupoDe(x.i),
+    fmtQtd(x.pro, x.i.unidade),
+    money(Math.max(0, x.pro) * x.cu),
+    x.repor > 0 ? fmtQtd(x.repor, x.i.unidade) + (x.cen > 0 ? '' : ' (Central sem saldo)') : '—',
+    x.neg ? '⚠️ Negativo' : x.baixo ? '🟡 Baixo' : '✅ OK'])));
+  return lnCard;
+}
 let estGrupo = 'Todos';
 const estQtdTxt = (v, i)=> i.unidade === 'un' ? (Math.round(Number(v) * 10) / 10).toLocaleString('pt-BR') + ' ' + (i.rotulo || 'un') : fmtQtd(v, 'g');
 function blocoGrupos(c, insTodos, recarregar){
@@ -445,7 +513,7 @@ function blocoGrupos(c, insTodos, recarregar){
   if(!temBL) card.appendChild(el('div', 'dica', '⚠️ Falta instalar a Parte BL no banco (arquivo parte-BL-estoque-custo-real.sql) para ligar o custo real, o botão "Passar para a produção" e o grupo Bebidas.')).style.color = '#b45309';
   const pagoDe = (i)=> Number(i.preco_compra) > 0 ? Number(i.preco_compra) : (Number(i.custo_por_g) || 0);
   /* valor em dinheiro por grupo: Central pelo preco pago, Producao pelo custo real (com perda) */
-  const vg = EST_GRUPOS.map(g=>{ const l = ins.filter(i=>(i.grupo || 'Insumos') === g); let c1 = 0, p1 = 0;
+  const vg = EST_GRUPOS.map(g=>{ const l = ins.filter(i=>grupoDe(i) === g); let c1 = 0, p1 = 0;
     l.forEach(i=>{ c1 += Math.max(0, Number(i.saldo_central) || 0) * pagoDe(i); p1 += Math.max(0, Number(i.saldo_producao) || 0) * (Number(i.custo_por_g) || 0); });
     return {g, n:l.length, c1, p1}; });
   const totG = vg.reduce((a, x)=>a + x.c1 + x.p1, 0);
@@ -455,9 +523,9 @@ function blocoGrupos(c, insTodos, recarregar){
   card.appendChild(dvg);
   const baixo = (i)=> Number(i.minimo_central) > 0 && Number(i.saldo_central) <= Number(i.minimo_central);
   const chips = el('div', 'cheios');
-  ['Todos'].concat(EST_GRUPOS).forEach(g=>{
-    const lista = ins.filter(i=>g === 'Todos' || (i.grupo || 'Insumos') === g), nb = lista.filter(baixo).length;
-    const b = el('button', 'btn peq ' + (estGrupo === g ? 'verde' : 'cinza'), g + ' (' + lista.length + ')' + (nb ? ' ⚠️' + nb : ''));
+  ['Todos'].concat(EST_GRUPOS).concat(['Pizzas', 'Produção']).forEach(g=>{
+    const lista = ins.filter(i=>noGrupo(i, g)), nb = lista.filter(baixo).length;
+    const b = el('button', 'btn peq ' + (estGrupo === g ? 'verde' : 'cinza'), g === 'Pizzas' ? '🍕 Pizzas' : (g === 'Produção' ? '📍 ' : '') + g + ' (' + lista.length + ')' + (nb ? ' ⚠️' + nb : ''));
     b.onclick = ()=>{ estGrupo = g; recarregar(); }; chips.appendChild(b); });
   card.appendChild(chips);
   const area = el('div'); area.style.cssText = 'margin:10px 0'; 
@@ -488,7 +556,7 @@ function blocoGrupos(c, insTodos, recarregar){
     {id:'ideal', rot:'Quanto quer ter depois de comprar? (opcional)', num:true},
     {id:'preco', rot:'Preço (R$ por kg ou por unidade/pacote/caixa). Opcional', num:true}],
     async(v)=>{ const nome = (v.nome || '').trim(); if(!nome) throw new Error('Digite o nome do item.');
-      const ja = ins.find(i=>normN(i.nome) === normN(nome)); if(ja) throw new Error('Já existe "' + ja.nome + '" no estoque (grupo ' + (ja.grupo || 'Insumos') + '). Use o que já existe.');
+      const ja = ins.find(i=>normN(i.nome) === normN(nome)); if(ja) throw new Error('Já existe "' + ja.nome + '" no estoque (grupo ' + grupoDe(ja) + '). Use o que já existe.');
       const uni = v.un === 'kg' ? 'g' : 'un', rot = v.un === 'kg' || v.un === 'unidade' ? null : v.un;
       await rpc('est_item_criar', {p_loja:LOJA, p_nome:nome, p_grupo:v.grupo, p_unidade:uni, p_rotulo:rot, p_minimo:emBase(v.minimo, uni), p_ideal:emBase(v.ideal, uni), p_preco:num(v.preco) || 0, p_saldo:emBase(v.saldo, uni)}); }, 'Cadastrar');
   bar.appendChild(bN);
@@ -504,14 +572,16 @@ function blocoGrupos(c, insTodos, recarregar){
   bar.appendChild(bL); card.appendChild(bar); card.appendChild(area);
 
   // ---- tabela
-  const lista = ins.filter(i=>estGrupo === 'Todos' || (i.grupo || 'Insumos') === estGrupo).sort((a, b)=>(baixo(b) - baixo(a)) || a.nome.localeCompare(b.nome, 'pt-BR'));
-  if(!lista.length) card.appendChild(el('div', 'vazio', 'Nenhum item neste grupo ainda. Clique em "Novo item".'));
+  if(estGrupo === 'Produção') card.appendChild(cartaoLinha(ins));
+  if(estGrupo === 'Pizzas') card.appendChild(cartaoPizzas(insTodos));
+  const lista = ins.filter(i=>noGrupo(i, estGrupo)).sort((a, b)=>(baixo(b) - baixo(a)) || a.nome.localeCompare(b.nome, 'pt-BR'));
+  if(!lista.length && estGrupo !== 'Pizzas') card.appendChild(el('div', 'vazio', (estGrupo === 'Produção' ? 'Nada na linha ainda. Em qualquer item, use "Passar p/ produção" (aba Todos).' : 'Nenhum item neste grupo ainda. Clique em "Novo item".')));
   lista.forEach(i=>{
     const sal = Number(i.saldo_central) || 0, mn = Number(i.minimo_central) || 0, zer = sal <= 0, bx = baixo(i);
     const l = el('div'); l.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 0;border-bottom:1px dashed var(--line)';
     const nm = el('div', '', (zer && mn > 0 ? '🔴 ' : bx ? '🟡 ' : '🟢 ') + i.nome); nm.style.cssText = 'flex:1 1 180px;font-weight:700'; l.appendChild(nm);
     const pro = Number(i.saldo_producao) || 0, rd = Number(i.rendimento_pct) || 100, mul = i.unidade === 'g' ? 1000 : 1, uni = i.unidade === 'g' ? '/kg' : '/' + (i.rotulo || 'un');
-    const sd = el('div', 'dica', 'Central: ' + estQtdTxt(sal, i) + (pro !== 0 ? ' · Produção: ' + estQtdTxt(pro, i) : '') + (mn > 0 ? ' · mínimo ' + estQtdTxt(mn, i) : '') + ' · ' + (i.grupo || 'Insumos')
+    const sd = el('div', 'dica', 'Central: ' + estQtdTxt(sal, i) + (pro !== 0 ? ' · Produção: ' + estQtdTxt(pro, i) : '') + (mn > 0 ? ' · mínimo ' + estQtdTxt(mn, i) : '') + ' · ' + grupoDe(i)
       + (Number(i.preco_compra) > 0 ? ' · pago ' + money(Number(i.preco_compra) * mul) + uni + (rd < 100 ? ' · rende ' + (Math.round(rd * 10) / 10).toLocaleString('pt-BR') + '% · custo real ' + money((Number(i.custo_por_g) || 0) * mul) + uni : '') : (Number(i.custo_por_g) > 0 ? ' · custo ' + money(Number(i.custo_por_g) * mul) + uni : '')));
     sd.style.cssText = 'flex:1 1 240px'; l.appendChild(sd);
     const mk = (rot, fn)=>{ const b = el('button', 'btn peq cinza', rot); b.onclick = fn; l.appendChild(b); };
@@ -525,7 +595,7 @@ function blocoGrupos(c, insTodos, recarregar){
     mk('🔢 Contagem', ()=>formulario('Contagem: ' + i.nome, [{id:'q', rot:'Quanto você contou na prateleira agora? (em ' + un(i) + ')', num:true}],
       async(v)=>{ await rpc('est_contagem', {p_loja:LOJA, p_insumo:i.id, p_contado:nenhum(v.q, i)}); }, 'Acertar o saldo'));
     mk('⚙️', ()=>formulario('Ajustar: ' + i.nome, [
-      {id:'g', rot:'Grupo', opcoes:EST_GRUPOS.map(g=>[g, g]), valor:i.grupo || 'Insumos'},
+      {id:'g', rot:'Grupo', opcoes:EST_GRUPOS.map(g=>[g, g]), valor:grupoDe(i)},
       {id:'r', rot:'Como contar (pacote, caixa, rolo... deixe vazio para kg ou unidade)', valor:i.rotulo || ''},
       {id:'m', rot:'Estoque mínimo (em ' + un(i) + ')', num:true, valor:mn > 0 ? (i.unidade === 'un' ? mn : mn / 1000).toString().replace('.', ',') : ''},
       {id:'d', rot:'Quanto quer ter depois de comprar (opcional)', num:true, valor:Number(i.ideal_central) > 0 ? (i.unidade === 'un' ? Number(i.ideal_central) : Number(i.ideal_central) / 1000).toString().replace('.', ',') : ''}]
@@ -543,7 +613,7 @@ function blocoGrupos(c, insTodos, recarregar){
     ds.appendChild(el('div', 'dica', 'O custo deles continua entrando na ficha e no CMV. Se algum começar a pesar no bolso, é só clicar em Controlar.'));
     semControle.sort((a, b)=>a.nome.localeCompare(b.nome, 'pt-BR')).forEach(i=>{
       const l = el('div'); l.style.cssText = 'display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px dashed var(--line)';
-      const t = el('div', '', i.nome + ' · ' + (i.grupo || 'Insumos')); t.style.flex = '1'; l.appendChild(t);
+      const t = el('div', '', i.nome + ' · ' + grupoDe(i)); t.style.flex = '1'; l.appendChild(t);
       const b = el('button', 'btn peq cinza', 'Controlar'); b.onclick = ()=>tentar(async()=>{ await rpc('est_item_controlar', {p_loja:LOJA, p_insumo:i.id, p_controlar:true}); recarregar(); }, 'Agora este item é controlado.'); l.appendChild(b); ds.appendChild(l); });
     card.appendChild(ds);
   }
@@ -586,30 +656,6 @@ async function telaEstoque(c){
   dV.appendChild(ord.length ? tabelaSimples(['Insumo', 'Central', 'Na linha', 'Custo por kg', 'Valor'], ord.map(x=>[x.i.nome, fmtQtd(x.cen, x.i.unidade), fmtQtd(x.pro, x.i.unidade), x.i.unidade === 'un' ? money(x.cu) + ' /un' : money(x.cu * 1000) + ' /kg', money(x.vc + x.vp)])) : el('div', 'vazio', 'Ainda não há saldo com custo cadastrado.'));
   vCard.appendChild(dV); c.appendChild(vCard);
 
-  // ---------- 00b) Tudo que está na linha de produção agora ----------
-  const lnCard = el('div', 'cartao'); lnCard.appendChild(el('div', 'nome', '📍 Na linha agora (produção)'));
-  lnCard.appendChild(el('div', 'dica', 'Tudo o que o sistema acha que está na linha, com o valor em dinheiro. Para conferir: compare com o que está na bancada e, se estiver diferente, use "Conferir peso" no cartão do insumo (em Saldos). Os negativos e baixos aparecem primeiro, para você ver o que falta repor.'));
-  const dowLn = agoraLocal().dow;
-  const linhasLn = ins.filter(i=>i.controlar !== false).map(i=>{
-    const pro = Number(i.saldo_producao) || 0, cen = Number(i.saldo_central) || 0, cu = Number(i.custo_por_g) || 0;
-    const mn = Number(i.minimo_producao) || 0;
-    let ideal = 0; if(i.unidade === 'g' && Array.isArray(i.ideal_semana) && Number(i.porcao_g) > 0) ideal = Number(i.ideal_semana[dowLn] || 0) * Number(i.porcao_g);
-    const neg = pro < 0, baixo = !neg && mn > 0 && pro < mn;
-    const repor = ideal > 0 ? Math.max(0, ideal - Math.max(0, pro)) : (baixo ? Math.max(0, mn - pro) : 0);
-    return {i, pro, cen, cu, neg, baixo, repor, st: neg ? 0 : baixo ? 1 : 2};
-  }).filter(x=>x.pro !== 0 || x.baixo || x.repor > 0);
-  linhasLn.sort((a,b)=> a.st - b.st || String(a.i.nome).localeCompare(String(b.i.nome), 'pt-BR'));
-  const totLn = linhasLn.reduce((s,x)=> s + Math.max(0, x.pro) * x.cu, 0);
-  const bigLn = el('div', 'nome', money(totLn)); bigLn.style.cssText = 'font-size:1.6em;margin:6px 0'; lnCard.appendChild(bigLn);
-  lnCard.appendChild(el('div', 'dica', 'Valor de tudo que está na linha agora (itens negativos contam como zero).'));
-  if(!linhasLn.length) lnCard.appendChild(el('div', 'vazio', 'Nada na linha ainda. Use "Passar pra Produção" nos cartões de Saldos.'));
-  else lnCard.appendChild(tabelaSimples(['Item', 'Na linha', 'Valor', 'Falta repor', 'Situação'], linhasLn.map(x=>[
-    x.i.nome + ' · ' + (x.i.grupo || 'Insumos'),
-    fmtQtd(x.pro, x.i.unidade),
-    money(Math.max(0, x.pro) * x.cu),
-    x.repor > 0 ? fmtQtd(x.repor, x.i.unidade) + (x.cen > 0 ? '' : ' (Central sem saldo)') : '—',
-    x.neg ? '⚠️ Negativo' : x.baixo ? '🟡 Baixo' : '✅ OK'])));
-  c.appendChild(lnCard);
 
   // ---------- 000) Cadastrar bebida / produto de revenda no estoque ----------
   const rv = el('div', 'cartao'); rv.appendChild(el('div', 'nome', '🥤 Cadastrar bebida ou produto de revenda'));
