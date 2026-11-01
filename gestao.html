@@ -1589,7 +1589,17 @@ async function lerCodigoImagem(arquivo, Z, aoProgresso){
 function chaveEmpresa(txt){
   let d = String(txt||'').replace(/\D/g,'');
   if(d.length === 48 && d[0] === '8') d = [0,12,24,36].map(i=>d.slice(i, i+11)).join('');
-  return (d.length === 44 && d[0] === '8') ? d[1] + d.slice(15,19) : null;
+  if(d.length === 44 && d[0] === '8') return d[1] + d.slice(15,19);
+  // boleto de banco: o codigo traz a agencia e a conta de quem recebe (nao traz o nome). Serve para lembrar o fornecedor na proxima vez.
+  let campo = null;
+  if(d.length === 47) campo = d.slice(4, 9) + d.slice(10, 20) + d.slice(21, 31);
+  else if(d.length === 44) campo = d.slice(19, 44);
+  if(!campo) return null;
+  const banco = d.slice(0, 3);
+  if(banco === '422') return 'b422:' + campo.slice(1, 15);                          // Safra: agencia + conta
+  if(banco === '237') return 'b237:' + campo.slice(0, 4) + campo.slice(17, 24);     // Bradesco: agencia + conta
+  if(banco === '341') return 'b341:' + campo.slice(12, 21);                         // Itau: agencia + conta
+  return null;
 }
 
 // linha digitavel (47/48 numeros) a partir do codigo de barras (44): e a que o aplicativo do banco aceita digitada ou colada
@@ -1730,6 +1740,34 @@ async function telaContas(c){
   }
   c.appendChild(resumo);
 
+  // gasto rapido ja pago (extras, gelo, mercado...): um toque, sem boleto
+  const rap = el('details'); rap.appendChild(el('summary', '', '⚡ Lançar gasto já pago (rápido)'));
+  const rcx = el('div', 'cartao'); rcx.style.marginTop = '8px'; rap.appendChild(rcx);
+  rcx.appendChild(el('div', 'dica', 'Para o que você já pagou: extras, gelo, mercado. Preencha, toque em Lançar e o próximo já fica pronto. Quando terminar, toque em "Pronto, atualizar a lista".'));
+  const rd = el('input'); rd.placeholder = 'Com o quê? (ex.: Extra João)'; rd.setAttribute('list', 'listaForn');
+  const rv = inputNum('');
+  const rcat = selCategoria('equipe');
+  const rforma = el('select');
+  [['pix', 'PIX'], ['gaveta', '💵 Dinheiro da gaveta (aparece no Caixa do PDV)'], ['dinheiro', 'Dinheiro (de outro lugar)'], ['cartao_debito', 'Cartão débito'], ['cartao_credito', 'Cartão crédito']].forEach(([k, r])=>{ const o = el('option', '', r); o.value = k; rforma.appendChild(o); });
+  const rdata = el('input'); rdata.type = 'date'; rdata.value = agoraLocal().data;
+  const rcampoCat = campo('Categoria', rcat);
+  rforma.onchange = ()=>{ rcampoCat.style.display = rforma.value === 'gaveta' ? 'none' : ''; };
+  const rhist = el('div', 'dica'); rhist.style.cssText = 'font-weight:700;margin:6px 0';
+  const rb = el('button', 'btn verde', 'Lançar gasto'); rb.style.marginTop = '6px';
+  rb.onclick = ()=>tentar(async()=>{
+    const nome = rd.value.trim(); if(!nome) throw new Error('Diga com o quê foi o gasto.');
+    const v = num(rv.value); if(v === null || v <= 0) throw new Error('Valor inválido.');
+    const dia = rdata.value || agoraLocal().data;
+    if(rforma.value === 'gaveta') await rpc('caixa_saida_add', {p_loja:LOJA, p_valor:v, p_descricao:nome, p_dia:dia});
+    else await inserir('contas_pagar', {loja_id:LOJA, fornecedor:nome, categoria:rcat.value, valor:v, vencimento:dia, status:'paga', forma_pagamento:rforma.value, data_pagamento:dia});
+    rhist.appendChild(el('div', '', '✔ ' + nome + ' · ' + money(v) + ' · ' + rforma.options[rforma.selectedIndex].textContent.replace('💵 ', '').replace(/ \(.*\)/, '') + ' · ' + dataBR(dia)));
+    rd.value = ''; rv.value = ''; rd.focus();
+  }, 'Gasto lançado');
+  const rpronto = el('button', 'btn cinza', 'Pronto, atualizar a lista'); rpronto.style.marginTop = '6px'; rpronto.onclick = ()=>desenhar();
+  const rl1 = el('div', 'linha'); rl1.appendChild(campo('Com o quê', rd)); rl1.appendChild(campo('Valor (R$)', rv));
+  rcx.appendChild(rl1); rcx.appendChild(campo('Como pagou', rforma)); rcx.appendChild(rcampoCat); rcx.appendChild(campo('Dia', rdata));
+  rcx.appendChild(rb); rcx.appendChild(rhist); rcx.appendChild(rpronto);
+
   // nova conta
   const nova = el('details'); nova.appendChild(el('summary', '', '+ Nova conta'));
   const fn = el('input'); fn.placeholder = 'Fornecedor'; fn.setAttribute('list', 'listaForn');
@@ -1747,8 +1785,8 @@ async function telaContas(c){
     if(!boletoPlausivel(d)){ dicaCod.textContent = 'Esse código deu valor ou vencimento que não parece certo' + (r.venc ? ' (vence ' + dataBR(r.venc) + ')' : '') + '. Confira se o código está completo e certo; não preenchi nada.'; return; }
     if(r.valor !== null) val.value = String(r.valor.toFixed(2)).replace('.', ','); if(r.venc) ven.value = r.venc;
     let lembrou = false;
-    if(r.consumo && !fn.value.trim()){ const k = chaveEmpresa(d); const ant = k && contas.find(x=>x.linha_digitavel && chaveEmpresa(x.linha_digitavel) === k); if(ant){ fn.value = ant.fornecedor; lembrou = true; lembraCat(); } }
-    dicaCod.textContent = 'Código lido' + (r.consumo ? ' (conta de consumo)' : '') + ': ' + (r.valor !== null ? money(r.valor) : 'sem valor no código, digite') + (r.venc ? ', vence ' + dataBR(r.venc) : (r.consumo ? '. Digite o vencimento, que está na conta.' : ' (sem vencimento no código)')) + '. ' + (lembrou ? 'Fornecedor lembrado das contas anteriores. ' : '') + 'Confira antes de salvar.'; };
+    if(!fn.value.trim()){ const k = chaveEmpresa(d); const ant = k && contas.find(x=>x.linha_digitavel && chaveEmpresa(x.linha_digitavel) === k); if(ant){ fn.value = ant.fornecedor; lembrou = true; lembraCat(); } }
+    dicaCod.textContent = 'Código lido' + (r.consumo ? ' (conta de consumo)' : '') + ': ' + (r.valor !== null ? money(r.valor) : 'sem valor no código, digite') + (r.venc ? ', vence ' + dataBR(r.venc) : (r.consumo ? '. Digite o vencimento, que está na conta.' : ' (sem vencimento no código)')) + '. ' + (lembrou ? 'Fornecedor lembrado das contas anteriores. ' : (!fn.value.trim() ? 'O boleto não traz o nome: digite o fornecedor uma vez, e da próxima o sistema já preenche. ' : '')) + 'Confira antes de salvar.'; };
   // leitura por camera ou foto (mesma biblioteca do app antigo, so carrega quando precisa)
   const aplicarCodigo = (d)=>{ cod.value = d; cod.oninput(); };
   const boxScan = el('div'); boxScan.style.display = 'none';
@@ -1823,7 +1861,7 @@ async function telaContas(c){
     }
     desenhar();
   }, 'Conta salva');
-  f1.appendChild(bs); nova.appendChild(f1); c.appendChild(nova);
+  f1.appendChild(bs); nova.appendChild(f1); c.appendChild(rap); c.appendChild(nova);
   c.appendChild(blocoCategorias(contas));
 
   // filtros
