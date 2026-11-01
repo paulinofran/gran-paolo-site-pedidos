@@ -461,7 +461,7 @@ function cartaoPizzas(insTodos){
         const ctl = !!ins && ins.controlar !== false, pro = ins ? Number(ins.saldo_producao) || 0 : 0, cen = ins ? Number(ins.saldo_central) || 0 : 0;
         if(ins) custo += q * (Number(ins.custo_por_g) || 0);
         if(ctl && q > 0){ const n = Math.floor(Math.max(0, pro) / q); poss = poss === null ? n : Math.min(poss, n); }
-        return [ins ? ins.nome : '(insumo não encontrado)', fmtQtd(q, un), ctl ? fmtQtd(pro, un) : 'sem controle', ctl ? fmtQtd(cen, un) : '—', !ins ? '❓' : !ctl ? '—' : pro >= q ? '✅ tem' : '⚠️ falta na linha'];
+        return [ins ? ins.nome : '(insumo não encontrado)', (un === 'g' && q > 0 && q < 1000) ? (Math.round(q * 10) / 10).toLocaleString('pt-BR') + ' g' : fmtQtd(q, un), ctl ? fmtQtd(pro, un) : 'sem controle', ctl ? fmtQtd(cen, un) : '—', !ins ? '❓' : !ctl ? '—' : pro >= q ? '✅ tem' : '⚠️ falta na linha'];
       });
       const d = el('details'); d.style.cssText = 'border-bottom:1px dashed var(--line);padding:6px 0';
       d.appendChild(el('summary', '', fc.nome + ' · custo ' + money(custo) + (poss !== null ? ' · dá para ' + poss + ' na linha agora' : '')));
