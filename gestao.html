@@ -1532,7 +1532,7 @@ async function carregarCategoriasConta(){
   }catch(e){}
   CATS_CONTA = Object.assign({}, CATS_PADRAO); CATS_META = {};
 }
-let filtroContas = {status:'pendente', de:'', ate:'', cat:''};
+let filtroContas = {status:'pendente', de:'', ate:'', cat:'', forn:''};
 
 // le o codigo do boleto (47 digitos da linha digitavel ou 44 do codigo de barras)
 function lerBoleto(txt){
@@ -1890,17 +1890,39 @@ async function telaContas(c){
   c.appendChild(fil);
   const de = el('input'); de.type = 'date'; de.value = filtroContas.de; const ate = el('input'); ate.type = 'date'; ate.value = filtroContas.ate;
   de.onchange = ()=>{ filtroContas.de = de.value; desenhar(); }; ate.onchange = ()=>{ filtroContas.ate = ate.value; desenhar(); };
+  // atalhos de periodo (vale pelo dia do pagamento, nas pagas, e pelo vencimento, nas pendentes)
+  const hojeF = agoraLocal().data, anoF = Number(hojeF.slice(0, 4)), mesF = Number(hojeF.slice(5, 7));
+  const iso = (y, m, d)=>y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+  const ultDia = (y, m)=>new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const mAnt = mesF === 1 ? [anoF - 1, 12] : [anoF, mesF - 1];
+  const periodos = [['Este mês', iso(anoF, mesF, 1), iso(anoF, mesF, ultDia(anoF, mesF))], ['Mês passado', iso(mAnt[0], mAnt[1], 1), iso(mAnt[0], mAnt[1], ultDia(mAnt[0], mAnt[1]))], ['Todo o período', '', '']];
+  const fp = el('div', 'linha'); fp.style.marginTop = '8px';
+  periodos.forEach(([r, d1, d2])=>{ const b = el('button', 'btn peq ' + (filtroContas.de === d1 && filtroContas.ate === d2 ? 'verde' : 'cinza'), r); b.onclick = ()=>{ filtroContas.de = d1; filtroContas.ate = d2; desenhar(); }; fp.appendChild(b); });
+  c.appendChild(fp);
   const lf = el('div', 'linha'); lf.appendChild(campo('Vencimento de', de)); lf.appendChild(campo('até', ate)); c.appendChild(lf);
 
   const fc = el('select'); const o0 = el('option', '', 'Todas as categorias'); o0.value = ''; fc.appendChild(o0);
   Object.keys(CATS_CONTA).forEach(k=>{ const o = el('option', '', CATS_CONTA[k]); o.value = k; fc.appendChild(o); }); fc.value = filtroContas.cat;
   fc.onchange = ()=>{ filtroContas.cat = fc.value; desenhar(); }; c.appendChild(campo('Filtrar a lista por categoria', fc));
+  const ff = el('select'); const of0 = el('option', '', 'Todos os fornecedores'); of0.value = ''; ff.appendChild(of0);
+  nomesForn.forEach(n=>{ const o = el('option', '', n); o.value = n; ff.appendChild(o); }); ff.value = filtroContas.forn;
+  ff.onchange = ()=>{ filtroContas.forn = ff.value; desenhar(); }; c.appendChild(campo('Filtrar a lista por fornecedor', ff));
   let lista = contas.filter(x=> filtroContas.status === 'todas' || (filtroContas.status === 'paga') === (x.status === 'paga'));
+  if(filtroContas.forn) lista = lista.filter(x=>String(x.fornecedor).toLowerCase() === filtroContas.forn.toLowerCase());
   const ref = (x) => (x.status === 'paga' ? (x.data_pagamento || x.vencimento) : x.vencimento) || '';
   if(filtroContas.cat) lista = lista.filter(x=>(x.categoria || 'outros') === filtroContas.cat);
   if(filtroContas.de) lista = lista.filter(x=>ref(x) >= filtroContas.de);
   if(filtroContas.ate) lista = lista.filter(x=>ref(x) && ref(x) <= filtroContas.ate);
   if(!lista.length){ c.appendChild(el('div', 'vazio', contas.length ? 'Nenhuma conta com esse filtro.' : 'Nenhuma conta lançada ainda. Toque em "+ Nova conta".')); return; }
+  // total do que esta filtrado
+  const somaL = (arr)=>arr.reduce((t, x)=>t + Number(x.valor || 0), 0);
+  const pagasL = lista.filter(x=>x.status === 'paga'), pendL = lista.filter(x=>x.status !== 'paga');
+  const tot = el('div', 'cartao'); tot.style.background = '#EEF6EE';
+  const partes = [filtroContas.cat ? (CATS_CONTA[filtroContas.cat] || filtroContas.cat) : 'Todas as categorias', filtroContas.forn || 'todos os fornecedores', filtroContas.de || filtroContas.ate ? (dataBR(filtroContas.de) || '...') + ' a ' + (dataBR(filtroContas.ate) || '...') : 'todo o período'];
+  tot.appendChild(el('div', 'dica', partes.join(' · ')));
+  const tg = el('div', 'nome', lista.length + ' conta(s) · ' + money(somaL(lista))); tg.style.fontSize = '1.3em'; tot.appendChild(tg);
+  tot.appendChild(el('div', 'dica', 'Pagas: ' + pagasL.length + ' (' + money(somaL(pagasL)) + ') · A pagar: ' + pendL.length + ' (' + money(somaL(pendL)) + ')'));
+  c.appendChild(tot);
   lista.forEach(x=>c.appendChild(cartaoConta(x, forn)));
 }
 
@@ -1927,6 +1949,19 @@ function blocoCategorias(contas){
       else if(!n){ const bX2 = el('button', 'btn cinza', 'Excluir'); bX2.onclick = bX.onclick; lin.appendChild(bX2); }
     }
     box.appendChild(lin);
+    // passar todas as contas desta categoria para outra (e, se der, tirar esta)
+    const n2 = usos(k);
+    if(n2 > 0){
+      const dest = el('select'); const d0 = el('option', '', 'Passar as ' + n2 + ' conta(s) para...'); d0.value = ''; dest.appendChild(d0);
+      Object.keys(CATS_CONTA).filter(o=>o !== k && CATS_META[o] && CATS_META[o].ativa).forEach(o=>{ const op = el('option', '', CATS_CONTA[o]); op.value = o; dest.appendChild(op); });
+      const bJ = el('button', 'btn peq cinza', 'Passar');
+      bJ.onclick = ()=>{ if(!dest.value) { aviso('Escolha para qual categoria passar.', 'erro'); return; }
+        if(!confirm('Passar as ' + n2 + ' conta(s) de "' + CATS_CONTA[k] + '" para "' + CATS_CONTA[dest.value] + '"?' + (m.protegida ? '' : ' A categoria "' + CATS_CONTA[k] + '" será removida.'))) return;
+        tentar(async()=>{ await atualizar('contas_pagar', `loja_id=eq.${LOJA}&categoria=eq.${encodeURIComponent(k)}`, {categoria:dest.value});
+          if(!m.protegida){ await api(`/rest/v1/categorias_conta?loja_id=eq.${LOJA}&chave=eq.${encodeURIComponent(k)}`, {method:'DELETE'}); }
+          desenhar(); }, 'Contas passadas'); };
+      const l2b = el('div', 'linha'); l2b.style.marginTop = '4px'; l2b.appendChild(dest); l2b.appendChild(bJ); box.appendChild(l2b);
+    }
   });
   const nova = el('input'); nova.placeholder = 'Nova categoria (ex.: Motoboy)';
   const bN = el('button', 'btn verde', 'Adicionar categoria'); bN.style.marginTop = '8px';
