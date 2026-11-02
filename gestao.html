@@ -595,6 +595,7 @@ function blocoGrupos(c, insTodos, recarregar){
     mk('🔢 Contagem', ()=>formulario('Contagem: ' + i.nome, [{id:'q', rot:'Quanto você contou na prateleira agora? (em ' + un(i) + ')', num:true}],
       async(v)=>{ await rpc('est_contagem', {p_loja:LOJA, p_insumo:i.id, p_contado:nenhum(v.q, i)}); }, 'Acertar o saldo'));
     mk('⚙️', ()=>formulario('Ajustar: ' + i.nome, [
+      {id:'n', rot:'Nome do item (pode corrigir aqui)', valor:i.nome},
       {id:'g', rot:'Grupo', opcoes:EST_GRUPOS.map(g=>[g, g]), valor:grupoDe(i)},
       {id:'r', rot:'Como contar (pacote, caixa, rolo... deixe vazio para kg ou unidade)', valor:i.rotulo || ''},
       {id:'m', rot:'Estoque mínimo (em ' + un(i) + ')', num:true, valor:mn > 0 ? (i.unidade === 'un' ? mn : mn / 1000).toString().replace('.', ',') : ''},
@@ -602,8 +603,22 @@ function blocoGrupos(c, insTodos, recarregar){
       .concat(!temBM ? [] : [{id:'ct', rot:'Controlar o estoque deste item?', opcoes:[['sim', 'Sim, controlar'], ['nao', 'Não controlar (some desta tela; o custo na ficha continua)']], valor:'sim'}])
       .concat(!temBL ? [] : [
       {id:'pc', rot:'Preço que você paga (R$ por ' + (i.unidade === 'g' ? 'kg' : (i.rotulo || 'unidade')) + ')', num:true, valor:Number(i.preco_compra) > 0 ? (Math.round(Number(i.preco_compra) * mul * 100) / 100).toString().replace('.', ',') : ''},
-      {id:'rd', rot:'Rendimento % (1 kg rende quantos gramas? 900 g = 90. Sem perda = 100)', num:true, valor:String(Math.round(rd * 10) / 10).replace('.', ',')}]),
-      async(v)=>{ await rpc('est_item_editar', {p_loja:LOJA, p_insumo:i.id, p_grupo:v.g, p_rotulo:v.r || null, p_minimo:emBase(v.m, i.unidade), p_ideal:emBase(v.d, i.unidade)});
+      {id:'rd', rot:'Rendimento % (1 kg rende quantos gramas? 900 g = 90. Sem perda = 100)', num:true, valor:String(Math.round(rd * 10) / 10).replace('.', ',')}])
+      .concat([{id:'x', rot:'Excluir este item do estoque?', opcoes:[['nao', 'Não, só salvar as mudanças'], ['sim', 'Sim, EXCLUIR (não dá para desfazer)']], valor:'nao'}]),
+      async(v)=>{
+        if(v.x === 'sim'){
+          if(!confirm('Excluir "' + i.nome + '" do estoque? Não dá para desfazer.')) return;
+          try{ await rpc('est_item_excluir', {p_loja:LOJA, p_insumo:i.id}); }
+          catch(e){ if(/PGRST202|Could not find|404|does not exist/i.test(String(e && e.message || e))) throw new Error('Para excluir falta rodar a Parte BY no Supabase.'); throw e; }
+          return;
+        }
+        const nn = (v.n || '').trim();
+        if(nn && nn !== i.nome){
+          const dup = insTodos.find(x=>x.id !== i.id && normN(x.nome) === normN(nn)); if(dup) throw new Error('Já existe "' + dup.nome + '" no estoque. Use o que já existe.');
+          try{ await rpc('est_item_renomear', {p_loja:LOJA, p_insumo:i.id, p_nome:nn}); }
+          catch(e){ if(/PGRST202|Could not find|404|does not exist/i.test(String(e && e.message || e))) throw new Error('Para mudar o nome falta rodar a Parte BX no Supabase.'); throw e; }
+        }
+        await rpc('est_item_editar', {p_loja:LOJA, p_insumo:i.id, p_grupo:v.g, p_rotulo:v.r || null, p_minimo:emBase(v.m, i.unidade), p_ideal:emBase(v.d, i.unidade)});
         if(temBM && v.ct === 'nao') await rpc('est_item_controlar', {p_loja:LOJA, p_insumo:i.id, p_controlar:false});
         if(temBL){ const pc = num(v.pc), rdn = num(v.rd); if((pc && pc > 0) || (rdn && Math.abs(rdn - rd) > 0.001)) await rpc('est_item_custo', {p_loja:LOJA, p_insumo:i.id, p_preco:pc && pc > 0 ? pc : null, p_rend:rdn && rdn > 0 ? rdn : null}); } }, 'Salvar'));
     card.appendChild(l);
