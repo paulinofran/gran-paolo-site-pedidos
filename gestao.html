@@ -435,7 +435,9 @@ const EST_COMIDA = ['Insumos', 'Embutidos', 'Frios e congelados'];
 /* nomes antigos (antes da Parte BV) aparecem já no grupo novo */
 const grupoDe = (i)=>{ const g = i.grupo || 'Insumos'; return (g === 'Limpeza' || g === 'Escritório') ? 'Limpeza e escritório' : g; };
 /* o que está (ou deve estar) na linha de produção */
-const emLinha = (i)=> (Number(i.saldo_producao) || 0) !== 0 || Number(i.minimo_producao) > 0 || (Array.isArray(i.ideal_semana) && i.ideal_semana.some(x=>Number(x) > 0));
+// a linha de produção é só o que entra na pizza: bebidas, descartáveis (caixas), limpeza e escritório ficam de fora
+const GRUPOS_LINHA = ['Insumos', 'Embutidos', 'Frios e congelados'];
+const emLinha = (i)=> GRUPOS_LINHA.indexOf(grupoDe(i)) >= 0 && ((Number(i.saldo_producao) || 0) !== 0 || Number(i.minimo_producao) > 0 || (Array.isArray(i.ideal_semana) && i.ideal_semana.some(x=>Number(x) > 0)));
 const noGrupo = (i, g)=> g === 'Todos' || (g === 'Produção' ? emLinha(i) : g === 'Pizzas' ? false : grupoDe(i) === g);
 /* aba Pizzas: consulta do que cada pizza leva e o que tem na linha */
 function cartaoPizzas(insTodos){
@@ -479,7 +481,7 @@ function cartaoLinha(ins){
   lnCard.appendChild(el('div', 'nome', '📍 Na linha agora (produção)'));
   lnCard.appendChild(el('div', 'dica', 'Tudo o que o sistema acha que está na linha, com o valor em dinheiro e o que falta repor. Para conferir: compare com a bancada e, se estiver diferente, use "Conferir peso" no cartão do insumo (em Saldos). Os negativos e baixos aparecem primeiro.'));
   const dowLn = agoraLocal().dow;
-  const linhasLn = ins.filter(i=>i.controlar !== false).map(i=>{
+  const linhasLn = ins.filter(i=>i.controlar !== false && GRUPOS_LINHA.indexOf(grupoDe(i)) >= 0).map(i=>{
     const pro = Number(i.saldo_producao) || 0, cen = Number(i.saldo_central) || 0, cu = Number(i.custo_por_g) || 0;
     const mn = Number(i.minimo_producao) || 0;
     let ideal = 0; if(i.unidade === 'g' && Array.isArray(i.ideal_semana) && Number(i.porcao_g) > 0) ideal = Number(i.ideal_semana[dowLn] || 0) * Number(i.porcao_g);
