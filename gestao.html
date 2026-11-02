@@ -1126,6 +1126,7 @@ async function telaCaixa(c){
   const hero = el('div', 'pn-hero'); hero.appendChild(el('small', '', 'Saldo do período (entrou − saiu)'));
   hero.appendChild(el('div', 'grande', money(F.saldo)));
   hero.appendChild(el('div', 'pn-ref', 'Entrou ' + money(F.entradas) + ' · Saiu ' + money(F.saidas)));
+  if(n(F.ifood_a_receber) > 0) hero.appendChild(el('div', 'pn-ref', '+ iFood a receber ' + money(F.ifood_a_receber) + ' (ainda não caiu na conta, vem sem a comissão)'));
   topo.appendChild(hero);
   const tiles = el('div', 'pn-tiles'); tiles.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:12px';
   [['Entrou (vendas)', money(F.entradas)], ['Saiu (gastos + contas pagas)', money(F.saidas)], ['A pagar nos próximos 7 dias', money(F.a_pagar_7dias)]].forEach(([rot, val])=>{
