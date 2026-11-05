@@ -1213,7 +1213,8 @@ async function telaMotor(c){
   barra.appendChild(chips); barra.appendChild(el('div', 'pn-sub', brData(mesIni) + ' a ' + brData(mesFim))); c.appendChild(barra);
   const corpo = el('div'); corpo.appendChild(el('div', 'vazio', 'Montando o Motor...')); c.appendChild(corpo);
   let K, R;
-  try{ [K, R] = await Promise.all([rpc('motor_ler', {p_loja:LOJA}), rpc('motor_resumo', {p_loja:LOJA, p_ini:mesIni, p_fim:ateFim})]); }
+  let FX = null;
+  try{ [K, R, FX] = await Promise.all([rpc('motor_ler', {p_loja:LOJA}), rpc('motor_resumo', {p_loja:LOJA, p_ini:mesIni, p_fim:ateFim}), rpc('caixa_fluxo', {p_loja:LOJA, p_ini:mesIni, p_fim:ateFim}).catch(()=>null)]); }
   catch(e){ if(aba !== 'motor') return; corpo.innerHTML = ''; corpo.appendChild(el('div', 'vazio', /PGRST202|Could not find|404|does not exist/i.test(String(e.message || e)) ? 'O Motor ainda não foi instalado no banco (falta rodar a Parte AV).' : 'Não consegui carregar: ' + (e.message || e))); return; }
   if(aba !== 'motor') return;
   corpo.innerHTML = '';
@@ -1250,6 +1251,24 @@ async function telaMotor(c){
   [['Faturamento até agora' + (ext > 0 ? ' (sistema + Suitable)' : ''), money(fat)], ['CMV pelas fichas (' + money(cmv) + ')', fatSis > 0 ? mtPct(cmv / fatSis, 1) : '—'], ['Margem usada' + (pouco ? ' (referência)' : ' (real)'), mtPct(margem, 1)], ['Custos fixos + folha + equipe', money(custos)]].forEach(([rot, val])=>{
     const t = el('div', 'pn-tile'); t.appendChild(el('div', 'rot', rot)); t.appendChild(el('div', 'val', val)); tiles.appendChild(t); });
   topo.appendChild(tiles); corpo.appendChild(topo);
+  /* realizado no mes: puxa o que foi lancado em Contas e no Caixa */
+  if(FX){
+    const cR = pnCartao('Realizado no mês (puxado de Contas e Caixa)', 'O que de fato entrou e saiu do Caixa neste período, com o que você lançou em Contas e nos gastos do PDV. O Motor acima usa uma média prevista; aqui é a realidade até hoje.');
+    const entR = pnNum(FX.entradas), saiR = pnNum(FX.saidas), cats = (FX.contas_por_categoria || []).map(x=>({cat:String(x.categoria || 'Outros'), v:pnNum(x.valor)}));
+    const gcx = pnNum(FX.gastos_caixa);
+    if(gcx > 0) cats.push({cat:'Gastos do caixa (gaveta)', v:gcx});
+    const ehInsumo = (n)=>/insumo/i.test(n);
+    const compras = cats.filter(x=>ehInsumo(x.cat)).reduce((a, x)=>a + x.v, 0);
+    const demais = cats.filter(x=>!ehInsumo(x.cat)).reduce((a, x)=>a + x.v, 0);
+    const tl = el('div', 'pn-tiles'); tl.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:8px 0 12px';
+    [['Entrou no Caixa', money(entR)], ['Saiu (pago)', money(saiR)], ['Sobrou até hoje', money(entR - saiR)], ['Saiu sem compras de insumo', money(demais)]].forEach(([rot, val])=>{
+      const t = el('div', 'pn-tile'); t.appendChild(el('div', 'rot', rot)); t.appendChild(el('div', 'val', val)); tl.appendChild(t); });
+    cR.appendChild(tl);
+    pnBarras(cR, cats.sort((a, b)=>b.v - a.v).map(x=>({rot:x.cat, valor:x.v, texto:money(x.v), extra: saiR > 0 ? Math.round(x.v / saiR * 100) + '%' : '', dica:x.cat + ': ' + money(x.v)})), 'Nada pago neste período.');
+    cR.appendChild(el('div', 'pn-sub', 'Previsto no Motor (fixos + folha): ' + money(custos) + ' por mês · pago até hoje, fora compras de insumos: ' + money(demais) + (compras > 0 ? ' · compras de insumos (estoque, não é custo fixo; o custo da comida já está na margem): ' + money(compras) : ''))).style.marginTop = '8px';
+    if(pnNum(FX.ifood_a_receber) > 0) cR.appendChild(el('div', 'pn-sub', 'Ainda a receber do iFood (vendas já feitas, vem sem a comissão): ' + money(FX.ifood_a_receber)));
+    corpo.appendChild(cR);
+  }
   if(pouco) corpo.appendChild(el('div', '', 'ℹ️ A margem usada é a de referência (' + mtPct(MT_REF.margem, 0) + ', medida nos relatórios do Suitable de set/out: o custo da comida ficou entre 31% e 36%), porque ainda há poucas vendas com baixa pela ficha técnica no sistema (precisa de 20 pedidos e 80% das vendas com ficha; hoje: ' + pnInt(ped) + ' pedidos e ' + Math.round(cobertura * 100) + '%). Ela passa para a margem real sozinha conforme as vendas entram.')).style.cssText = 'background:#E6EEFA;border-radius:12px;padding:12px;margin:12px 0;font-size:14px';
   else if(pnNum(R.itens_sem_ficha) > 0) corpo.appendChild(el('div', '', 'ℹ️ ' + pnInt(R.itens_sem_ficha) + ' pedido(s) do período têm item sem ficha técnica (ex.: bebidas). O CMV conta só o que tem ficha, então a margem real pode ser um pouco menor.')).style.cssText = 'background:#FFF1CC;border-radius:12px;padding:12px;margin:12px 0;font-size:14px';
 
