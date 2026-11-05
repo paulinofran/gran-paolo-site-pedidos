@@ -1161,6 +1161,8 @@ const mtNum = (v)=>{ let t = String(v == null ? '' : v).trim().replace(/[^0-9.,]
   else if(ic >= 0) t = t.replace(',', '.');
   else if(ip >= 0){ const pt = t.split('.'); if(pt.length > 2 || (pt.length === 2 && pt[1].length === 3 && pt[0] !== '0')) t = t.replace(/\./g, ''); }
   const x = parseFloat(t); return isFinite(x) ? x : 0; };
+const MT_CAT_NOMES = {'insumos':'Insumos', 'equipe':'Equipe (salários, vales)', 'motoqueiros-extra':'Motoqueiros extra', 'gami-deliveri':'Gâmi Delivery', 'gami-delivery':'Gâmi Delivery', 'marketing':'Marketing'};
+function mtNomeCat(c){ const k = String(c || 'Outros').trim(); const b = MT_CAT_NOMES[k.toLowerCase()]; if(b) return b; const t = k.replace(/[-_]+/g, ' '); return t.charAt(0).toUpperCase() + t.slice(1); }
 const mtPct = (v, d)=> (Math.round(v * 100 * Math.pow(10, d || 0)) / Math.pow(10, d || 0)).toLocaleString('pt-BR') + '%';
 const MT_REF = {margem:0.64, ticketPizza:59.9};   // referencia quando ainda ha poucas vendas reais
 function mtDiasAbertos(iniISO, fimISO){   // terca a domingo (segunda fechado)
@@ -1237,36 +1239,45 @@ async function telaMotor(c){
   const diasMes = mtDiasAbertos(mesIni, mesFim), diasPassados = mtPreset === 'ant' ? diasMes : mtDiasAbertos(mesIni, hoje);
   const baseDias = ext > 0 ? diasPassados : dv;
   const projFat = mtPreset === 'ant' || baseDias === 0 ? fat : fat / baseDias * diasMes;
-  const eqAte = pnNum(EQ.custo), eqMes = mtPreset === 'ant' || baseDias === 0 ? eqAte : eqAte / baseDias * diasMes, custos = custosBase + eqMes;
+  const eqAte = pnNum(EQ.custo), eqMes = mtPreset === 'ant' || baseDias === 0 ? eqAte : eqAte / baseDias * diasMes, custosPrev = custosBase + eqMes;
+  /* custo real: nos meses fechados usa o que foi pago (Contas + gastos do Caixa), sem compras de insumo (o custo da comida ja esta na margem) */
+  const catsReal = FX ? (FX.contas_por_categoria || []).map(x=>({cat:mtNomeCat(x.categoria), v:pnNum(x.valor)})).concat(pnNum(FX.gastos_caixa) > 0 ? [{cat:'Gastos do caixa (gaveta)', v:pnNum(FX.gastos_caixa)}] : []) : [];
+  const comprasReal = catsReal.filter(x=>/insumo/i.test(x.cat)).reduce((a, x)=>a + x.v, 0);
+  const demaisReal = catsReal.filter(x=>!/insumo/i.test(x.cat)).reduce((a, x)=>a + x.v, 0);
+  const usaReal = mtPreset === 'ant' && !!FX && demaisReal > 0;
+  const custos = usaReal ? demaisReal : custosPrev;
   const pe = custos / margem;
   const lucroProj = projFat * margem - custos;
 
   /* topo */
   const topo = el('div');
-  const hero = el('div', 'pn-hero'); hero.appendChild(el('small', '', mtPreset === 'ant' ? 'Lucro do mês (faturamento × margem − custos)' : 'Lucro projetado do mês'));
+  const hero = el('div', 'pn-hero'); hero.appendChild(el('small', '', usaReal ? 'Lucro real do mês (faturamento × margem − despesas pagas)' : mtPreset === 'ant' ? 'Lucro do mês (faturamento × margem − custos)' : 'Lucro projetado do mês'));
   hero.appendChild(el('div', 'grande', money(lucroProj)));
   hero.appendChild(el('div', 'pn-ref', (mtPreset === 'ant' ? 'Faturamento ' : 'Se o resto do mês seguir neste ritmo: faturamento de ') + money(projFat) + ' · margem ' + mtPct(margem, 1) + ' · custos ' + money(custos)));
   topo.appendChild(hero);
   const tiles = el('div', 'pn-tiles'); tiles.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:12px';
-  [['Faturamento até agora' + (ext > 0 ? ' (sistema + Suitable)' : ''), money(fat)], ['CMV pelas fichas (' + money(cmv) + ')', fatSis > 0 ? mtPct(cmv / fatSis, 1) : '—'], ['Margem usada' + (pouco ? ' (referência)' : ' (real)'), mtPct(margem, 1)], ['Custos fixos + folha + equipe', money(custos)]].forEach(([rot, val])=>{
+  [['Faturamento até agora' + (ext > 0 ? ' (sistema + Suitable)' : ''), money(fat)], ['CMV pelas fichas (' + money(cmv) + ')', fatSis > 0 ? mtPct(cmv / fatSis, 1) : '—'], ['Margem usada' + (pouco ? ' (referência)' : ' (real)'), mtPct(margem, 1)], [usaReal ? 'Despesas pagas no mês (sem compras de insumo)' : 'Custos fixos + folha + equipe', money(custos)]].forEach(([rot, val])=>{
     const t = el('div', 'pn-tile'); t.appendChild(el('div', 'rot', rot)); t.appendChild(el('div', 'val', val)); tiles.appendChild(t); });
   topo.appendChild(tiles); corpo.appendChild(topo);
   /* realizado no mes: puxa o que foi lancado em Contas e no Caixa */
   if(FX){
-    const cR = pnCartao('Realizado no mês (puxado de Contas e Caixa)', 'O que de fato entrou e saiu do Caixa neste período, com o que você lançou em Contas e nos gastos do PDV. O Motor acima usa uma média prevista; aqui é a realidade até hoje.');
-    const entR = pnNum(FX.entradas), saiR = pnNum(FX.saidas), cats = (FX.contas_por_categoria || []).map(x=>({cat:String(x.categoria || 'Outros'), v:pnNum(x.valor)}));
-    const gcx = pnNum(FX.gastos_caixa);
-    if(gcx > 0) cats.push({cat:'Gastos do caixa (gaveta)', v:gcx});
-    const ehInsumo = (n)=>/insumo/i.test(n);
-    const compras = cats.filter(x=>ehInsumo(x.cat)).reduce((a, x)=>a + x.v, 0);
-    const demais = cats.filter(x=>!ehInsumo(x.cat)).reduce((a, x)=>a + x.v, 0);
+    const cR = pnCartao('Realizado no mês (puxado de Contas e Caixa)', 'O que de fato entrou e saiu do Caixa neste período, com o que você lançou em Contas e nos gastos do PDV. O Motor acima usa uma média prevista' + (usaReal ? ' (neste mês fechado, ele já usa o valor pago)' : '') + '; aqui é a realidade até hoje.');
+    const entR = pnNum(FX.entradas), saiR = pnNum(FX.saidas);
     const tl = el('div', 'pn-tiles'); tl.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:8px 0 12px';
-    [['Entrou no Caixa', money(entR)], ['Saiu (pago)', money(saiR)], ['Sobrou até hoje', money(entR - saiR)], ['Saiu sem compras de insumo', money(demais)]].forEach(([rot, val])=>{
-      const t = el('div', 'pn-tile'); t.appendChild(el('div', 'rot', rot)); t.appendChild(el('div', 'val', val)); tl.appendChild(t); });
+    [['Entrou no Caixa', money(entR)], ['Saiu (pago)', money(saiR)], ['Sobrou até hoje', money(entR - saiR)], ['Saiu sem compras de insumo', money(demaisReal)]].forEach(([rot, val], i)=>{
+      const t = el('div', 'pn-tile'); t.appendChild(el('div', 'rot', rot)); const v = el('div', 'val', val); if(i === 2) v.style.color = (entR - saiR) >= 0 ? '#02341b' : '#b3261e'; t.appendChild(v); tl.appendChild(t); });
     cR.appendChild(tl);
-    pnBarras(cR, cats.sort((a, b)=>b.v - a.v).map(x=>({rot:x.cat, valor:x.v, texto:money(x.v), extra: saiR > 0 ? Math.round(x.v / saiR * 100) + '%' : '', dica:x.cat + ': ' + money(x.v)})), 'Nada pago neste período.');
-    cR.appendChild(el('div', 'pn-sub', 'Previsto no Motor (fixos + folha): ' + money(custos) + ' por mês · pago até hoje, fora compras de insumos: ' + money(demais) + (compras > 0 ? ' · compras de insumos (estoque, não é custo fixo; o custo da comida já está na margem): ' + money(compras) : ''))).style.marginTop = '8px';
-    if(pnNum(FX.ifood_a_receber) > 0) cR.appendChild(el('div', 'pn-sub', 'Ainda a receber do iFood (vendas já feitas, vem sem a comissão): ' + money(FX.ifood_a_receber)));
+    /* quanto do previsto ja foi pago */
+    const pctPago = custosPrev > 0 ? Math.min(100, demaisReal / custosPrev * 100) : 0;
+    const bl = el('div'); bl.style.cssText = 'margin:4px 0 14px';
+    const tx = el('div', '', 'Já pago do previsto do mês: ' + money(demaisReal) + ' de ' + money(custosPrev) + ' (' + Math.round(pctPago) + '%)'); tx.style.cssText = 'font-weight:700;margin-bottom:6px'; bl.appendChild(tx);
+    const tr = el('div'); tr.style.cssText = 'height:14px;background:#EFE7DC;border-radius:8px;overflow:hidden';
+    const fl = el('div'); fl.style.cssText = 'height:100%;border-radius:8px;background:#02341b;width:' + Math.max(2, pctPago) + '%'; tr.appendChild(fl); bl.appendChild(tr);
+    bl.appendChild(el('div', 'pn-sub', 'Sem contar compras de insumos. Conforme as contas do mês vão sendo pagas, a barra enche.')).style.marginTop = '4px';
+    cR.appendChild(bl);
+    pnBarras(cR, catsReal.slice().sort((a, b)=>b.v - a.v).map(x=>({rot:x.cat, valor:x.v, texto:money(x.v), extra: saiR > 0 ? Math.round(x.v / saiR * 100) + '%' : '', dica:x.cat + ': ' + money(x.v)})), 'Nada pago neste período.');
+    if(comprasReal > 0) cR.appendChild(el('div', 'pn-sub', 'As compras de insumos (' + money(comprasReal) + ') são estoque, não custo fixo: o custo da comida já está na margem, então não entram na conta do lucro.')).style.marginTop = '8px';
+    if(pnNum(FX.ifood_a_receber) > 0) cR.appendChild(el('div', 'pn-sub', 'Ainda a receber do iFood (vendas já feitas, vem sem a comissão): ' + money(FX.ifood_a_receber))).style.marginTop = '4px';
     corpo.appendChild(cR);
   }
   if(pouco) corpo.appendChild(el('div', '', 'ℹ️ A margem usada é a de referência (' + mtPct(MT_REF.margem, 0) + ', medida nos relatórios do Suitable de set/out: o custo da comida ficou entre 31% e 36%), porque ainda há poucas vendas com baixa pela ficha técnica no sistema (precisa de 20 pedidos e 80% das vendas com ficha; hoje: ' + pnInt(ped) + ' pedidos e ' + Math.round(cobertura * 100) + '%). Ela passa para a margem real sozinha conforme as vendas entram.')).style.cssText = 'background:#E6EEFA;border-radius:12px;padding:12px;margin:12px 0;font-size:14px';
@@ -1297,7 +1308,7 @@ async function telaMotor(c){
   const base = projFat > 0 ? projFat : 1;
   const cDest = pnCartao('Para onde vai cada R$ 100 vendidos', 'Com o faturamento projetado do mês.');
   const parte = (rot, v)=>({rot, valor:Math.max(v, 0), texto:'R$ ' + (Math.round(v / base * 1000) / 10).toLocaleString('pt-BR'), dica:rot + ': ' + money(v)});
-  pnBarras(cDest, [parte('Insumos (CMV)', projFat * (1 - margem)), parte('Folha de pagamento', folha), parte('Despesas fixas', fixas), parte('Alimentação da equipe', eqMes), parte('Sobra (lucro)', Math.max(lucroProj, 0))], 'Sem dados.');
+  pnBarras(cDest, usaReal ? [parte('Insumos (CMV)', projFat * (1 - margem)), parte('Despesas pagas (Contas e Caixa)', demaisReal), parte('Sobra (lucro)', Math.max(lucroProj, 0))] : [parte('Insumos (CMV)', projFat * (1 - margem)), parte('Folha de pagamento', folha), parte('Despesas fixas', fixas), parte('Alimentação da equipe', eqMes), parte('Sobra (lucro)', Math.max(lucroProj, 0))], 'Sem dados.');
   if(lucroProj < 0) cDest.appendChild(el('div', 'pn-sub', 'Neste ritmo o mês fecha no prejuízo de ' + money(-lucroProj) + '.'));
   corpo.appendChild(cDest);
 
@@ -1331,7 +1342,7 @@ async function telaMotor(c){
   const be = el('button', 'btn peq verde', 'Salvar'); be.onclick = ()=>tentar(async()=>{ await rpc('motor_config_salvar', {p_loja:LOJA, p_encargos:mtNum(ie.value), p_meta:null}); desenhar(); }, 'Salvo.');
   fe.appendChild(ie); fe.appendChild(be); cC.appendChild(fe);
   cC.appendChild(el('div', 'pn-sub', 'Alimentação da equipe (automática): ' + money(eqMes) + ' no mês' + (mtPreset === 'ant' ? '' : ' (consumo até hoje: ' + money(eqAte) + ', projetado para o mês)') + ' · ' + pnInt(EQ.pedidos) + ' pedido(s) da equipe. Vem do custo dos insumos que saíram do estoque; não precisa digitar.' + (EQ.naoInstalado ? ' (Falta instalar o relatório do consumo da equipe no Supabase.)' : ''))).style.marginTop = '10px';
-  cC.appendChild(el('div', 'pn-sub', 'Total do mês: despesas fixas ' + money(fixas) + ' + folha ' + money(folha) + ' + alimentação da equipe ' + money(eqMes) + ' = ' + money(custos))).style.marginTop = '6px';
+  cC.appendChild(el('div', 'pn-sub', 'Total do mês: despesas fixas ' + money(fixas) + ' + folha ' + money(folha) + ' + alimentação da equipe ' + money(eqMes) + ' = ' + money(custosPrev))).style.marginTop = '6px';
   corpo.appendChild(cC);
   corpo.appendChild(el('p', 'dica', 'O CMV real vem da baixa automática do estoque pela ficha técnica de cada venda (só itens com ficha). Pró-labore e dedetização estão com valor zero: preencha para entrarem na conta.'));
 }
