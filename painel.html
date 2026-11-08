@@ -370,16 +370,19 @@ function editarPedido(p){
   FORMAS_PAG.forEach(f => { const b = el('button', 'opcao', f); b.dataset.forma = f; b.onclick = () => { forma = f; if(f !== 'Débito' && f !== 'Crédito') bandeira = null; atualizar(); }; op.appendChild(b); });
   m.appendChild(rotBand); m.appendChild(band); m.appendChild(lbNota);
   BANDEIRAS.forEach(([cod, nome]) => { const b = el('button', 'opcao', nome); b.dataset.band = cod; b.onclick = () => { bandeira = cod; atualizar(); }; band.appendChild(b); });
+  const erroEd = el('div', 'rotulo', ''); erroEd.style.cssText = 'color:#b3261e;font-weight:700;font-size:14px;margin:6px 0;display:none;'; m.appendChild(erroEd);
   const rod = el('div', 'rodape'); const volta = el('button', 'cancelar', 'Voltar'); volta.onclick = () => fundo.remove();
   conf.onclick = async () => {
-    conf.disabled = true;
+    conf.disabled = true; erroEd.style.display = 'none';
     try{
       await rpc('painel_trocar_pagamento', {p_pedido: p.id, p_pagamento: ROTULO_PAG[forma]});
       await rpc('painel_definir_pagamento', {p_pedido: p.id, p_forma: forma, p_bandeira: bandeira, p_nota: forma === 'Dinheiro' ? chk.checked : null});
       fundo.remove(); await carregar();
     }catch(e){
-      const t = String((e && e.message) || e || '');
-      avisoErro(t && t.length < 160 && !/^HTTP|fetch/i.test(t) ? t : 'Não consegui trocar o pagamento do #' + p.numero + '. Tente de novo.');
+      let t = String((e && e.message) || e || '');
+      try{ const j = JSON.parse(t); t = j.message || j.hint || j.details || t; }catch(x){}
+      erroEd.textContent = (t && t.length < 220) ? t : 'Não consegui trocar o pagamento do #' + p.numero + '. Tente de novo.';
+      erroEd.style.display = '';
       atualizar();
     }
   };
