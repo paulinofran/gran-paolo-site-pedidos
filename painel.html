@@ -339,6 +339,10 @@ function pedirPagamento(p){
 // Editar pedido: por enquanto, so trocar a forma de pagamento (acrescentar item vem a seguir)
 const ROTULO_PAG = {'Pix': 'Pix', 'Dinheiro': 'Dinheiro', 'Débito': 'Cartão de débito (maquininha)', 'Crédito': 'Cartão de crédito (maquininha)'};
 function editarPedido(p){
+  if(p.conta_id){
+    avisoErro('O pedido #' + p.numero + ' foi lançado no PDV. Para trocar o pagamento, use a Conta no PDV.');
+    return;
+  }
   if(p.pagamento === 'Pix online (QR Code)' || p.mp_status){
     avisoErro('O pedido #' + p.numero + ' foi pago pelo Pix do site. Para trocar a forma, devolva o Pix ao cliente primeiro.');
     return;
