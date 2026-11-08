@@ -336,6 +336,53 @@ function pedirPagamento(p){
     document.body.appendChild(fundo); atualizar();
   });
 }
+// Editar pedido: por enquanto, so trocar a forma de pagamento (acrescentar item vem a seguir)
+const ROTULO_PAG = {'Pix': 'Pix', 'Dinheiro': 'Dinheiro', 'Débito': 'Cartão de débito (maquininha)', 'Crédito': 'Cartão de crédito (maquininha)'};
+function editarPedido(p){
+  if(p.pagamento === 'Pix online (QR Code)' || p.mp_status){
+    avisoErro('O pedido #' + p.numero + ' foi pago pelo Pix do site. Para trocar a forma, devolva o Pix ao cliente primeiro.');
+    return;
+  }
+  const atual = formaDeclarada(p);
+  let forma = atual, bandeira = p.bandeira || null;
+  const fundo = el('div', 'modal-fundo'); fundo.id = 'modalEditar';
+  const m = el('div', 'modal-pag'); fundo.appendChild(m);
+  m.appendChild(el('h3', '', 'Editar pedido #' + p.numero));
+  m.appendChild(el('p', '', (p.nome || '') + ' · R$ ' + Number(p.total).toFixed(2).replace('.', ',') + ' · cobrar: ' + (p.pagamento || '—')));
+  m.appendChild(el('div', 'rotulo', 'Forma de pagamento'));
+  const op = el('div', 'opcoes'); m.appendChild(op);
+  const rotBand = el('div', 'rotulo', 'Bandeira do cartão'); const band = el('div', 'bandeiras');
+  const lbNota = el('label', 'nota-pediu'); const chk = document.createElement('input'); chk.type = 'checkbox'; chk.checked = !!(p.cpf_nota || p.nota_solicitada);
+  lbNota.appendChild(chk); lbNota.appendChild(document.createTextNode('O cliente pediu nota fiscal'));
+  const conf = el('button', 'confirmar', 'Salvar'); conf.id = 'btnSalvarEdicao';
+  const atualizar = () => {
+    [...op.children].forEach(b => b.classList.toggle('sel', b.dataset.forma === forma));
+    const cartao = forma === 'Débito' || forma === 'Crédito';
+    rotBand.style.display = band.style.display = cartao ? '' : 'none';
+    [...band.children].forEach(b => b.classList.toggle('sel', b.dataset.band === bandeira));
+    lbNota.style.display = forma === 'Dinheiro' ? '' : 'none';
+    conf.disabled = !forma || (cartao && !bandeira) || (forma === atual && !(cartao && bandeira !== p.bandeira));
+  };
+  FORMAS_PAG.forEach(f => { const b = el('button', 'opcao', f); b.dataset.forma = f; b.onclick = () => { forma = f; if(f !== 'Débito' && f !== 'Crédito') bandeira = null; atualizar(); }; op.appendChild(b); });
+  m.appendChild(rotBand); m.appendChild(band); m.appendChild(lbNota);
+  BANDEIRAS.forEach(([cod, nome]) => { const b = el('button', 'opcao', nome); b.dataset.band = cod; b.onclick = () => { bandeira = cod; atualizar(); }; band.appendChild(b); });
+  const rod = el('div', 'rodape'); const volta = el('button', 'cancelar', 'Voltar'); volta.onclick = () => fundo.remove();
+  conf.onclick = async () => {
+    conf.disabled = true;
+    try{
+      await rpc('painel_trocar_pagamento', {p_pedido: p.id, p_pagamento: ROTULO_PAG[forma]});
+      await rpc('painel_definir_pagamento', {p_pedido: p.id, p_forma: forma, p_bandeira: bandeira, p_nota: forma === 'Dinheiro' ? chk.checked : null});
+      fundo.remove(); await carregar();
+    }catch(e){
+      const t = String((e && e.message) || e || '');
+      avisoErro(t && t.length < 160 && !/^HTTP|fetch/i.test(t) ? t : 'Não consegui trocar o pagamento do #' + p.numero + '. Tente de novo.');
+      atualizar();
+    }
+  };
+  rod.appendChild(volta); rod.appendChild(conf); m.appendChild(rod);
+  document.body.appendChild(fundo); atualizar();
+}
+
 async function avancar(p){
   const proximo = p.status === 'novo' ? 'cozinha' : p.status === 'cozinha' ? 'pronto' : 'concluido';
   if(fiscal.ativo && proximo === fiscal.etapa && !p.pagamento_final){ if(!(await pedirPagamento(p))) return; }
@@ -427,7 +474,8 @@ function cartao(p){
     await mudar(p, 'cancelado');
     if(motivo){ try{ await rpc('painel_motivo_cancelamento', {p_pedido: p.id, p_motivo: motivo}); }catch(e){} }     // sem a Parte H, so nao anota o motivo
   };
-  mini.appendChild(voltar); mini.appendChild(re); mini.appendChild(canc);
+  const edit = el('button', '', 'Editar pedido'); edit.onclick = () => editarPedido(p);
+  mini.appendChild(voltar); mini.appendChild(re); mini.appendChild(edit); mini.appendChild(canc);
   c.appendChild(mini);
   if(p.modalidade === 'Vem comer' && !p.conta_id && !pixPend){
     const bm = el('button', 'acao', '🍽 Mandar para a mesa'); bm.style.marginTop = '8px'; bm.onclick = () => mandarParaMesa(p); c.appendChild(bm);
