@@ -3078,6 +3078,48 @@ async function chamarDeVolta(seg, rotulo){
 }
 
 const SEGMENTOS_PROMO = [['ativos', 'Pediram nos últimos 30 dias'], ['parados_30', 'Sem pedir há 30 a 59 dias'], ['parados_60', 'Sem pedir há 60 a 89 dias'], ['parados_90', 'Sem pedir há 90 dias ou mais'], ['novos', 'Só 1 pedido (novos)'], ['recorrentes', '2 ou mais pedidos (recorrentes)']];
+async function desenharGastosMeta(box, relDados){
+  box.textContent = '';
+  box.appendChild(el('h2', '', 'Gasto com anúncios (Meta)'));
+  const corpo = el('div'); corpo.appendChild(el('div', 'vazio', 'Calculando...')); box.appendChild(corpo);
+  const fmtQ = v=>v ? new Date(v).toLocaleString('pt-BR', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}) : '-';
+  let d;
+  try{ d = await rpc('marketing_gastos_resumo', {p_loja:LOJA, p_ini:relPeriodo.ini, p_fim:relPeriodo.fim}); }
+  catch(e){ corpo.textContent = ''; corpo.appendChild(el('div', 'vazio', erroRelNovo(e, 'CE1', 'o gasto com anúncios'))); return; }
+  corpo.textContent = '';
+  const camp = (d && d.campanhas) || [];
+  const total = Number((d && d.total) || 0);
+  if(!camp.length) corpo.appendChild(el('div', 'vazio', 'Ainda não há gasto guardado neste período.' + (PAPEL !== 'leitor' ? ' Clique em "Atualizar gastos do Meta" para buscar.' : '')));
+  else{
+    corpo.appendChild(tabelaSimples(['Campanha', 'Gasto', 'Cliques', 'Custo por clique', 'Período com gasto'], camp.map(c=>[
+      c.campanha, money(Number(c.gasto)), c.cliques, Number(c.cliques) > 0 ? money(Number(c.gasto) / Number(c.cliques)) : '-',
+      String(c.primeiro_dia).split('-').reverse().join('/') + ' a ' + String(c.ultimo_dia).split('-').reverse().join('/')])));
+    const vendasMeta = (relDados && relDados.origem || []).filter(x=>/meta|facebook|instagram|fb|ig|anuncio|anúncio/i.test(String(x.origem || '')));
+    const ped = vendasMeta.reduce((a, x)=>a + Number(x.pedidos || 0), 0), fat = vendasMeta.reduce((a, x)=>a + Number(x.faturamento || 0), 0);
+    const resumo = el('p', 'dica', 'Total gasto no período: ' + money(total) + '. Vendas com origem de anúncio/Instagram no site novo: ' + ped + ' pedido(s), ' + money(fat) + (total > 0 ? ' (retorno de ' + (fat / total).toFixed(1).replace('.', ',') + 'x o gasto)' : '') + '. Pedidos pelo WhatsApp, telefone ou Suitable não entram aqui, então o retorno real pode ser maior.');
+    corpo.appendChild(resumo);
+  }
+  corpo.appendChild(el('p', 'dica', 'Última atualização: ' + fmtQ(d && d.ultima_atualizacao) + '. O valor é o que o Meta cobra pelo anúncio (não inclui as mensagens de WhatsApp, que aparecem em "Custo dos envios").'));
+  if(PAPEL !== 'leitor'){
+    const b = el('button', 'btn verde peq', 'Atualizar gastos do Meta');
+    b.onclick = async ()=>{
+      b.disabled = true; b.textContent = 'Buscando no Meta...';
+      try{
+        if(sessao && sessao.expira - Date.now() < 120000) await renovar();
+        const resp = await fetch(SUPABASE_URL + '/functions/v1/meta-gastos', {
+          method:'POST', headers:{apikey:SUPABASE_KEY, 'Content-Type':'application/json', Authorization:'Bearer ' + (sessao ? sessao.access_token : '')},
+          body:JSON.stringify({dias:60}),
+        });
+        let j = null; try{ j = await resp.json(); }catch(e){}
+        if(!resp.ok || !j || !j.ok) throw new Error((j && (j.erro || (j.contas || []).map(c=>c.erro).filter(Boolean).join(' | '))) || ('erro ' + resp.status));
+        const falhas = (j.contas || []).filter(c=>!c.ok);
+        aviso('Gastos atualizados (' + j.gravadas + ' linhas).' + (falhas.length ? ' Atenção: ' + falhas.length + ' conta(s) não puderam ser lidas: ' + falhas[0].erro : ''), falhas.length ? 'erro' : 'ok');
+        desenharGastosMeta(box, relDados);
+      }catch(e){ b.disabled = false; b.textContent = 'Atualizar gastos do Meta'; aviso('Não consegui atualizar: ' + String(e.message || e), 'erro'); }
+    };
+    corpo.appendChild(b);
+  }
+}
 async function desenharSegmentos(box){
   box.textContent = '';
   box.appendChild(el('h2', '', 'Segmentos para campanhas'));
@@ -3112,12 +3154,20 @@ async function desenharSegmentos(box){
       if(!rs || !rs.length) corpo.appendChild(el('div', 'vazio', 'Nenhuma campanha enviada ainda.'));
       else{
         const fmtQuando = v=>v ? new Date(v).toLocaleString('pt-BR', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}) : '-';
-        corpo.appendChild(tabelaSimples(['Campanha', 'Enviadas', 'Responderam', 'Pediram sair', 'Pessoas que pediram', 'Pedidos', 'Vendeu', 'Combo Dupla', 'Com erro', 'Último envio'], rs.map(c=>[
-          c.campanha, c.enviados, c.responderam == null ? '-' : c.responderam, c.pediram_sair == null ? '-' : c.pediram_sair,
+        const ofertaDoDia = d=>!d ? '-' : (d >= '2026-11-06' ? 'Pizza do Dia (R$ 49,90)' : 'Combo Dupla (R$ 59,90)');   // ajuste aqui se um dia tiver sido outra oferta
+        const fmtDia = d=>d ? String(d).split('-').reverse().slice(0, 2).join('/') : '-';
+        const retorno = (v, env)=>(Number(env) > 0 && v != null) ? (Number(v) / (Number(env) * CAMPANHA_VOLTA.custoMsg)).toFixed(1).replace('.', ',') + 'x' : '-';
+        const linhasC = rs.map(c=>[
+          fmtDia(c.dia_envio) + ' · ' + ofertaDoDia(c.dia_envio), c.enviados, c.responderam == null ? '-' : c.responderam, c.pediram_sair == null ? '-' : c.pediram_sair,
           c.pessoas_pediram == null ? '-' : c.pessoas_pediram, c.pedidos == null ? '-' : c.pedidos, c.valor == null ? '-' : money(Number(c.valor)),
-          c.pediram_combo == null ? '-' : c.pediram_combo, c.erros, fmtQuando(c.ultimo_envio)])));
+          money(Number(c.enviados) * CAMPANHA_VOLTA.custoMsg), retorno(c.valor, c.enviados),
+          c.pediram_combo == null ? '-' : c.pediram_combo, c.erros]);
+        const som = k=>rs.reduce((a, c)=>a + Number(c[k] || 0), 0);
+        linhasC.push(['TOTAL', som('enviados'), som('responderam'), som('pediram_sair'), som('pessoas_pediram'), som('pedidos'), money(som('valor')),
+          money(som('enviados') * CAMPANHA_VOLTA.custoMsg), retorno(som('valor'), som('enviados')), som('pediram_combo'), som('erros')]);
+        corpo.appendChild(tabelaSimples(['Envio · oferta', 'Enviadas', 'Responderam', 'Pediram sair', 'Pessoas que pediram', 'Pedidos', 'Vendeu', 'Custo dos envios', 'Retorno', 'Combo Dupla', 'Com erro'], linhasC));
         const pend = rs.reduce((a, c)=>a + Number(c.pendentes || 0), 0);
-        corpo.appendChild(el('p', 'dica', 'Enviadas = aceitas pelo WhatsApp. "Pessoas que pediram", "Pedidos" e "Vendeu" contam quem recebeu a mensagem e fez qualquer pedido em até 7 dias depois do envio, no site novo ou no Suitable (confere pelo telefone), só pedidos feitos dentro do período escolhido acima. "Combo Dupla" conta só quem pediu o Combo Dupla no site novo. "Responderam" são respostas no WhatsApp do robô.' + (pend ? ' Atenção: ' + pend + ' envio(s) ficaram pendentes (sem confirmação) e não são reenviados sozinhos.' : '')));
+        corpo.appendChild(el('p', 'dica', 'Enviadas = aceitas pelo WhatsApp. "Pessoas que pediram", "Pedidos" e "Vendeu" contam quem recebeu a mensagem e fez qualquer pedido em até 7 dias depois do envio, no site novo ou no Suitable (confere pelo telefone), só pedidos feitos dentro do período escolhido acima. "Combo Dupla" conta só quem pediu o Combo Dupla no site novo. "Responderam" são respostas no WhatsApp do robô. "Custo dos envios" = enviadas × R$ 0,32 (valor estimado por mensagem). "Retorno" = quanto foi vendido para cada R$ 1 gasto no envio (ex.: 20x = R$ 20 vendidos por R$ 1). É faturamento, não lucro, e ainda não inclui anúncio do Meta.' + (pend ? ' Atenção: ' + pend + ' envio(s) ficaram pendentes (sem confirmação) e não são reenviados sozinhos.' : '')));
         if(PAPEL !== 'leitor'){
           const caixaQuem = el('div'); const btnQuem = el('button', 'btn cinza peq', 'Ver quem pediu depois da mensagem');
           btnQuem.onclick = async ()=>{
@@ -3195,6 +3245,7 @@ async function telaRelatorios(c){
 
   tMkt.appendChild(el('p', 'dica', 'Origem das vendas: quanto cada campanha, link ou anúncio vendeu. Pedidos sem origem vieram direto do site.'));
   secaoRel(tMkt, 'origem', 'Origem das vendas', 'origem', tabelaSimples(['Origem', 'Pedidos', 'Faturamento', 'Ticket médio'], relDados.origem.map(x=>[x.origem, x.pedidos, money(x.faturamento), money(x.ticket_medio)]), 'Nenhuma venda neste período.'));
+  const gastoBox = el('div'); tMkt.appendChild(gastoBox); desenharGastosMeta(gastoBox, relDados);
   const funilBox = el('div'); tMkt.appendChild(funilBox); desenharFunil(funilBox);
   const diaBox = el('div'); tMkt.appendChild(diaBox); desenharVisitasDia(diaBox);
   const novosBox = el('div'); tMkt.appendChild(novosBox); desenharNovosRecorrentes(novosBox);
