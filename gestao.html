@@ -3043,10 +3043,19 @@ function sextaFinalVolta(){   // prazo maior: a oferta vale até a sexta da SEMA
   const d = new Date(); while(d.getDay() !== 5) d.setDate(d.getDate() + 1);
   d.setDate(d.getDate() + 7); return d;
 }
+// Promoção da terça, quarta e quinta (a mensagem acompanha o dia em que você envia). Nos outros dias vale a Pizza do Dia.
+// Para mudar um texto, edite aqui. Máximo ~140 caracteres, sem quebra de linha. ofertaVolta() e nomeOfertaVolta() sempre juntos.
+const OFERTAS_DIA = {
+  2: {nome:'Terça Super', texto:'Terça Super: na compra de qualquer pizza grande, uma pequena é por nossa conta (sabores selecionados), hoje, das 18h às 22h'},
+  3: {nome:'Quarta da Borda', texto:'Quarta da Borda: na compra de uma pizza grande, a borda é por nossa conta, hoje, das 18h às 22h'},
+  4: {nome:'Quinta Especial', texto:'Quinta Especial: compre uma pizza grande e a segunda grande sai pela metade do preço (sabores selecionados), hoje, das 18h às 22h'}
+};
 function ofertaVolta(){
+  const o = OFERTAS_DIA[new Date().getDay()];
+  if(o) return o.texto;
   return 'pizza grande de até 2 sabores por R$ 49,90 (Pizza do Dia), direto no nosso site, de terça a domingo, das 18h às 22h';
 }
-function nomeOfertaVolta(){ return 'Pizza do Dia (R$ 49,90)'; }   // nome curto que aparece no relatorio; troque junto com ofertaVolta() quando mudar a oferta
+function nomeOfertaVolta(){ const o = OFERTAS_DIA[new Date().getDay()]; return o ? o.nome : 'Pizza do Dia (R$ 49,90)'; }   // nome curto que aparece no relatorio; troque junto com ofertaVolta() quando mudar a oferta
 async function chamarDeVolta(seg, rotulo){
   let pv;
   try{ pv = await rpc('campanha_previa', {p_loja:LOJA, p_segmento:seg, p_campanha:CAMPANHA_VOLTA.id}); }
