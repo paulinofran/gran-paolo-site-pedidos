@@ -2821,7 +2821,7 @@ function periodoDoPreset(p){
   const ini = hoje.slice(0, 8) + '01', fimAnt = somaDias(ini, -1);           // mes passado
   return {ini:fimAnt.slice(0, 8) + '01', fim:fimAnt};
 }
-let relPeriodo = {preset:'mes', ...periodoDoPreset('mes')}, relDados = null;
+let relPeriodo = {preset:'mes', ...periodoDoPreset('mes')}, relDados = null, relAba = 'vendas';
 const brData = (iso) => String(iso).slice(8, 10) + '/' + String(iso).slice(5, 7);
 const brDataHora = (iso) => new Date(iso).toLocaleString('pt-BR', {timeZone:'America/Fortaleza', day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
 
@@ -3108,14 +3108,30 @@ async function desenharSegmentos(box){
     // quadro de resultados das campanhas enviadas (sem precisar de SQL)
     corpo.appendChild(el('h3', '', 'Resultado das campanhas enviadas'));
     try{
-      const rs = await rpc('campanha_resumo', {p_loja:LOJA});
+      const rs = await rpc('campanha_resumo', {p_loja:LOJA, p_ini:relPeriodo.ini, p_fim:relPeriodo.fim});
       if(!rs || !rs.length) corpo.appendChild(el('div', 'vazio', 'Nenhuma campanha enviada ainda.'));
       else{
-        corpo.appendChild(tabelaSimples(['Campanha', 'Enviadas', 'Responderam', 'Pediram sair', 'Pediram o combo', 'Com erro', 'Último envio'], rs.map(c=>[
-          c.campanha, c.enviados, c.responderam == null ? '-' : c.responderam, c.pediram_sair == null ? '-' : c.pediram_sair, c.pediram_combo == null ? '-' : c.pediram_combo, c.erros,
-          c.ultimo_envio ? new Date(c.ultimo_envio).toLocaleString('pt-BR', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}) : '-'])));
+        const fmtQuando = v=>v ? new Date(v).toLocaleString('pt-BR', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}) : '-';
+        corpo.appendChild(tabelaSimples(['Campanha', 'Enviadas', 'Responderam', 'Pediram sair', 'Pessoas que pediram', 'Pedidos', 'Vendeu', 'Combo Dupla', 'Com erro', 'Último envio'], rs.map(c=>[
+          c.campanha, c.enviados, c.responderam == null ? '-' : c.responderam, c.pediram_sair == null ? '-' : c.pediram_sair,
+          c.pessoas_pediram == null ? '-' : c.pessoas_pediram, c.pedidos == null ? '-' : c.pedidos, c.valor == null ? '-' : money(Number(c.valor)),
+          c.pediram_combo == null ? '-' : c.pediram_combo, c.erros, fmtQuando(c.ultimo_envio)])));
         const pend = rs.reduce((a, c)=>a + Number(c.pendentes || 0), 0);
-        corpo.appendChild(el('p', 'dica', 'Enviadas = aceitas pelo WhatsApp. "Pediram o combo" conta quem fez pedido com o Combo Dupla depois de receber a mensagem. "Responderam" são respostas no WhatsApp do robô.' + (pend ? ' Atenção: ' + pend + ' envio(s) ficaram pendentes (sem confirmação) e não são reenviados sozinhos.' : '')));
+        corpo.appendChild(el('p', 'dica', 'Enviadas = aceitas pelo WhatsApp. "Pessoas que pediram", "Pedidos" e "Vendeu" contam quem recebeu a mensagem e fez qualquer pedido em até 7 dias depois do envio, no site novo ou no Suitable (confere pelo telefone), só pedidos feitos dentro do período escolhido acima. "Combo Dupla" conta só quem pediu o Combo Dupla no site novo. "Responderam" são respostas no WhatsApp do robô.' + (pend ? ' Atenção: ' + pend + ' envio(s) ficaram pendentes (sem confirmação) e não são reenviados sozinhos.' : '')));
+        if(PAPEL !== 'leitor'){
+          const caixaQuem = el('div'); const btnQuem = el('button', 'btn cinza peq', 'Ver quem pediu depois da mensagem');
+          btnQuem.onclick = async ()=>{
+            caixaQuem.textContent = ''; caixaQuem.appendChild(el('div', 'vazio', 'Procurando...'));
+            try{
+              const l = await rpc('campanha_pedidos', {p_loja:LOJA, p_ini:relPeriodo.ini, p_fim:relPeriodo.fim});
+              caixaQuem.textContent = '';
+              caixaQuem.appendChild(tabelaSimples(['Pediu em', 'Nome', 'Final do telefone', 'Onde', 'Valor', 'O que pediu', 'Campanha', 'Recebeu a mensagem em'],
+                (l || []).map(x=>[fmtQuando(x.pedido_em), x.nome || '-', x.final_tel || '-', x.fonte, money(Number(x.valor)), x.detalhe || '-', x.campanha, fmtQuando(x.enviado_em)]),
+                'Ninguém que recebeu a mensagem fez pedido neste período.'));
+            }catch(e){ caixaQuem.textContent = ''; caixaQuem.appendChild(el('div', 'vazio', erroRelNovo(e, 'CD1 e CD2', 'a lista de quem pediu'))); }
+          };
+          corpo.appendChild(btnQuem); corpo.appendChild(caixaQuem);
+        }
       }
     }catch(e){ corpo.appendChild(el('div', 'vazio', erroRelNovo(e, 'BB e BC', 'o resultado das campanhas'))); }
   }
@@ -3147,6 +3163,14 @@ async function telaRelatorios(c){
   corpo.appendChild(sd);
   if(!R.pedidos){ corpo.appendChild(el('div', 'vazio', 'Nenhuma venda neste período.')); }
 
+  /* ---- abas: Vendas | Pizzas e produtos | Marketing | Operação (o período de cima vale para todas) ---- */
+  const tVendas = el('div'), tPizzas = el('div'), tMkt = el('div'), tOper = el('div');
+  const abasRel = [['vendas', 'Vendas', tVendas], ['pizzas', 'Pizzas e produtos', tPizzas], ['marketing', 'Marketing', tMkt], ['operacao', 'Operação', tOper]];
+  const barraAbas = el('div', 'cheios'); barraAbas.style.margin = '12px 0';
+  const mostrarAba = id=>{ relAba = id; abasRel.forEach(([k, , d])=>{ d.style.display = k === id ? '' : 'none'; }); barraAbas.querySelectorAll('button').forEach(b=>{ b.className = 'btn peq ' + (b.dataset.aba === id ? 'verde' : 'cinza'); }); };
+  abasRel.forEach(([k, r])=>{ const b = el('button', 'btn peq cinza', r); b.dataset.aba = k; b.onclick = ()=>mostrarAba(k); barraAbas.appendChild(b); });
+  corpo.appendChild(barraAbas); abasRel.forEach(([, , d])=>corpo.appendChild(d));
+
   const resumo = el('div');
   resumo.appendChild(el('div', 'dica', 'Por modalidade'));
   resumo.appendChild(tabelaSimples(['Modalidade', 'Pedidos', 'Faturamento', 'Ticket médio'], R.por_modalidade.map(x=>[x.nome, x.pedidos, money(x.faturamento), money(x.ticket_medio)])));
@@ -3154,26 +3178,33 @@ async function telaRelatorios(c){
   resumo.appendChild(tabelaSimples(['Pagamento', 'Pedidos', 'Faturamento'], agruparPagamentos(R.por_pagamento).map(x=>[x.nome, x.pedidos, money(x.faturamento)])));
   resumo.appendChild(el('div', 'dica', 'Por dia (taxas de entrega no período: ' + money(R.taxas_entrega) + ')'));
   resumo.appendChild(tabelaSimples(['Dia', 'Pedidos', 'Faturamento'], R.por_dia.map(x=>[brData(x.dia), x.pedidos, money(x.faturamento)])));
-  secaoRel(corpo, 'resumo', 'Resumo', 'resumo', resumo);
+  secaoRel(tVendas, 'resumo', 'Resumo', 'resumo', resumo);
+
+  const horaBox = el('div'); tVendas.appendChild(horaBox); desenharDiaHora(horaBox);
+  secaoRel(tVendas, 'cancelados', 'Cancelados', 'cancelados', tabelaSimples(['#', 'Quando', 'Cliente', 'Modalidade', 'Total', 'Motivo'], relDados.cancelados.map(x=>[x.numero, brDataHora(x.quando), x.cliente || '', x.modalidade, money(x.total), x.motivo || '—']), 'Nenhum cancelamento neste período.'));
 
   const P = relDados.produtos, prod = el('div');
+  tPizzas.appendChild(el('p', 'dica', 'Conta os pedidos do site novo e do PDV. Os pedidos que ainda entram pelo Suitable não aparecem aqui até a virada.'));
+  { const pt = {}; let totQ = 0; P.produtos.forEach(x=>{ const k = x.tamanho || 'Única'; pt[k] = pt[k] || {q:0, v:0}; pt[k].q += Number(x.quantidade) || 0; pt[k].v += Number(x.valor) || 0; totQ += Number(x.quantidade) || 0; });
+    const lt = Object.keys(pt).sort((a, b)=>pt[b].q - pt[a].q);
+    if(lt.length){ prod.appendChild(el('div', 'dica', 'Por tamanho (todos os produtos)')); prod.appendChild(tabelaSimples(['Tamanho', 'Qtd', '% das unidades', 'Valor'], lt.map(k=>[k, pt[k].q, totQ ? Math.round(pt[k].q * 100 / totQ) + '%' : '-', money(pt[k].v)]))); prod.appendChild(el('div', 'dica', 'Produto por produto')); } }
   prod.appendChild(tabelaSimples(['Produto', 'Tam.', 'Qtd', 'Valor'], P.produtos.slice(0, 15).map(x=>[x.nome, x.tamanho, x.quantidade, money(x.valor)]), 'Nenhum produto vendido neste período.'));
   if(P.produtos.length > 15){ const d = el('details'); d.appendChild(el('summary', '', 'Ver os outros ' + (P.produtos.length - 15) + ' produtos')); d.appendChild(tabelaSimples(['Produto', 'Tam.', 'Qtd', 'Valor'], P.produtos.slice(15).map(x=>[x.nome, x.tamanho, x.quantidade, money(x.valor)]))); prod.appendChild(d); }
   if(P.bordas.length){ prod.appendChild(el('div', 'dica', 'Bordas')); prod.appendChild(tabelaSimples(['Borda', 'Qtd'], P.bordas.map(x=>[x.borda, x.quantidade]))); }
-  secaoRel(corpo, 'produtos', 'Produtos vendidos', 'produtos', prod);
+  secaoRel(tPizzas, 'produtos', 'Produtos vendidos', 'produtos', prod);
 
-  secaoRel(corpo, 'cancelados', 'Cancelados', 'cancelados', tabelaSimples(['#', 'Quando', 'Cliente', 'Modalidade', 'Total', 'Motivo'], relDados.cancelados.map(x=>[x.numero, brDataHora(x.quando), x.cliente || '', x.modalidade, money(x.total), x.motivo || '—']), 'Nenhum cancelamento neste período.'));
-  secaoRel(corpo, 'bairros', 'Entregas por bairro', 'bairros', tabelaSimples(['Bairro', 'Pedidos', 'Faturamento', 'Ticket médio', 'Taxas'], relDados.bairros.map(x=>[x.bairro, x.pedidos, money(x.faturamento), money(x.ticket_medio), money(x.taxas)]), 'Nenhuma entrega neste período.'));
-  corpo.appendChild(el('p', 'dica', 'Origem das vendas: quanto cada campanha, link ou anúncio vendeu. Pedidos sem origem vieram direto do site.'));
-  secaoRel(corpo, 'origem', 'Origem das vendas', 'origem', tabelaSimples(['Origem', 'Pedidos', 'Faturamento', 'Ticket médio'], relDados.origem.map(x=>[x.origem, x.pedidos, money(x.faturamento), money(x.ticket_medio)]), 'Nenhuma venda neste período.'));
-  const novosBox = el('div'); corpo.appendChild(novosBox); desenharNovosRecorrentes(novosBox);
-  const equipeBox = el('div'); corpo.appendChild(equipeBox); desenharEquipe(equipeBox);
-  const horaBox = el('div'); corpo.appendChild(horaBox); desenharDiaHora(horaBox);
-  const roboBox = el('div'); corpo.appendChild(roboBox); desenharRoboNumeros(roboBox);
-    const segBox = el('div'); corpo.appendChild(segBox); desenharSegmentos(segBox);
-  const funilBox = el('div'); corpo.appendChild(funilBox); desenharFunil(funilBox);
-  const diaBox = el('div'); corpo.appendChild(diaBox); desenharVisitasDia(diaBox);
-  const linksBox = el('div'); corpo.appendChild(linksBox); montarGeradorLinks(linksBox);
+  tMkt.appendChild(el('p', 'dica', 'Origem das vendas: quanto cada campanha, link ou anúncio vendeu. Pedidos sem origem vieram direto do site.'));
+  secaoRel(tMkt, 'origem', 'Origem das vendas', 'origem', tabelaSimples(['Origem', 'Pedidos', 'Faturamento', 'Ticket médio'], relDados.origem.map(x=>[x.origem, x.pedidos, money(x.faturamento), money(x.ticket_medio)]), 'Nenhuma venda neste período.'));
+  const funilBox = el('div'); tMkt.appendChild(funilBox); desenharFunil(funilBox);
+  const diaBox = el('div'); tMkt.appendChild(diaBox); desenharVisitasDia(diaBox);
+  const novosBox = el('div'); tMkt.appendChild(novosBox); desenharNovosRecorrentes(novosBox);
+  const roboBox = el('div'); tMkt.appendChild(roboBox); desenharRoboNumeros(roboBox);
+  const segBox = el('div'); tMkt.appendChild(segBox); desenharSegmentos(segBox);
+  const linksBox = el('div'); tMkt.appendChild(linksBox); montarGeradorLinks(linksBox);
+
+  secaoRel(tOper, 'bairros', 'Entregas por bairro', 'bairros', tabelaSimples(['Bairro', 'Pedidos', 'Faturamento', 'Ticket médio', 'Taxas'], relDados.bairros.map(x=>[x.bairro, x.pedidos, money(x.faturamento), money(x.ticket_medio), money(x.taxas)]), 'Nenhuma entrega neste período.'));
+  const equipeBox = el('div'); tOper.appendChild(equipeBox); desenharEquipe(equipeBox);
+  mostrarAba(relAba);
 }
 
 /* ============================ LINKS DE DIVULGAÇÃO (com origem) + QR ============================ */
