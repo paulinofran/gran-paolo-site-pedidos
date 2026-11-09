@@ -3046,6 +3046,7 @@ function sextaFinalVolta(){   // prazo maior: a oferta vale até a sexta da SEMA
 function ofertaVolta(){
   return 'pizza grande de até 2 sabores por R$ 49,90 (Pizza do Dia), direto no nosso site, de terça a domingo, das 18h às 22h';
 }
+function nomeOfertaVolta(){ return 'Pizza do Dia (R$ 49,90)'; }   // nome curto que aparece no relatorio; troque junto com ofertaVolta() quando mudar a oferta
 async function chamarDeVolta(seg, rotulo){
   let pv;
   try{ pv = await rpc('campanha_previa', {p_loja:LOJA, p_segmento:seg, p_campanha:CAMPANHA_VOLTA.id}); }
@@ -3066,7 +3067,7 @@ async function chamarDeVolta(seg, rotulo){
     if(sessao && sessao.expira - Date.now() < 120000) await renovar();
     const resp = await fetch(SUPABASE_URL + '/functions/v1/whatsapp-campanha', {
       method:'POST', headers:{apikey:SUPABASE_KEY, 'Content-Type':'application/json', Authorization:'Bearer ' + (sessao ? sessao.access_token : '')},
-      body:JSON.stringify({segmento:seg, campanha:CAMPANHA_VOLTA.id, oferta:oferta, limite:qtd, confirmar:true}),
+      body:JSON.stringify({segmento:seg, campanha:CAMPANHA_VOLTA.id, oferta:oferta, oferta_nome:nomeOfertaVolta(), limite:qtd, confirmar:true}),
     });
     let j = null; try{ j = await resp.json(); }catch(e){}
     if(!resp.ok || !j || !j.ok) throw new Error((j && j.erro) || ('erro ' + resp.status));
@@ -3158,7 +3159,7 @@ async function desenharSegmentos(box){
         const fmtDia = d=>d ? String(d).split('-').reverse().slice(0, 2).join('/') : '-';
         const retorno = (v, env)=>(Number(env) > 0 && v != null) ? (Number(v) / (Number(env) * CAMPANHA_VOLTA.custoMsg)).toFixed(1).replace('.', ',') + 'x' : '-';
         const linhasC = rs.map(c=>[
-          fmtDia(c.dia_envio) + ' · ' + ofertaDoDia(c.dia_envio), c.enviados, c.responderam == null ? '-' : c.responderam, c.pediram_sair == null ? '-' : c.pediram_sair,
+          fmtDia(c.dia_envio) + ' · ' + (c.oferta || ofertaDoDia(c.dia_envio)), c.enviados, c.responderam == null ? '-' : c.responderam, c.pediram_sair == null ? '-' : c.pediram_sair,
           c.pessoas_pediram == null ? '-' : c.pessoas_pediram, c.pedidos == null ? '-' : c.pedidos, c.valor == null ? '-' : money(Number(c.valor)),
           money(Number(c.enviados) * CAMPANHA_VOLTA.custoMsg), retorno(c.valor, c.enviados),
           c.pediram_combo == null ? '-' : c.pediram_combo, c.erros]);
