@@ -3079,6 +3079,37 @@ async function chamarDeVolta(seg, rotulo){
 }
 
 const SEGMENTOS_PROMO = [['ativos', 'Pediram nos últimos 30 dias'], ['parados_30', 'Sem pedir há 30 a 59 dias'], ['parados_60', 'Sem pedir há 60 a 89 dias'], ['parados_90', 'Sem pedir há 90 dias ou mais'], ['novos', 'Só 1 pedido (novos)'], ['recorrentes', '2 ou mais pedidos (recorrentes)']];
+/* ---------- Cashback e fidelidade (Relatorios > Marketing) ---------- */
+async function desenharFidelidade(box){
+  box.textContent = '';
+  box.appendChild(el('h2', '', 'Cashback e fidelidade'));
+  const corpo = el('div'); corpo.appendChild(el('div', 'vazio', 'Calculando...')); box.appendChild(corpo);
+  let d;
+  try{ d = await rpc('marketing_fidelidade_resumo', {p_loja:LOJA, p_ini:relPeriodo.ini, p_fim:relPeriodo.fim}); }
+  catch(e){ corpo.textContent = ''; corpo.appendChild(el('div', 'vazio', erroRelNovo(e, 'CF1', 'o cashback e a fidelidade'))); return; }
+  corpo.textContent = '';
+  const S = d.saldo || {}, M = d.periodo || {}, P = d.pedidos || {}, n = x=>Number(x) || 0;
+  const tk = (v, q)=> n(q) > 0 ? money(n(v) / n(q)) : '—';
+  corpo.appendChild(el('p', 'dica', 'Cashback e pontos que os clientes têm guardados hoje, e o que ganharam e usaram no período escolhido.'));
+  corpo.appendChild(el('div', 'dica', 'Guardado hoje pelos clientes'));
+  corpo.appendChild(tabelaSimples(['', 'Valor', 'Clientes'], [
+    ['Cashback para usar', money(n(S.cashback_aberto)), pnInt(n(S.clientes_cashback))],
+    ['Cashback que vence em até 7 dias', money(n(S.cashback_vence_7d)), pnInt(n(S.clientes_vence_7d))],
+    ['Pontos de fidelidade', pnInt(n(S.pontos_abertos)) + ' pontos', pnInt(n(S.clientes_pontos))]]));
+  corpo.appendChild(el('div', 'dica', 'No período'));
+  corpo.appendChild(tabelaSimples(['', 'Cashback', 'Pontos'], [
+    ['Ganho pelos clientes', money(n(M.cashback_ganho)), pnInt(n(M.pontos_ganhos))],
+    ['Usado nos pedidos', money(n(M.cashback_usado)), pnInt(n(M.pontos_usados))],
+    ['Venceu sem usar', money(n(M.cashback_expirou)), '—']]));
+  corpo.appendChild(el('div', 'dica', 'Pedidos com e sem desconto de cashback ou fidelidade'));
+  corpo.appendChild(tabelaSimples(['Grupo', 'Pedidos', 'Vendido', 'Ticket médio', 'Desconto dado'], [
+    ['Usaram cashback', pnInt(n(P.ped_cashback)), money(n(P.vendido_cashback)), tk(P.vendido_cashback, P.ped_cashback), money(n(P.desc_cashback))],
+    ['Usaram fidelidade', pnInt(n(P.ped_fidelidade)), money(n(P.vendido_fidelidade)), tk(P.vendido_fidelidade, P.ped_fidelidade), money(n(P.desc_fidelidade))],
+    ['Sem nenhum dos dois', pnInt(n(P.ped_sem)), money(n(P.vendido_sem)), tk(P.vendido_sem, P.ped_sem), '—']]));
+  const vp = n(P.pedidos) > 0 ? Math.round((n(P.ped_cashback) + n(P.ped_fidelidade)) * 100 / n(P.pedidos)) : 0;
+  const nota = el('div', 'pn-sub', 'Cerca de ' + vp + '% dos pedidos do período usaram cashback ou fidelidade (um pedido pode usar os dois). O desconto dado já está dentro do "Vendido" como valor pago.'); nota.style.marginTop = '6px'; corpo.appendChild(nota);
+}
+
 async function desenharGastosMeta(box, relDados){
   box.textContent = '';
   box.appendChild(el('h2', '', 'Gasto com anúncios (Meta)'));
@@ -3247,6 +3278,7 @@ async function telaRelatorios(c){
   tMkt.appendChild(el('p', 'dica', 'Origem das vendas: quanto cada campanha, link ou anúncio vendeu. Pedidos sem origem vieram direto do site.'));
   secaoRel(tMkt, 'origem', 'Origem das vendas', 'origem', tabelaSimples(['Origem', 'Pedidos', 'Faturamento', 'Ticket médio'], relDados.origem.map(x=>[x.origem, x.pedidos, money(x.faturamento), money(x.ticket_medio)]), 'Nenhuma venda neste período.'));
   const gastoBox = el('div'); tMkt.appendChild(gastoBox); desenharGastosMeta(gastoBox, relDados);
+  const fidBox = el('div'); tMkt.appendChild(fidBox); desenharFidelidade(fidBox);
   const funilBox = el('div'); tMkt.appendChild(funilBox); desenharFunil(funilBox);
   const diaBox = el('div'); tMkt.appendChild(diaBox); desenharVisitasDia(diaBox);
   const novosBox = el('div'); tMkt.appendChild(novosBox); desenharNovosRecorrentes(novosBox);
