@@ -635,7 +635,8 @@ async function carregar(){
       api('/rest/v1/fiscal_config?select=ativo,emitir_em&loja_id=eq.' + LOJA).catch(() => []),     // idem: sem a Parte G, nada muda
     ]);
     ativos = a || []; feitos = f || []; loja = (l && l[0]) || loja; statusLoja = st; falhasSeguidas = 0;
-    const novosAgora = ativos.filter(p => p.status === 'novo' && !vistos.has(p.id));
+    // toca na 1a vez que o pedido aparece: 'novo' OU ja em 'cozinha' (o agente aceita sozinho em ~4 s e a tela pode nao pegar o 'novo' a tempo)
+    const novosAgora = ativos.filter(p => !vistos.has(p.id) && (p.status === 'novo' || (p.status === 'cozinha' && !p.conta_id && !p.pix_retido)));
     ativos.forEach(p => vistos.add(p.id));
     if(novosAgora.length && !primeiraCarga) tocarPedido();
     primeiraCarga = false;
