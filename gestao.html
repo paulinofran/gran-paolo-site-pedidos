@@ -3094,9 +3094,9 @@ async function desenharGastosMeta(box, relDados){
     corpo.appendChild(tabelaSimples(['Campanha', 'Gasto', 'Cliques', 'Custo por clique', 'Período com gasto'], camp.map(c=>[
       c.campanha, money(Number(c.gasto)), c.cliques, Number(c.cliques) > 0 ? money(Number(c.gasto) / Number(c.cliques)) : '-',
       String(c.primeiro_dia).split('-').reverse().join('/') + ' a ' + String(c.ultimo_dia).split('-').reverse().join('/')])));
-    const vendasMeta = (relDados && relDados.origem || []).filter(x=>/meta|facebook|instagram|fb|ig|anuncio|anúncio/i.test(String(x.origem || '')));
+    const vendasMeta = (relDados && relDados.origem || []).filter(x=>/\/\s*(pago|paid|cpc)\b/i.test(String(x.origem || '')));
     const ped = vendasMeta.reduce((a, x)=>a + Number(x.pedidos || 0), 0), fat = vendasMeta.reduce((a, x)=>a + Number(x.faturamento || 0), 0);
-    const resumo = el('p', 'dica', 'Total gasto no período: ' + money(total) + '. Vendas com origem de anúncio/Instagram no site novo: ' + ped + ' pedido(s), ' + money(fat) + (total > 0 ? ' (retorno de ' + (fat / total).toFixed(1).replace('.', ',') + 'x o gasto)' : '') + '. Pedidos pelo WhatsApp, telefone ou Suitable não entram aqui, então o retorno real pode ser maior.');
+    const resumo = el('p', 'dica', 'Total gasto no período: ' + money(total) + '. Vendas com origem de anúncio pago no site novo: ' + ped + ' pedido(s), ' + money(fat) + (total > 0 ? ' (retorno de ' + (fat / total).toFixed(1).replace('.', ',') + 'x o gasto)' : '') + '. Pedidos pelo WhatsApp, telefone ou Suitable não entram aqui, então o retorno real pode ser maior.');
     corpo.appendChild(resumo);
   }
   corpo.appendChild(el('p', 'dica', 'Última atualização: ' + fmtQ(d && d.ultima_atualizacao) + '. O valor é o que o Meta cobra pelo anúncio (não inclui as mensagens de WhatsApp, que aparecem em "Custo dos envios").'));
