@@ -757,25 +757,33 @@ const SUPABASE_KEY = "sb_publishable_qpfP7hAj0tmvwVEEqkqluA_iKzPYFUJ";
 // o caminho principal e garantido.
 async function salvarPedidoNoCRM({nome, telefone, endereco, modalidade, bairro, taxa, itens, total, pagamento, obs}){
   enviarOrigemDoPedido(telefone);
+  // Devolve {ok:true} so quando o banco CONFIRMOU que gravou o pedido (e por isso ele aparece no painel).
+  // Se recusar (loja fechada, erro, sem internet), devolve {ok:false, motivo} e o site NAO manda o cliente pro WhatsApp.
+  const ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+  const t = ctl ? setTimeout(()=>ctl.abort(), 15000) : null;
   try{
-    // Chama a função segura "registrar_pedido" do banco (ela cadastra/atualiza o
-    // cliente e grava o pedido). keepalive deixa o envio terminar mesmo que o
-    // navegador já esteja abrindo o WhatsApp.
-    await fetch(`${SUPABASE_URL}/rest/v1/rpc/registrar_pedido`, {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/registrar_pedido`, {
       method: "POST",
       headers: {
         "apikey": SUPABASE_KEY,
         "Authorization": `Bearer ${SUPABASE_KEY}`,
         "Content-Type": "application/json",
       },
-      keepalive: true,
+      signal: ctl ? ctl.signal : undefined,
       body: JSON.stringify({
         p_loja: LOJA_ID, p_telefone: telefone, p_nome: nome, p_endereco: endereco || '',
         p_modalidade: modalidade, p_bairro: bairro || null, p_taxa: taxa || 0,
         p_itens: itens, p_total: total, p_pagamento: pagamento, p_obs: obs || null,
       }),
     });
-  }catch(e){ /* segue mesmo se falhar — o WhatsApp é o caminho principal */ }
+    let corpo = null; try{ corpo = await r.json(); }catch(e){}
+    const txt = (corpo ? JSON.stringify(corpo) : '').toLowerCase();
+    const fechada = /sem_painel|fechad|loja_fechada|nao_aberta|n.o estamos/.test(txt);
+    if(!r.ok) return {ok:false, motivo: fechada ? 'fechada' : 'erro'};
+    if(corpo && typeof corpo === 'object' && !Array.isArray(corpo) && corpo.ok === false) return {ok:false, motivo: fechada ? 'fechada' : 'erro'};
+    return {ok:true};
+  }catch(e){ return {ok:false, motivo:'rede'}; }
+  finally{ if(t) clearTimeout(t); }
 }
 
 // Deixa o telefone só com números (e sem o 55 do Brasil), igual ao banco.
@@ -2428,8 +2436,9 @@ function enviarCpfDoPedido(telefone, cpf){
   }catch(e){}
 }
 
-function enviarPedidoWhatsapp(){
-  if(carrinho.length===0) return;
+let enviandoPedido = false;
+async function enviarPedidoWhatsapp(){
+  if(carrinho.length===0 || enviandoPedido) return;
   if(lojaBloqueando()){ funil('loja_fechada'); mostrarAvisoLoja(); alert('No momento não estamos recebendo pedidos. Veja o aviso no topo da tela.'); return; }
   funil('tentou');
   const nome = document.getElementById('campoNome').value.trim();
@@ -2465,16 +2474,29 @@ function enviarPedidoWhatsapp(){
   const pagComTroco = textoPagamentoComTroco(pagamento, desc.total);                           // dinheiro: "troco para R$ 100,00"
   if(pagComTroco === null) return;
   pagamento = pagComTroco;
-  enviarSaldoDoPedido(telefone, desc.cashback, desc.pontos);
-  avisarCodigoDoPedido(telefone);
-
-  // Salva no CRM em segundo plano — não atrasa nem bloqueia o WhatsApp
-  salvarPedidoNoCRM({
+  // Grava o pedido no banco e ESPERA a confirmacao. Sem isso o pedido nao aparece no painel nem imprime.
+  const btnEnv = document.getElementById('btnEnviarPedido');
+  const textoBtn = btnEnv ? btnEnv.textContent : '';
+  enviandoPedido = true;
+  if(btnEnv){ btnEnv.disabled = true; btnEnv.textContent = 'Enviando seu pedido...'; }
+  const res = await salvarPedidoNoCRM({
     nome, telefone, endereco: modalidadeAtual==='Entrega' ? endereco : '',
     modalidade: modalidadeAtual, bairro: bairro ? bairro.nome : null, taxa,
     itens: linhasDoPedido(),
     total: desc.total, pagamento, obs,
   });
+  enviandoPedido = false;
+  if(btnEnv){ btnEnv.disabled = false; btnEnv.textContent = textoBtn || 'Enviar pedido pelo WhatsApp'; }
+  if(!res.ok){
+    try{ funil('nao_gravou'); }catch(e){}
+    try{ if(res.motivo === 'fechada'){ fetch(`${SUPABASE_URL}/rest/v1/rpc/loja_status`, {method:'POST', headers:{'apikey':SUPABASE_KEY,'Authorization':`Bearer ${SUPABASE_KEY}`,'Content-Type':'application/json'}, body: JSON.stringify({p_loja: LOJA_ID})}).then(r=>r.json()).then(j=>{ if(j && typeof j==='object'){ lojaStatus = j; mostrarAvisoLoja(); } }).catch(()=>{}); } }catch(e){}
+    alert(res.motivo === 'fechada'
+      ? 'Ainda não estamos recebendo pedidos neste momento, e o seu pedido NÃO foi enviado. Tente de novo em alguns minutos. Se preferir, fale com a gente pelo WhatsApp.'
+      : 'Não conseguimos registrar o seu pedido, então ele NÃO foi enviado. Confira sua internet e toque em "Enviar pedido" de novo. Se continuar, fale com a gente pelo WhatsApp.');
+    return;
+  }
+  enviarSaldoDoPedido(telefone, desc.cashback, desc.pontos);
+  avisarCodigoDoPedido(telefone);
   if(cpfDigitos) enviarCpfDoPedido(telefone, cpfDigitos);
   if(bandeiraSel) enviarBandeiraDoPedido(telefone, bandeiraSel);
 
