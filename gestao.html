@@ -3535,12 +3535,13 @@ async function carregarBot(){
       api(`/rest/v1/bot_conversas?${f}&precisa_humano=eq.true&order=ultima_entrada_em.desc`),
     ]);
     let msgs = [];
-    if(conv.length){ msgs = await api(`/rest/v1/bot_mensagens?${f}&telefone=in.(${conv.map(c=>c.telefone).join(',')})&order=criado_em.desc&limit=60`); }
+    if(conv.length){ msgs = await api(`/rest/v1/bot_mensagens?${f}&telefone=in.(${conv.map(c=>c.telefone).join(',')})&order=criado_em.desc&limit=500`); }
+    let recentes = []; try{ recentes = await api(`/rest/v1/bot_mensagens?${f}&criado_em=gte.${encodeURIComponent(new Date(Date.now() - 48 * 3600 * 1000).toISOString())}&order=criado_em.desc&limit=800`); }catch(e){}
     const ini = agoraLocal().data + 'T00:00:00-03:00';
     const hoje = await api(`/rest/v1/bot_fila?select=status&${f}&criado_em=gte.${encodeURIComponent(ini)}`);
     const entradas = await api(`/rest/v1/bot_mensagens?select=id&${f}&sentido=eq.entrada&criado_em=gte.${encodeURIComponent(ini)}`);
     const contatos = await buscarTodos(`/rest/v1/bot_contatos_v?${f}&order=ultimo_contato_em.desc,telefone.asc`);   // o telefone desempata: sem isso, contatos com o mesmo horario podem sumir entre as paginas
-    botDados = {instalado:true, cfg:cfg[0] || null, textos, conv, msgs, hoje, entradas:entradas.length, contatos};
+    botDados = {instalado:true, cfg:cfg[0] || null, textos, conv, msgs, recentes, hoje, entradas:entradas.length, contatos};
   }catch(e){
     botDados = {instalado:false, erro:String(e.message || e)};
   }
@@ -3576,40 +3577,162 @@ async function mostrarMidia(box, m){
     if(m.midia_legenda){ const lg = el('div', 'dica', 'Legenda: ' + m.midia_legenda); lg.style.color = 'var(--ink)'; box.appendChild(lg); }
   }catch(e){ box.appendChild(el('div', 'dica', 'Não consegui abrir o arquivo agora (' + String(e.message || e).slice(0, 80) + ').')); }
 }
+/* ---------- Atendimento: conversa completa, atualiza sozinha, sem perder o que voce digitou ---------- */
+const RAPIDAS = [
+  ['Recebemos o pedido', (p)=>'Oi' + p + '! 😊 Recebemos o seu pedido e já estamos confirmando. Qualquer coisa é só falar por aqui.'],
+  ['Confirmar sabor / pagamento', (p)=>'Oi' + p + '! Só para confirmar o pedido: qual a forma de pagamento? E se for Meio a Meio, quais são os dois sabores?'],
+  ['Em preparo', (p)=>'Seu pedido já está em preparo! 🍕 Te avisamos por aqui quando sair.'],
+  ['Pedir desculpas', (p)=>'Pedimos desculpas pelo transtorno! 🙏 Vamos resolver agora mesmo.'],
+];
+const primeiroNomeAt = (n)=>{ const p = String(n || '').trim().split(/\s+/)[0]; return p ? ', ' + p : ''; };
+const ehMsgPedido = (m)=> m.sentido === 'entrada' && /novo pedido/i.test(m.texto || '');
+function dataHoraMsg(iso){
+  const d = new Date(iso), hoje = new Date();
+  const dia = (x)=>x.toLocaleDateString('pt-BR', {timeZone:'America/Fortaleza'});
+  return (dia(d) === dia(hoje) ? '' : dia(d).slice(0, 5) + ' ') + hora(iso);
+}
+function bolha(m){
+  const ent = m.sentido === 'entrada', equipe = m.acao === 'humano_painel';
+  const wrap = el('div'); wrap.style.cssText = 'display:flex;flex-direction:column;align-items:' + (ent ? 'flex-start' : 'flex-end') + ';margin:7px 0;';
+  const quem = ent ? 'Cliente' : (equipe ? 'Equipe' : 'Robô');
+  const meta = el('div', 'dica', quem + ' · ' + dataHoraMsg(m.criado_em)); meta.style.cssText = 'margin:0 4px 2px;font-size:11px;';
+  wrap.appendChild(meta);
+  const b = el('div'); const txtCheio = String(m.texto || (m.midia_tipo ? '[' + m.midia_tipo + ']' : '')).trim();
+  const bg = ent ? '#f0f0f0' : (equipe ? '#d7f0dd' : '#e9eef7');
+  b.style.cssText = 'max-width:90%;padding:8px 11px;border-radius:12px;background:' + bg + ';white-space:pre-wrap;word-break:break-word;font-size:14px;line-height:1.35;color:var(--ink);';
+  if(!ent && !equipe){      // mensagem do robo: uma linha so; toque para ler inteira
+    const curta = txtCheio.replace(/\s+/g, ' ');
+    if(curta.length > 90){
+      let aberto = false; b.textContent = curta.slice(0, 90) + '… (toque para ler)'; b.style.cursor = 'pointer'; b.style.fontSize = '13px'; b.style.opacity = '.85';
+      b.onclick = ()=>{ aberto = !aberto; b.textContent = aberto ? txtCheio : curta.slice(0, 90) + '… (toque para ler)'; };
+    } else { b.textContent = txtCheio; b.style.fontSize = '13px'; b.style.opacity = '.85'; }
+  } else if(ehMsgPedido(m)){
+    b.textContent = '📦 Pedido enviado pelo site (está fixado no alto do cartão)'; b.style.background = '#fff4d6';
+  } else b.textContent = txtCheio;
+  wrap.appendChild(b);
+  if(m.midia_path){ const mb = el('div'); mb.style.cssText = 'margin:3px 0 0;'; wrap.appendChild(mb); mostrarMidia(mb, m); }
+  return wrap;
+}
+function preencherChat(chat, lista){      // lista em ordem cronologica; so redesenha se mudou algo
+  const assin = lista.length + ':' + (lista.length ? lista[lista.length - 1].id : '');
+  if(chat.dataset.assin === assin) return false;
+  const colado = (chat.scrollHeight - chat.scrollTop - chat.clientHeight) < 60 || !chat.dataset.assin;
+  chat.dataset.assin = assin; chat.textContent = '';
+  if(!lista.length) chat.appendChild(el('div', 'dica', 'Ainda não há mensagens guardadas desta conversa.'));
+  lista.forEach(m=>chat.appendChild(bolha(m)));
+  if(colado) chat.scrollTop = chat.scrollHeight;
+  return true;
+}
+const cartoesAtend = {};
+function msgsDe(tel){ return (botDados.msgs || []).filter(m=>m.telefone === tel).slice().sort((a, b)=> new Date(a.criado_em) - new Date(b.criado_em)); }
+function atualizarCartao(cv){
+  const k = cartoesAtend[cv.telefone]; if(!k) return;
+  const ms = msgsDe(cv.telefone);
+  const ultima = ms.length ? ms[ms.length - 1] : null;
+  const esperando = !ultima || ultima.sentido === 'entrada';
+  k.chip.textContent = esperando ? 'Cliente aguardando' : 'Respondido'; k.chip.className = 'chip ' + (esperando ? 'nao' : 'ok');
+  k.info.textContent = cv.telefone + ' · último contato ' + hora(cv.ultima_entrada_em);
+  const ped = ms.filter(ehMsgPedido).pop();
+  k.pedido.textContent = '';
+  if(ped){
+    const d = el('details'); d.open = true; d.appendChild(el('summary', '', '📦 Pedido enviado pelo site (' + dataHoraMsg(ped.criado_em) + ')'));
+    const t = el('div'); t.textContent = ped.texto; t.style.cssText = 'white-space:pre-wrap;word-break:break-word;background:#fff4d6;border:1.5px solid #e0b44c;border-radius:10px;padding:9px 11px;margin-top:6px;font-size:14px;';
+    d.appendChild(t); k.pedido.appendChild(d);
+  }
+  const mudou = preencherChat(k.chat, ms);
+  if(mudou && ultima && ultima.sentido === 'entrada' && document.hidden){ document.title = '💬 Nova mensagem · Gestão'; }
+}
+function criarCartao(cv){
+  const card = el('div', 'cartao'); const topo = el('div', 'topo');
+  topo.appendChild(el('span', 'nome', cv.nome || cv.telefone));
+  const chip = el('span', 'chip nao', 'Cliente aguardando'); topo.appendChild(chip);
+  if(cv.motivo) topo.appendChild(el('span', 'chip am', cv.motivo));
+  card.appendChild(topo);
+  const info = el('div', 'dica', ''); card.appendChild(info);
+  const pedido = el('div'); card.appendChild(pedido);
+  const chat = el('div'); chat.style.cssText = 'max-height:380px;overflow-y:auto;border:1.5px solid var(--line);border-radius:10px;padding:4px 10px;margin-top:8px;background:#fff;';
+  card.appendChild(chat);
+  const aberta = !!cv.ultima_entrada_em && (Date.now() - new Date(cv.ultima_entrada_em).getTime()) < 24 * 3600 * 1000;
+  const rap = el('div', 'linha'); rap.style.cssText = 'flex-wrap:wrap;gap:6px;margin-top:8px;';
+  const ta = el('textarea'); ta.placeholder = aberta ? 'Escreva a resposta para o cliente...' : 'Passaram mais de 24 horas: só dá para responder quando o cliente escrever de novo.';
+  ta.maxLength = 1500; ta.disabled = !aberta; ta.style.cssText = 'width:100%;min-height:70px;margin-top:8px;padding:9px;border:1.5px solid var(--line);border-radius:9px;font:inherit';
+  ta.value = rascunhos[cv.telefone] || ''; ta.oninput = ()=>{ rascunhos[cv.telefone] = ta.value; };
+  RAPIDAS.forEach(([rot, fn])=>{
+    const b = el('button', 'btn cinza peq', rot); b.type = 'button'; b.disabled = !aberta;
+    b.onclick = ()=>{ ta.value = fn(primeiroNomeAt(cv.nome)); rascunhos[cv.telefone] = ta.value; ta.focus(); };
+    rap.appendChild(b);
+  });
+  card.appendChild(el('div', 'dica', 'Respostas rápidas (toque, confira e envie):')); card.appendChild(rap); card.appendChild(ta);
+  const lin = el('div', 'linha');
+  const env = el('button', 'btn verde peq', 'Enviar'); env.disabled = !aberta;
+  env.onclick = ()=>{
+    const t = ta.value.trim(); if(!t){ aviso('Escreva a mensagem primeiro.', 'erro'); return; }
+    env.disabled = true; env.textContent = 'Enviando...';
+    tentar(async()=>{ await responderCliente(cv.telefone, t); rascunhos[cv.telefone] = ''; ta.value = ''; await atualizarAtend(true); }, 'Mensagem enviada').then(r=>{ env.disabled = !aberta; env.textContent = 'Enviar'; });
+  };
+  lin.appendChild(env);
+  const ok = el('button', 'btn cinza peq', 'Marcar como atendido');
+  ok.onclick = ()=>tentar(async()=>{ await rpc('bot_marcar_atendido', {p_loja:LOJA, p_telefone:cv.telefone}); delete rascunhos[cv.telefone]; await atualizarAtend(true); }, 'Marcado como atendido');
+  lin.appendChild(ok); card.appendChild(lin);
+  cartoesAtend[cv.telefone] = {card, chip, info, pedido, chat};
+  return card;
+}
 function desenharAtend(box){
   box.innerHTML = '';
-  const conv = botDados.conv;
-  box.appendChild(el('h2', '', 'Precisam de atendimento (' + conv.length + ')'));
-  if(!conv.length){ box.appendChild(el('div', 'vazio', 'Ninguém esperando. Quando um cliente pedir atendente ou usar a ajuda do site, aparece aqui e no painel de pedidos.')); return; }
-  box.appendChild(el('p', 'dica', 'Escreva a resposta aqui e toque em "Enviar": ela chega no WhatsApp do cliente pelo número do robô. Quando terminar, toque em "Marcar como atendido" para o robô voltar a responder. Até lá ele fica quieto com esse cliente. O WhatsApp só deixa responder até 24 horas depois da última mensagem do cliente.'));
-  conv.forEach(cv=>{
-    const card = el('div', 'cartao'); const topo = el('div', 'topo');
-    topo.appendChild(el('span', 'nome', cv.nome || cv.telefone)); topo.appendChild(el('span', 'chip am', cv.motivo || 'atendimento'));
-    card.appendChild(topo);
-    card.appendChild(el('div', 'dica', cv.telefone + ' · último contato ' + hora(cv.ultima_entrada_em)));
-    botDados.msgs.filter(m=>m.telefone === cv.telefone).slice(0, 6).reverse().forEach(m=>{
-      const quem = m.sentido === 'entrada' ? 'Cliente' : (ROTULO_SAIDA[m.acao] || 'Robô');
-      const l = el('div', 'dica', hora(m.criado_em) + ' · ' + quem + ': ' + String(m.texto || '').replace(/\s+/g, ' ').slice(0, 220)); l.style.color = 'var(--ink)'; card.appendChild(l);
-      if(m.midia_path){ const mb = el('div', ''); mb.style.cssText = 'margin:2px 0 8px;'; card.appendChild(mb); mostrarMidia(mb, m); }
-    });
-    const aberta = !!cv.ultima_entrada_em && (Date.now() - new Date(cv.ultima_entrada_em).getTime()) < 24 * 3600 * 1000;
-    const ta = el('textarea'); ta.placeholder = aberta ? 'Escreva a resposta para o cliente...' : 'Passaram mais de 24 horas: só dá para responder quando o cliente escrever de novo.';
-    ta.maxLength = 1500; ta.disabled = !aberta; ta.style.cssText = 'width:100%;min-height:70px;margin-top:8px;padding:9px;border:1.5px solid var(--line);border-radius:9px;font:inherit';
-    ta.value = rascunhos[cv.telefone] || ''; ta.oninput = ()=>{ rascunhos[cv.telefone] = ta.value; };
-    card.appendChild(ta);
-    const lin = el('div', 'linha');
-    const env = el('button', 'btn verde peq', 'Enviar'); env.disabled = !aberta;
-    env.onclick = ()=>{
-      const t = ta.value.trim(); if(!t){ aviso('Escreva a mensagem primeiro.', 'erro'); return; }
-      env.disabled = true; env.textContent = 'Enviando...';
-      tentar(async()=>{ await responderCliente(cv.telefone, t); rascunhos[cv.telefone] = ''; await carregarBot(); desenhar(); }, 'Mensagem enviada').then(r=>{ if(r === undefined){ env.disabled = false; env.textContent = 'Enviar'; } });
-    };
-    lin.appendChild(env);
-    const ok = el('button', 'btn cinza peq', 'Marcar como atendido');
-    ok.onclick = ()=>tentar(async()=>{ await rpc('bot_marcar_atendido', {p_loja:LOJA, p_telefone:cv.telefone}); delete rascunhos[cv.telefone]; await carregarBot(); desenhar(); }, 'Marcado como atendido');
-    lin.appendChild(ok); card.appendChild(lin); box.appendChild(card);
+  Object.keys(cartoesAtend).forEach(k=>delete cartoesAtend[k]);
+  const h = el('h2', '', ''); h.id = 'tituloAtend'; box.appendChild(h);
+  box.appendChild(el('p', 'dica', 'A tela se atualiza sozinha a cada poucos segundos. Escreva a resposta e toque em "Enviar": ela chega no WhatsApp do cliente pelo número do robô. Quando terminar, toque em "Marcar como atendido" para o robô voltar a responder. O WhatsApp só deixa responder até 24 horas depois da última mensagem do cliente.'));
+  const vazio = el('div', 'vazio', 'Ninguém esperando. Quando um cliente pedir atendente ou usar a ajuda do site, aparece aqui e no painel de pedidos.'); vazio.id = 'vazioAtend'; box.appendChild(vazio);
+  const lista = el('div'); lista.id = 'listaAtend'; box.appendChild(lista);
+  const rec = el('div'); rec.id = 'recentesAtend'; box.appendChild(rec);
+  sincronizarAtend(); desenharRecentes();
+}
+function sincronizarAtend(){
+  const lista = $('listaAtend'); if(!lista) return;
+  const conv = (botDados.conv || []).slice();
+  const t = $('tituloAtend'); if(t) t.textContent = 'Precisam de atendimento (' + conv.length + ')';
+  const v = $('vazioAtend'); if(v) v.style.display = conv.length ? 'none' : '';
+  const tels = new Set(conv.map(c=>c.telefone));
+  Object.keys(cartoesAtend).forEach(tel=>{ if(!tels.has(tel)){ cartoesAtend[tel].card.remove(); delete cartoesAtend[tel]; } });
+  conv.slice().reverse().forEach(cv=>{ if(!cartoesAtend[cv.telefone]) lista.insertBefore(criarCartao(cv), lista.firstChild); });
+  conv.forEach(cv=>atualizarCartao(cv));
+}
+function desenharRecentes(){
+  const box = $('recentesAtend'); if(!box) return;
+  const abertos = new Set([...box.querySelectorAll('details[data-tel][open]')].map(d=>d.dataset.tel));
+  box.textContent = '';
+  const esperando = new Set((botDados.conv || []).map(c=>c.telefone));
+  const por = {};
+  (botDados.recentes || []).forEach(m=>{ if(esperando.has(m.telefone)) return; (por[m.telefone] = por[m.telefone] || []).push(m); });
+  const tels = Object.keys(por).sort((a, b)=> new Date(por[b][0].criado_em) - new Date(por[a][0].criado_em)).slice(0, 25);
+  box.appendChild(el('h2', '', 'Conversas das últimas 48 horas'));
+  box.appendChild(el('p', 'dica', 'Aqui ficam as conversas que já foram atendidas ou que o robô resolveu sozinho. Toque no nome para ler a conversa inteira.'));
+  if(!tels.length){ box.appendChild(el('div', 'vazio', 'Nenhuma outra conversa nas últimas 48 horas.')); return; }
+  const nomes = {}; (botDados.contatos || []).forEach(c=>{ nomes[c.telefone] = c.nome; });
+  tels.forEach(tel=>{
+    const ms = por[tel].slice().sort((a, b)=> new Date(a.criado_em) - new Date(b.criado_em));
+    const d = el('details', 'cartao'); d.dataset.tel = tel;
+    const ult = ms[ms.length - 1];
+    d.appendChild(el('summary', '', (nomes[tel] || tel) + ' · ' + dataHoraMsg(ult.criado_em) + ' · ' + String(ult.texto || '').replace(/\s+/g, ' ').slice(0, 50)));
+    const chat = el('div'); chat.style.cssText = 'max-height:340px;overflow-y:auto;border:1.5px solid var(--line);border-radius:10px;padding:4px 10px;margin-top:8px;background:#fff;';
+    let feito = false;
+    const abrir = ()=>{ if(feito) return; feito = true; preencherChat(chat, ms); };
+    d.addEventListener('toggle', ()=>{ if(d.open) abrir(); });
+    d.appendChild(chat); if(abertos.has(tel)){ d.open = true; abrir(); }
+    box.appendChild(d);
   });
 }
+let tiqueRobo = 0;
+async function atualizarAtend(forcar){
+  const fo = 'loja_id=eq.' + LOJA;
+  botDados.conv = await api(`/rest/v1/bot_conversas?${fo}&precisa_humano=eq.true&order=ultima_entrada_em.desc`);
+  botDados.msgs = botDados.conv.length ? await api(`/rest/v1/bot_mensagens?${fo}&telefone=in.(${botDados.conv.map(x=>x.telefone).join(',')})&order=criado_em.desc&limit=500`) : [];
+  sincronizarAtend();
+  if(forcar || (++tiqueRobo % 10) === 0){
+    try{ botDados.recentes = await api(`/rest/v1/bot_mensagens?${fo}&criado_em=gte.${encodeURIComponent(new Date(Date.now() - 48 * 3600 * 1000).toISOString())}&order=criado_em.desc&limit=800`); desenharRecentes(); }catch(e){}
+  }
+}
+window.addEventListener('focus', ()=>{ if(document.title.indexOf('Nova mensagem') >= 0) document.title = 'Gestão — Gran Paolo'; });
 
 /* ---------- lista de contatos: planilhas ---------- */
 const csvCampo = (v) => { const t = String(v === null || v === undefined ? '' : v); return /[",\n;]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
@@ -3675,11 +3798,8 @@ async function telaRobo(c){
   clearInterval(timerRobo);
   timerRobo = setInterval(async()=>{
     if(aba !== 'robo' || !sessao){ clearInterval(timerRobo); return; }
-    const ativo = document.activeElement; if(ativo && ativo.tagName === 'TEXTAREA' && $('boxAtend') && $('boxAtend').contains(ativo)) return;   // está digitando: não mexe na tela
-    try{ const fo = 'loja_id=eq.' + LOJA; botDados.conv = await api(`/rest/v1/bot_conversas?${fo}&precisa_humano=eq.true&order=ultima_entrada_em.desc`);
-      botDados.msgs = botDados.conv.length ? await api(`/rest/v1/bot_mensagens?${fo}&telefone=in.(${botDados.conv.map(x=>x.telefone).join(',')})&order=criado_em.desc&limit=60`) : [];
-      const b = $('boxAtend'); if(b) desenharAtend(b); }catch(e){}
-  }, 15000);
+    try{ await atualizarAtend(false); }catch(e){}
+  }, 5000);
 
   desenharContatos(c);
 
