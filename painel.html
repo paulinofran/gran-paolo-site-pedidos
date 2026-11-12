@@ -365,6 +365,29 @@ function editarPedido(p){
   m.appendChild(el('h3', '', 'Editar pedido #' + p.numero));
   const sub = el('p', '', ''); m.appendChild(sub);
 
+  /* ---- endereco de entrega ---- */
+  const ehEntrega = p.modalidade === 'Entrega';
+  let taxaAtual = Number(p.taxa_entrega) || 0, taxaNova = taxaAtual, bairroNovo = p.bairro || '';
+  const inEnd = document.createElement('input'); inEnd.type = 'text'; inEnd.value = p.endereco || '';
+  inEnd.style.cssText = 'width:100%;padding:11px;border:1.5px solid #E5DCCD;border-radius:10px;font-size:16px;margin-bottom:8px;background:#fff;color:#2A1D15;';
+  const selBairro = document.createElement('select');
+  selBairro.style.cssText = inEnd.style.cssText;
+  const avisoEnd = el('div', ''); avisoEnd.style.cssText = 'font-size:13px;color:#8a5a00;margin:-2px 0 6px;display:none;';
+  const endMudou = () => ehEntrega && inEnd.value.trim().length >= 5 && (inEnd.value.trim() !== String(p.endereco || '').trim() || bairroNovo !== (p.bairro || ''));
+  if(ehEntrega){
+    m.appendChild(el('div', 'rotulo', 'Endereço de entrega'));
+    const caixaEnd = el('div', ''); caixaEnd.style.cssText = 'background:#F7F1E8;border-radius:12px;padding:10px;margin-bottom:12px;';
+    caixaEnd.appendChild(inEnd); caixaEnd.appendChild(selBairro); caixaEnd.appendChild(avisoEnd);
+    m.appendChild(caixaEnd);
+    inEnd.oninput = () => atualizar();
+    selBairro.onchange = () => {
+      bairroNovo = selBairro.value;
+      const b = (selBairro.bairros || []).find(x => x.nome === bairroNovo);
+      taxaNova = (bairroNovo === (p.bairro || '') || !b) ? taxaAtual : Number(b.taxa);
+      atualizar();
+    };
+  }
+
   /* ---- tirar item ---- */
   const itensPed = Array.isArray(p.itens) ? p.itens : [];
   const rotItem = i => { const nm = String(i.nome || ''); return (i.qtd || 1) + 'x ' + (nm.indexOf('Meio a Meio: ') === 0 ? 'Meio a Meio (' + nm.slice(13).replace(/Pizza /g, '') + ')' : nm) + (i.tamanho && i.tamanho !== 'Única' ? ' (' + i.tamanho + ')' : ''); };
@@ -375,6 +398,10 @@ function editarPedido(p){
   if(itensPed.length > 1){
     m.appendChild(el('div', 'rotulo', 'Tirar item do pedido'));
     m.appendChild(caixaTirar);
+  } else {
+    const dica = el('div', ''); dica.style.cssText = 'font-size:13px;color:#7a6a5a;margin-bottom:10px;';
+    dica.textContent = 'Este pedido tem só 1 item. Para tirar tudo, feche e use “Cancelar pedido”.';
+    m.appendChild(dica);
   }
 
   /* ---- acrescentar item ---- */
@@ -414,10 +441,14 @@ function editarPedido(p){
     return ROTULO_PAG[forma];
   };
   const conf = el('button', 'confirmar', 'Salvar'); conf.id = 'btnSalvarEdicao';
-  const totalNovo = () => Math.max(0, Number(p.total) - tirarSoma() + novos.reduce((s, i) => s + i.precoUnit * i.qtd, 0));
-  const pagMudou = () => !!forma && (forma !== atual || rotuloPag() !== p.pagamento || ((forma === 'Débito' || forma === 'Crédito') && bandeira !== p.bandeira));
+  const totalNovo = () => Math.max(0, Number(p.total) - tirarSoma() + (taxaNova - taxaAtual) + novos.reduce((s, i) => s + i.precoUnit * i.qtd, 0));
+  const pagMudou = () => !!forma && (forma !== atual || rotuloPag() !== p.pagamento || ((forma === 'Débito' || forma === 'Crédito') && (bandeira || null) !== (p.bandeira || null)));
   const atualizar = () => {
-    sub.textContent = (p.nome || '') + ' · ' + reais(totalNovo()) + ((novos.length || tirar.size) ? ' (era ' + reais(p.total) + ')' : '') + ' · cobrar: ' + (p.pagamento || '—');
+    sub.textContent = (p.nome || '') + ' · ' + reais(totalNovo()) + (Math.abs(totalNovo() - Number(p.total)) > 0.004 ? ' (era ' + reais(p.total) + ')' : '') + ' · cobrar: ' + (p.pagamento || '—');
+    if(ehEntrega){
+      avisoEnd.textContent = taxaNova !== taxaAtual ? 'Taxa de entrega: ' + reais(taxaAtual) + ' → ' + reais(taxaNova) + '. O total muda junto.' : '';
+      avisoEnd.style.display = avisoEnd.textContent ? '' : 'none';
+    }
     caixaTirar.textContent = '';
     itensPed.forEach((i, k) => {
       const marcado = tirar.has(k);
@@ -452,7 +483,7 @@ function editarPedido(p){
     if(trocoRuim){ erroEd.textContent = isNaN(t) ? 'Troco inválido. Digite só o valor da nota, por exemplo 50.' : 'O troco precisa ser maior ou igual ao total (' + reais(totalNovo()) + ').'; erroEd.style.display = ''; }
     else if(erroEd.dataset.troco === '1'){ erroEd.style.display = 'none'; }
     erroEd.dataset.troco = trocoRuim ? '1' : '';
-    conf.disabled = !(novos.length || tirar.size || pagMudou()) || (cartao && !bandeira) || trocoRuim;
+    conf.disabled = !(novos.length || tirar.size || pagMudou() || endMudou()) || (pagMudou() && cartao && !bandeira) || trocoRuim;   // bandeira so e exigida se a forma de pagamento foi mudada
   };
   FORMAS_PAG.forEach(f => { const b = el('button', 'opcao', f); b.dataset.forma = f; b.onclick = () => { forma = f; if(f !== 'Débito' && f !== 'Crédito') bandeira = null; atualizar(); }; op.appendChild(b); });
   m.appendChild(rotBand); m.appendChild(band); m.appendChild(caixaTroco); m.appendChild(lbNota);
@@ -464,6 +495,14 @@ function editarPedido(p){
   const trocouCat = () => { const c = cats[selCat.value]; povoar(selProd, c ? c.produtos : [], x => x.nome); trocouProd(); };
   const trocouProd = () => { const c = cats[selCat.value], x = c && c.produtos[selProd.value]; povoar(selTam, x ? x.tamanhos : [], t => t.nome + ' · ' + reais(t.preco)); };
   selCat.onchange = trocouCat; selProd.onchange = trocouProd;
+  categoriasDoCardapio().then(() => {
+    if(!ehEntrega) return;
+    const lista = ((cardapioEdicao && cardapioEdicao.bairros) || []).map(b => ({nome: b.nome, taxa: Number(b.taxa)}));
+    if(p.bairro && !lista.some(b => b.nome === p.bairro)) lista.unshift({nome: p.bairro, taxa: taxaAtual});
+    selBairro.bairros = lista; selBairro.textContent = '';
+    lista.forEach(b => { const o = document.createElement('option'); o.value = b.nome; o.textContent = b.nome + ' · ' + reais(b.taxa); selBairro.appendChild(o); });
+    selBairro.value = p.bairro || ''; bairroNovo = selBairro.value; atualizar();
+  }).catch(() => {});
   categoriasDoCardapio().then(c => { cats = c; povoar(selCat, cats, x => x.nome); trocouCat(); })
     .catch(() => { caixaItem.textContent = 'Não consegui carregar o cardápio. Feche e tente de novo.'; });
   btnAdd.onclick = () => {
@@ -479,6 +518,10 @@ function editarPedido(p){
   conf.onclick = async () => {
     conf.disabled = true; erroEd.style.display = 'none';
     try{
+      if(endMudou()){
+        await rpc('painel_editar_entrega', {p_pedido: p.id, p_endereco: inEnd.value.trim(), p_bairro: bairroNovo});
+        p.total = Number(p.total) - taxaAtual + taxaNova; p.taxa_entrega = taxaNova; p.endereco = inEnd.value.trim(); p.bairro = bairroNovo; taxaAtual = taxaNova;
+      }
       if(tirar.size){
         await rpc('painel_remover_itens', {p_pedido: p.id, p_indices: [...tirar].sort((a, b) => a - b), p_cozinha: chkCoz.checked});
         const antes = Number(p.total), sobrou = itensPed.filter((i, k) => !tirar.has(k));
