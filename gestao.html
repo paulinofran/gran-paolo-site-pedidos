@@ -3706,7 +3706,7 @@ function desenharRecentes(){
   (botDados.recentes || []).forEach(m=>{ if(esperando.has(m.telefone)) return; (por[m.telefone] = por[m.telefone] || []).push(m); });
   const tels = Object.keys(por).sort((a, b)=> new Date(por[b][0].criado_em) - new Date(por[a][0].criado_em)).slice(0, 25);
   box.appendChild(el('h2', '', 'Conversas das últimas 48 horas'));
-  box.appendChild(el('p', 'dica', 'Aqui ficam as conversas que já foram atendidas ou que o robô resolveu sozinho. Toque no nome para ler a conversa inteira.'));
+  box.appendChild(el('p', 'dica', 'Aqui ficam as conversas que já foram atendidas ou que o robô resolveu sozinho. Toque no nome para ler a conversa inteira e, se o cliente escreveu nas últimas 24 horas, mandar uma mensagem.'));
   if(!tels.length){ box.appendChild(el('div', 'vazio', 'Nenhuma outra conversa nas últimas 48 horas.')); return; }
   const nomes = {}; (botDados.contatos || []).forEach(c=>{ nomes[c.telefone] = c.nome; });
   tels.forEach(tel=>{
@@ -3719,6 +3719,29 @@ function desenharRecentes(){
     const abrir = ()=>{ if(feito) return; feito = true; preencherChat(chat, ms); };
     d.addEventListener('toggle', ()=>{ if(d.open) abrir(); });
     d.appendChild(chat); if(abertos.has(tel)){ d.open = true; abrir(); }
+    // responder tambem aqui, sem precisar o cliente estar "esperando" (so vale com a janela de 24h aberta)
+    const ultEnt = ms.filter(m=>m.sentido === 'entrada').pop();
+    const aberta = !!ultEnt && (Date.now() - new Date(ultEnt.criado_em).getTime()) < 24 * 3600 * 1000;
+    const rap = el('div', 'linha'); rap.style.cssText = 'flex-wrap:wrap;gap:6px;margin-top:8px;';
+    const ta = el('textarea'); ta.maxLength = 1500; ta.disabled = !aberta;
+    ta.placeholder = aberta ? 'Escreva uma mensagem para o cliente...' : 'Passaram mais de 24 horas: só dá para responder quando o cliente escrever de novo.';
+    ta.style.cssText = 'width:100%;min-height:60px;margin-top:8px;padding:9px;border:1.5px solid var(--line);border-radius:9px;font:inherit';
+    ta.value = rascunhos[tel] || ''; ta.oninput = ()=>{ rascunhos[tel] = ta.value; };
+    RAPIDAS.forEach(([rot, fn])=>{
+      const bt = el('button', 'btn cinza peq', rot); bt.type = 'button'; bt.disabled = !aberta;
+      bt.onclick = ()=>{ ta.value = fn(primeiroNomeAt(nomes[tel])); rascunhos[tel] = ta.value; ta.focus(); };
+      rap.appendChild(bt);
+    });
+    d.appendChild(el('div', 'dica', aberta ? 'Escrever para este cliente (toque numa resposta rápida, confira e envie):' : 'Janela de 24h fechada para este cliente.'));
+    d.appendChild(rap); d.appendChild(ta);
+    const linR = el('div', 'linha');
+    const envR = el('button', 'btn verde peq', 'Enviar'); envR.disabled = !aberta;
+    envR.onclick = ()=>{
+      const t = ta.value.trim(); if(!t){ aviso('Escreva a mensagem primeiro.', 'erro'); return; }
+      envR.disabled = true; envR.textContent = 'Enviando...';
+      tentar(async()=>{ await responderCliente(tel, t); rascunhos[tel] = ''; ta.value = ''; await atualizarAtend(true); }, 'Mensagem enviada').then(()=>{ envR.disabled = !aberta; envR.textContent = 'Enviar'; });
+    };
+    linR.appendChild(envR); d.appendChild(linR);
     box.appendChild(d);
   });
 }
