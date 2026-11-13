@@ -3642,6 +3642,14 @@ function atualizarCartao(cv){
   const mudou = preencherChat(k.chat, ms);
   if(mudou && ultima && ultima.sentido === 'entrada' && document.hidden){ document.title = '💬 Nova mensagem · Gestão'; }
 }
+function botaoWhats(tel, nome){      // emergencia: abre a conversa no WhatsApp normal da loja (sem a regra das 24h do robo)
+  const n = (typeof telMeta === 'function') ? telMeta(tel) : String(tel || '').replace(/\D/g, '');
+  const a = el('a', 'btn cinza peq', 'Abrir no WhatsApp da loja');
+  if(n){ a.href = 'https://wa.me/' + n; a.target = '_blank'; a.rel = 'noopener'; a.title = 'Abre a conversa com ' + (nome || tel) + ' no WhatsApp da loja'; }
+  else { a.style.opacity = '.5'; a.title = 'Telefone inválido'; }
+  a.style.textDecoration = 'none'; a.style.display = 'inline-block';
+  return a;
+}
 function criarCartao(cv){
   const card = el('div', 'cartao'); const topo = el('div', 'topo');
   topo.appendChild(el('span', 'nome', cv.nome || cv.telefone));
@@ -3673,7 +3681,7 @@ function criarCartao(cv){
   lin.appendChild(env);
   const ok = el('button', 'btn cinza peq', 'Marcar como atendido');
   ok.onclick = ()=>tentar(async()=>{ await rpc('bot_marcar_atendido', {p_loja:LOJA, p_telefone:cv.telefone}); delete rascunhos[cv.telefone]; await atualizarAtend(true); }, 'Marcado como atendido');
-  lin.appendChild(ok); card.appendChild(lin);
+  lin.appendChild(ok); lin.appendChild(botaoWhats(cv.telefone, cv.nome)); card.appendChild(lin);
   cartoesAtend[cv.telefone] = {card, chip, info, pedido, chat};
   return card;
 }
@@ -3741,7 +3749,7 @@ function desenharRecentes(){
       envR.disabled = true; envR.textContent = 'Enviando...';
       tentar(async()=>{ await responderCliente(tel, t); rascunhos[tel] = ''; ta.value = ''; await atualizarAtend(true); }, 'Mensagem enviada').then(()=>{ envR.disabled = !aberta; envR.textContent = 'Enviar'; });
     };
-    linR.appendChild(envR); d.appendChild(linR);
+    linR.appendChild(envR); linR.appendChild(botaoWhats(tel, nomes[tel])); d.appendChild(linR);
     box.appendChild(d);
   });
 }
