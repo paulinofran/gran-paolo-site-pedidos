@@ -643,12 +643,13 @@ function cartao(p){
   const meta = el('div', 'meta');
   meta.appendChild(el('span', 'tipo ' + classeTipo(p.modalidade), p.modalidade || ''));
   meta.appendChild(el('span', '', money(p.total)));
-  meta.appendChild(el('span', '', 'cobrar: ' + (p.pagamento || (p.conta_id ? 'no PDV (ainda não pago)' : '—'))));
+  const pagoOnline = !!p.pix_conferido_em && /online/i.test(p.pagamento || '');   // Pix/cartao pago pelo site: o Mercado Pago ja confirmou
+  meta.appendChild(el('span', '', (pagoOnline ? 'já pago: ' : 'cobrar: ') + (p.pagamento || (p.conta_id ? 'no PDV (ainda não pago)' : '—'))));
   meta.appendChild(el('span', '', 'há ' + Math.floor(t.m) + ' min'));
   c.appendChild(meta);
   const pixPend = p.pix_retido === true;
   if(pixPend) c.appendChild(el('div', 'pix-alerta', '💰 PIX AGORA: confira no app do banco se caiu ' + money(p.total) + (p.nome ? ' de ' + p.nome : '') + '. O pedido só imprime depois.'));
-  else if(p.pix_conferido_em) c.appendChild(el('div', 'pix-ok', '✅ Pix conferido'));
+  else if(p.pix_conferido_em) c.appendChild(el('div', 'pix-ok', /cart[aã]o/i.test(p.pagamento || '') && /online/i.test(p.pagamento || '') ? '✅ Cartão pago online · não cobrar na entrega' : (/pix/i.test(p.pagamento || '') ? '✅ Pix conferido' : '✅ Pagamento conferido')));
   const itens = el('div', 'itens');
   (Array.isArray(p.itens) ? p.itens : []).forEach(i => {
     const nm = String(i.nome || '');
