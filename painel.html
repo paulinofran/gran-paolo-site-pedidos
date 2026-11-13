@@ -56,6 +56,7 @@ main{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;padding:14px 16px
 .acao{width:100%;height:50px;border:0;border-radius:12px;font-size:17px;font-weight:800;margin-top:6px}
 .acao.principal{background:var(--vermelho);color:#fff}
 .acao.final{background:var(--verde);color:#fff}
+.chamar{background:#25d366;color:#fff;border:0;border-radius:8px;padding:3px 9px;font-size:12px;font-weight:700;margin-left:6px}
 .mini{display:flex;gap:12px;margin-top:8px}
 .mini button{background:none;border:0;color:var(--soft);font-size:12px;text-decoration:underline;padding:0}
 #feitos{margin:0 16px 24px}
@@ -590,6 +591,49 @@ function avisoErro(txt){
 
 /* ---------- desenho ---------- */
 function classeTipo(m){ return m === 'Drive-thru' ? 't-drive' : m === 'Vem comer' ? 't-comer' : m === 'Retirada' ? 't-retirada' : 't-entrega'; }
+// "Chamar cliente": abre uma caixinha com mensagens prontas + "Conversa em branco" (voce digita o que quiser). Nada e enviado sozinho:
+// o WhatsApp abre com o texto na caixa de mensagem e voce edita ou apaga antes de enviar.
+function chamarCliente(p){
+  let d = String(p.telefone || '').replace(/\D/g, '');
+  if(d.length < 10){ alert('Este pedido não tem um telefone válido.'); return; }
+  if(d.indexOf('55') !== 0) d = '55' + d;
+  const nome = String(p.nome || '').trim().split(/\s+/)[0];
+  const oi = 'Olá' + (nome ? ', ' + nome : '') + '! Aqui é da Gran Paolo Pizzaria 🍕 Sobre o seu pedido #' + (p.numero || p.id) + ': ';
+  const opcoes = [
+    ['✍️ Conversa em branco (eu digito)', ''],
+    ['📍 Completar o endereço', oi + 'preciso completar o seu endereço (bloco, apartamento, número ou ponto de referência). Pode me informar?'],
+    ['🗺️ Pedir a localização', oi + 'para a entrega ficar certinha, pode me enviar a sua localização pelo WhatsApp? (toque no clipe 📎 e depois em Localização)'],
+    ['✅ Confirmar um detalhe', oi + 'preciso confirmar um detalhe com você. Pode me responder?'],
+    ['🛵 Motoboy chegando', 'Olá' + (nome ? ', ' + nome : '') + '! Aqui é da Gran Paolo 🍕 O motoboy está chegando com o seu pedido #' + (p.numero || p.id) + '. Pode ficar de olho, por favor!']
+  ];
+  const fundo = document.createElement('div');
+  fundo.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+  const caixa = document.createElement('div');
+  caixa.style.cssText = 'background:#fff;border-radius:14px;padding:16px;max-width:380px;width:100%;box-shadow:0 8px 30px rgba(0,0,0,.3)';
+  const tit = document.createElement('div');
+  tit.style.cssText = 'font-weight:800;font-size:16px;margin-bottom:4px';
+  tit.textContent = 'Chamar ' + (nome || 'cliente') + ' no WhatsApp';
+  const sub = document.createElement('div');
+  sub.style.cssText = 'font-size:12px;color:#777;margin-bottom:10px';
+  sub.textContent = 'O WhatsApp abre com o texto na caixa de mensagem. Você pode editar ou apagar antes de enviar.';
+  caixa.appendChild(tit); caixa.appendChild(sub);
+  const fechar = () => fundo.remove();
+  opcoes.forEach(o => {
+    const bt = document.createElement('button');
+    bt.textContent = o[0];
+    bt.style.cssText = 'display:block;width:100%;text-align:left;border:1px solid #ddd;background:#fafafa;border-radius:10px;padding:11px 12px;margin:6px 0;font-size:14px;font-weight:600';
+    bt.onclick = () => { window.open('https://wa.me/' + d + (o[1] ? '?text=' + encodeURIComponent(o[1]) : ''), '_blank'); fechar(); };
+    caixa.appendChild(bt);
+  });
+  const x = document.createElement('button');
+  x.textContent = 'Cancelar';
+  x.style.cssText = 'display:block;width:100%;border:0;background:none;color:#777;padding:8px;font-size:13px;text-decoration:underline';
+  x.onclick = fechar;
+  caixa.appendChild(x);
+  fundo.onclick = e => { if(e.target === fundo) fechar(); };
+  fundo.appendChild(caixa);
+  document.body.appendChild(fundo);
+}
 function cartao(p){
   const t = infoTempo(p), c = el('div', 'cartao');
   const topo = el('div', 'topo');
@@ -618,7 +662,12 @@ function cartao(p){
   if(p.modalidade === 'Entrega'){
     c.appendChild(el('div', 'extra', 'Bairro: ' + (p.bairro || '—') + ' · ' + (p.endereco || 'sem endereço')));
   }
-  if(p.telefone) c.appendChild(el('div', 'extra', 'WhatsApp: ' + p.telefone));
+  if(p.telefone){
+    const lw = el('div', 'extra', 'WhatsApp: ' + p.telefone + ' ');
+    const bw = el('button', 'chamar', '💬 Chamar cliente');
+    bw.onclick = () => chamarCliente(p);
+    lw.appendChild(bw); c.appendChild(lw);
+  }
   if(p.obs) c.appendChild(el('div', 'extra', 'Obs: ' + p.obs));
   if(pixPend) c.appendChild(el('div', 'imp espera', 'Aguardando o Pix: ainda não imprime'));
   else if(p.impresso_cozinha_em && p.impresso_caixa_em) c.appendChild(el('div', 'imp ok', 'Impresso'));
