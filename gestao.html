@@ -158,7 +158,7 @@ function pnModal(n){ return n === 'Vem comer' ? 'Salão (vem comer)' : (n === 'D
 const CANAIS = ['Entrega','Retirada','Vem comer','Drive-thru','Balcão'];
 const DIAS = ['D','S','T','Q','Q','S','S'];
 const NOME_DIA = ['domingo','segunda','terça','quarta','quinta','sexta','sábado'];
-const ABAS = [['painel','Painel'],['hoje','Hoje'],['cardapio','Cardápio'],['promos','Promoções'],['cupons','Cupons'],['taxas','Taxas'],['regras','Regras'],['horarios','Horários'],['clientes','Clientes'],['relatorios','Relatórios'],['notas','Notas'],['robo','Robô'],['estoque','Estoque'],['caixa','Caixa'],['motor','Motor'],['fichas','Fichas'],['simulador','Simulador'],['contas','Contas']];
+const ABAS = [['painel','Painel'],['hoje','Hoje'],['cardapio','Cardápio'],['promos','Promoções'],['cupons','Cupons'],['taxas','Taxas'],['regras','Regras'],['horarios','Horários'],['clientes','CRM'],['marketing','Marketing'],['relatorios','Vendas'],['notas','Notas'],['robo','Robô'],['estoque','Estoque'],['caixa','Caixa'],['motor','Motor'],['fichas','Fichas'],['simulador','Simulador'],['contas','Contas']];
 
 let sessao = null, aba = (location.hash === '#robo') ? 'robo' : (location.hash === '#hoje' ? 'hoje' : 'painel');
 let PAPEL = 'dono';   // 'leitor' = acesso so de leitura (Marketing): ve apenas os Relatorios
@@ -304,13 +304,13 @@ async function recarregar(){ await tentar(async()=>{ await carregarTudo(); desen
 /* ---------- abas ---------- */
 function desenharAbas(){
   const box = $('abas'); box.innerHTML = '';
-  ABAS.filter(([id])=>PAPEL !== 'leitor' || id === 'relatorios').forEach(([id, rot])=>{ const b = el('button', id === aba ? 'ativa' : '', rot); b.dataset.aba = id; if(id === 'notas' && NOTAS_PROBLEMA > 0) b.appendChild(el('span', 'selo', String(NOTAS_PROBLEMA))); b.onclick = ()=>{ aba = id; desenhar(); window.scrollTo(0,0); }; box.appendChild(b); });
+  ABAS.filter(([id])=>PAPEL !== 'leitor' || id === 'marketing').forEach(([id, rot])=>{ const b = el('button', id === aba ? 'ativa' : '', rot); b.dataset.aba = id; if(id === 'notas' && NOTAS_PROBLEMA > 0) b.appendChild(el('span', 'selo', String(NOTAS_PROBLEMA))); b.onclick = ()=>{ aba = id; desenhar(); window.scrollTo(0,0); }; box.appendChild(b); });
 }
 function desenhar(){
-  if(PAPEL === 'leitor') aba = 'relatorios';
+  if(PAPEL === 'leitor') aba = 'marketing';
   desenharAbas();
   const c = $('conteudo'); c.innerHTML = ''; c.className = '';
-  ({painel:telaPainel, hoje:telaHoje, cardapio:telaCardapio, promos:telaPromos, cupons:telaCupons, taxas:telaTaxas, regras:telaRegras, horarios:telaHorarios, clientes:telaClientes, relatorios:telaRelatorios, notas:telaNotas, robo:telaRobo, estoque:telaEstoque, caixa:telaCaixa, motor:telaMotor, fichas:telaFichas, simulador:telaSimulador, contas:telaContas})[aba](c);
+  ({painel:telaPainel, hoje:telaHoje, cardapio:telaCardapio, promos:telaPromos, cupons:telaCupons, taxas:telaTaxas, regras:telaRegras, horarios:telaHorarios, clientes:telaClientes, relatorios:c=>telaRelatorios(c,'vendas'), marketing:c=>telaRelatorios(c,'marketing'), notas:telaNotas, robo:telaRobo, estoque:telaEstoque, caixa:telaCaixa, motor:telaMotor, fichas:telaFichas, simulador:telaSimulador, contas:telaContas})[aba](c);
   if(aba === 'notas') setTimeout(atualizarAvisoNotas, 1500);   // acabou de reenviar/salvar algo: confere o aviso de novo
 }
 
@@ -1102,7 +1102,7 @@ async function telaPainel(c){
 
   const rodape = el('div', 'pn-sub', 'Só pedidos finalizados, no horário da loja' + (pnNum(R.testes_ignorados) ? ' · ' + R.testes_ignorados + ' pedido(s) de teste ignorado(s)' : '') + '.');
   corpo.appendChild(rodape);
-  const ver = el('button', 'pn-link', 'Ver os relatórios completos'); ver.onclick = ()=>{ aba = 'relatorios'; desenhar(); window.scrollTo(0, 0); }; corpo.appendChild(ver);
+  const ver = el('button', 'pn-link', 'Ver as vendas completas'); ver.onclick = ()=>{ aba = 'relatorios'; desenhar(); window.scrollTo(0, 0); }; corpo.appendChild(ver);
 }
 
 /* ============================ CAIXA (fluxo: entrou x saiu) ============================ */
@@ -2741,7 +2741,7 @@ async function desenharCrm(box){
   const r = await tentar(()=>rpc('gestao_crm_resumo', {p_loja:LOJA, p_dias:crmDias}));
   box.textContent = '';
   if(!r){ box.appendChild(el('p', 'dica', 'Não consegui carregar o resumo dos clientes (a Parte AA do banco já foi rodada?).')); return; }
-  box.appendChild(el('h2', '', 'Clientes que já compraram'));
+  box.appendChild(el('h2', '', 'CRM: clientes que já compraram'));
   const sd = el('div', 'saldo');
   [[r.compradores || 0, 'compradores'], [r.ativos || 0, 'compraram nos últimos ' + crmDias + ' dias'], [r.sumidos || 0, 'sumiram (+' + crmDias + ' dias)'], [money(r.ticket_medio), 'ticket médio']].forEach(([n, t])=>{ const d = el('div'); d.appendChild(document.createTextNode(String(n))); d.appendChild(el('small', '', t)); sd.appendChild(d); });
   box.appendChild(sd);
@@ -3228,8 +3228,9 @@ async function desenharSegmentos(box){
   }
 }
 
-async function telaRelatorios(c){
-  if(PAPEL === 'leitor') c.appendChild(el('p', 'dica', 'Acesso somente de leitura: você vê os relatórios e os números do robô, sem dados pessoais de clientes, e não consegue alterar nada.'));
+async function telaRelatorios(c, modo){
+  modo = modo === 'marketing' ? 'marketing' : 'vendas'; const ABA_ID = modo === 'marketing' ? 'marketing' : 'relatorios';
+  if(PAPEL === 'leitor') c.appendChild(el('p', 'dica', 'Acesso somente de leitura: você vê os números de Marketing e do robô, sem dados pessoais de clientes, e não consegue alterar nada.'));
   const barra = el('div', 'cartao'); barra.appendChild(el('div', 'nome', 'Período'));
   const chips = el('div', 'cheios'); chips.style.marginTop = '8px';
   const mk = (id, rot)=>{ const b = el('button', 'btn peq ' + (relPeriodo.preset === id ? 'verde' : 'cinza'), rot); b.dataset.preset = id; b.onclick = ()=>{ relPeriodo = {preset:id, ...periodoDoPreset(id)}; desenhar(); }; chips.appendChild(b); };
@@ -3242,7 +3243,7 @@ async function telaRelatorios(c){
   l.appendChild(ver); barra.appendChild(l); c.appendChild(barra);
   const corpo = el('div'); corpo.appendChild(el('div', 'vazio', 'Calculando...')); c.appendChild(corpo);
 
-  await carregarRelatorios(); if(aba !== 'relatorios') return;
+  await carregarRelatorios(); if(aba !== ABA_ID) return;
   corpo.innerHTML = '';
   if(!relDados.instalado){ corpo.appendChild(el('div', 'vazio', 'Os relatórios ainda não foram instalados no banco de dados (falta rodar a Parte H no Supabase).')); return; }
   if(relDados.erro){ corpo.appendChild(el('div', 'vazio', 'Não consegui carregar os relatórios agora. Tente de novo.')); return; }
@@ -3256,11 +3257,11 @@ async function telaRelatorios(c){
 
   /* ---- abas: Vendas | Pizzas e produtos | Marketing | Operação (o período de cima vale para todas) ---- */
   const tVendas = el('div'), tPizzas = el('div'), tMkt = el('div'), tOper = el('div');
-  const abasRel = [['vendas', 'Vendas', tVendas], ['pizzas', 'Pizzas e produtos', tPizzas], ['marketing', 'Marketing', tMkt], ['operacao', 'Operação', tOper]];
+  const abasRel = (modo === 'marketing') ? [['marketing', 'Marketing', tMkt]] : [['vendas', 'Vendas', tVendas], ['pizzas', 'Pizzas e produtos', tPizzas], ['operacao', 'Operação', tOper]];
   const barraAbas = el('div', 'cheios'); barraAbas.style.margin = '12px 0';
-  const mostrarAba = id=>{ relAba = id; abasRel.forEach(([k, , d])=>{ d.style.display = k === id ? '' : 'none'; }); barraAbas.querySelectorAll('button').forEach(b=>{ b.className = 'btn peq ' + (b.dataset.aba === id ? 'verde' : 'cinza'); }); };
+  const mostrarAba = id=>{ if(modo !== 'marketing') relAba = id; [tVendas, tPizzas, tMkt, tOper].forEach(d=>{ d.style.display = 'none'; }); abasRel.forEach(([k, , d])=>{ d.style.display = k === id ? '' : 'none'; }); barraAbas.querySelectorAll('button').forEach(b=>{ b.className = 'btn peq ' + (b.dataset.aba === id ? 'verde' : 'cinza'); }); };
   abasRel.forEach(([k, r])=>{ const b = el('button', 'btn peq cinza', r); b.dataset.aba = k; b.onclick = ()=>mostrarAba(k); barraAbas.appendChild(b); });
-  corpo.appendChild(barraAbas); abasRel.forEach(([, , d])=>corpo.appendChild(d));
+  if(abasRel.length > 1) corpo.appendChild(barraAbas); [tVendas, tPizzas, tMkt, tOper].forEach(d=>corpo.appendChild(d));
 
   const resumo = el('div');
   resumo.appendChild(el('div', 'dica', 'Por modalidade'));
@@ -3297,7 +3298,7 @@ async function telaRelatorios(c){
 
   secaoRel(tOper, 'bairros', 'Entregas por bairro', 'bairros', tabelaSimples(['Bairro', 'Pedidos', 'Faturamento', 'Ticket médio', 'Taxas'], relDados.bairros.map(x=>[x.bairro, x.pedidos, money(x.faturamento), money(x.ticket_medio), money(x.taxas)]), 'Nenhuma entrega neste período.'));
   const equipeBox = el('div'); tOper.appendChild(equipeBox); desenharEquipe(equipeBox);
-  mostrarAba(relAba);
+  mostrarAba(modo === 'marketing' ? 'marketing' : (relAba === 'marketing' ? 'vendas' : relAba));
 }
 
 /* ============================ LINKS DE DIVULGAÇÃO (com origem) + QR ============================ */
@@ -3868,7 +3869,7 @@ async function telaRobo(c){
 async function iniciar(){
   $('login').classList.add('oculto'); $('app').classList.remove('oculto');
   try{ PAPEL = (await rpc('gestao_meu_papel', {p_loja:LOJA})) === 'leitor' ? 'leitor' : 'dono'; }catch(e){ PAPEL = 'dono'; }   // sem a Parte AG instalada, segue como antes
-  if(PAPEL === 'leitor'){ aba = 'relatorios'; await tentar(async()=>{ desenhar(); }); return; }   // leitor nao carrega cardapio, clientes etc.
+  if(PAPEL === 'leitor'){ aba = 'marketing'; await tentar(async()=>{ desenhar(); }); return; }   // leitor nao carrega cardapio, clientes etc.
   await tentar(async()=>{ await carregarTudo(); desenhar(); });
   atualizarAvisoNotas(); clearInterval(timerAvisoNotas); timerAvisoNotas = setInterval(atualizarAvisoNotas, 120000);   // confere as notas a cada 2 min
 }
