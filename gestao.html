@@ -3135,10 +3135,25 @@ async function desenharGastosMeta(box, relDados){
     corpo.appendChild(tabelaSimples(['Campanha', 'Gasto', 'Cliques', 'Custo por clique', 'Período com gasto'], camp.map(c=>[
       c.campanha, money(Number(c.gasto)), c.cliques, Number(c.cliques) > 0 ? money(Number(c.gasto) / Number(c.cliques)) : '-',
       String(c.primeiro_dia).split('-').reverse().join('/') + ' a ' + String(c.ultimo_dia).split('-').reverse().join('/')])));
-    const vendasMeta = (relDados && relDados.origem || []).filter(x=>/\/\s*(pago|paid|cpc)\b/i.test(String(x.origem || '')));
-    const ped = vendasMeta.reduce((a, x)=>a + Number(x.pedidos || 0), 0), fat = vendasMeta.reduce((a, x)=>a + Number(x.faturamento || 0), 0);
-    const resumo = el('p', 'dica', 'Total gasto no período: ' + money(total) + '. Vendas com origem de anúncio pago no site novo: ' + ped + ' pedido(s), ' + money(fat) + (total > 0 ? ' (retorno de ' + (fat / total).toFixed(1).replace('.', ',') + 'x o gasto)' : '') + '. Pedidos pelo WhatsApp, telefone ou Suitable não entram aqui, então o retorno real pode ser maior.');
-    corpo.appendChild(resumo);
+    // ---- custo e retorno por campanha (casa o gasto do Meta com as vendas de origem "anuncio pago") ----
+    const normC = t=>String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
+    const pagas = ((relDados && relDados.origem) || []).filter(x=>/\/\s*(pago|paid|cpc)\b/i.test(String(x.origem || ''))).map(x=>({n:normC(String(x.origem).split(' / ')[2] || ''), ped:Number(x.pedidos || 0), fat:Number(x.faturamento || 0), usada:false}));
+    const fx = v=>(isFinite(v) ? v.toFixed(1).replace('.', ',') + 'x' : '-');
+    let totG = 0, totP = 0, totV = 0, somaRet = 0, nRet = 0;
+    const linhasM = camp.map(c=>{
+      const idn = normC(c.campanha_id), nn = normC(c.campanha); let ped = 0, fat = 0;
+      pagas.forEach(o=>{ if(o.usada || !o.n) return;
+        if(o.n === idn || o.n === nn || (o.n.length >= 5 && nn.indexOf(o.n) >= 0) || (nn.length >= 5 && o.n.indexOf(nn) >= 0)){ o.usada = true; ped += o.ped; fat += o.fat; } });
+      const g = Number(c.gasto); totG += g; totP += ped; totV += fat; const r = g > 0 ? fat / g : 0; somaRet += r; nRet++;
+      return [c.campanha, money(g), c.cliques, ped, money(fat), ped > 0 ? money(g / ped) : '-', fx(r)];
+    });
+    const sobra = pagas.filter(o=>!o.usada);
+    if(sobra.length){ const sp = sobra.reduce((a, o)=>a + o.ped, 0), sf = sobra.reduce((a, o)=>a + o.fat, 0); totP += sp; totV += sf; linhasM.push(['Anúncio pago sem campanha identificada', '-', '-', sp, money(sf), '-', '-']); }
+    linhasM.push(['TOTAL', money(totG), camp.reduce((a, c)=>a + Number(c.cliques || 0), 0), totP, money(totV), totP > 0 ? money(totG / totP) : '-', fx(totG > 0 ? totV / totG : NaN)]);
+    corpo.appendChild(el('h3', '', 'Custo e retorno dos anúncios do Meta'));
+    corpo.appendChild(tabelaSimples(['Campanha', 'Gasto', 'Cliques', 'Pedidos', 'Vendeu', 'Custo por pedido', 'Retorno'], linhasM));
+    corpo.appendChild(el('p', 'dica', 'Retorno médio das campanhas: ' + fx(nRet ? somaRet / nRet : NaN) + ' (média simples). Retorno geral: ' + fx(totG > 0 ? totV / totG : NaN) + ' (total vendido ÷ total gasto). Retorno de 10x = R$ 10 vendidos para cada R$ 1 gasto no anúncio. É faturamento, não lucro.'));
+    corpo.appendChild(el('p', 'dica', 'Total gasto no período: ' + money(total) + '. As vendas contadas são só as do site novo com origem de anúncio pago (o link do anúncio precisa ter o nome da campanha no final, em utm_campaign). Pedidos feitos pelo WhatsApp, telefone ou Suitable depois de ver o anúncio não entram aqui.'));
   }
   corpo.appendChild(el('p', 'dica', 'Última atualização: ' + fmtQ(d && d.ultima_atualizacao) + '. O valor é o que o Meta cobra pelo anúncio (não inclui as mensagens de WhatsApp, que aparecem em "Custo dos envios").'));
   if(PAPEL !== 'leitor'){
@@ -3207,6 +3222,18 @@ async function desenharSegmentos(box){
         linhasC.push(['TOTAL', som('enviados'), som('responderam'), som('pediram_sair'), som('pessoas_pediram'), som('pedidos'), money(som('valor')),
           money(som('enviados') * CAMPANHA_VOLTA.custoMsg), retorno(som('valor'), som('enviados')), som('pediram_combo'), som('erros')]);
         corpo.appendChild(tabelaSimples(['Envio · oferta', 'Enviadas', 'Responderam', 'Pediram sair', 'Pessoas que pediram', 'Pedidos', 'Vendeu', 'Custo dos envios', 'Retorno', 'Combo Dupla', 'Com erro'], linhasC));
+        try{
+          const cn = await rpc('campanha_resumo_canais', {p_loja:LOJA, p_ini:relPeriodo.ini, p_fim:relPeriodo.fim});
+          const porChave = {}; (cn || []).forEach(x=>{ porChave[x.campanha + '|' + x.dia_envio] = x; });
+          const lc = []; const t = {zp:0, zv:0, op:0, ov:0, sp:0, sv:0, env:0};
+          rs.forEach(c=>{ const x = porChave[c.campanha + '|' + c.dia_envio] || {}; const zv = Number(x.zap_valor || 0), env = Number(c.enviados || 0);
+            t.zp += Number(x.zap_pedidos || 0); t.zv += zv; t.op += Number(x.outros_pedidos || 0); t.ov += Number(x.outros_valor || 0); t.sp += Number(x.suitable_pedidos || 0); t.sv += Number(x.suitable_valor || 0); t.env += env;
+            lc.push([fmtDia(c.dia_envio) + ' · ' + (c.oferta || ofertaDoDia(c.dia_envio)), c.enviados, Number(x.zap_pedidos || 0), money(zv), Number(x.outros_pedidos || 0), money(Number(x.outros_valor || 0)), Number(x.suitable_pedidos || 0), money(Number(x.suitable_valor || 0)), retorno(zv, env)]); });
+          lc.push(['TOTAL', t.env, t.zp, money(t.zv), t.op, money(t.ov), t.sp, money(t.sv), retorno(t.zv, t.env)]);
+          corpo.appendChild(el('h3', '', 'De onde vieram os pedidos de quem recebeu a mensagem'));
+          corpo.appendChild(tabelaSimples(['Envio · oferta', 'Enviadas', 'Pedidos pelo WhatsApp', 'Vendeu (WhatsApp)', 'Pedidos em outros canais', 'Vendeu (outros)', 'Pedidos no Suitable', 'Vendeu (Suitable)', 'Retorno só do WhatsApp'], lc));
+          corpo.appendChild(el('p', 'dica', 'Separa os pedidos do quadro acima (mesmas pessoas, mesmos 7 dias). "WhatsApp" = o pedido entrou pelo link vindo do WhatsApp. "Outros canais" = a pessoa recebeu a mensagem, mas pediu por Instagram, anúncio ou direto no site. "Retorno só do WhatsApp" usa apenas a primeira coluna de vendas. Os pedidos do Suitable não informam o canal.'));
+        }catch(e){ corpo.appendChild(el('div', 'vazio', erroRelNovo(e, 'CK2', 'a separação dos pedidos por canal'))); }
         const pend = rs.reduce((a, c)=>a + Number(c.pendentes || 0), 0);
         corpo.appendChild(el('p', 'dica', 'Enviadas = aceitas pelo WhatsApp. "Pessoas que pediram", "Pedidos" e "Vendeu" contam quem recebeu a mensagem e fez qualquer pedido em até 7 dias depois do envio, no site novo ou no Suitable (confere pelo telefone), só pedidos feitos dentro do período escolhido acima. "Combo Dupla" conta só quem pediu o Combo Dupla no site novo. "Responderam" são respostas no WhatsApp do robô. "Custo dos envios" = enviadas × R$ 0,32 (valor estimado por mensagem). "Retorno" = quanto foi vendido para cada R$ 1 gasto no envio (ex.: 20x = R$ 20 vendidos por R$ 1). É faturamento, não lucro, e ainda não inclui anúncio do Meta.' + (pend ? ' Atenção: ' + pend + ' envio(s) ficaram pendentes (sem confirmação) e não são reenviados sozinhos.' : '')));
         if(PAPEL !== 'leitor'){
@@ -3227,6 +3254,60 @@ async function desenharSegmentos(box){
     }catch(e){ corpo.appendChild(el('div', 'vazio', erroRelNovo(e, 'BB e BC', 'o resultado das campanhas'))); }
   }
 }
+
+
+/* ---------- Pizzas do dia: quantas de cada sabor (inteiras e metades do meio a meio) ---------- */
+function pizzaTamanho(t){ return String(t || '').split(' — ')[0].split(' • ')[0].replace(/\s*\(grátis\)/i, '').trim() || 'Única'; }
+function pizzaSabor(n){ return String(n || '').replace(/^Pizza\s+/i, '').trim(); }
+function origemEhTesteJs(o){ try{ const lo = o && typeof o === 'object' ? o : {}; return [lo, lo.primeira, lo.ultima].some(x=>x && ['utm_campaign', 'utm_source', 'utm_medium'].some(k=>/^teste/i.test(String(x[k] || '')))); }catch(e){ return false; } }
+function contarPizzas(peds){
+  const m = {}; const tam = {}; let inteiras = 0, metadesTot = 0;
+  const ach = n=>(m[n] = m[n] || {inteiras:0, metades:0, tam:{}});
+  peds.forEach(pd=>{ (Array.isArray(pd.itens) ? pd.itens : []).forEach(i=>{
+    const nome = String(i.nome || '').trim(), q = Number(i.qtd) || 1, t = pizzaTamanho(i.tamanho);
+    if(/^meio a meio\s*:/i.test(nome)){
+      nome.replace(/^meio a meio\s*:\s*/i, '').split(' / ').forEach(sb=>{ const r = ach(pizzaSabor(sb)); r.metades += q; r.tam[t] = (r.tam[t] || 0) + q * 0.5; });
+      metadesTot += q * 2; tam[t] = (tam[t] || 0) + q;   // um meio a meio = 1 pizza (2 metades)
+    }else if(/pizza/i.test(nome)){
+      const r = ach(pizzaSabor(nome)); r.inteiras += q; r.tam[t] = (r.tam[t] || 0) + q; inteiras += q; tam[t] = (tam[t] || 0) + q;
+    }
+  }); });
+  const lista = Object.keys(m).map(k=>({sabor:k, inteiras:m[k].inteiras, metades:m[k].metades, total:m[k].inteiras + m[k].metades / 2, tam:m[k].tam}));
+  lista.sort((a, b)=>b.total - a.total || a.sabor.localeCompare(b.sabor));
+  return {lista, tam, inteiras, meioAMeio:metadesTot / 2, total:inteiras + metadesTot / 2};
+}
+const fmtPz = v=>(Math.round(v * 10) / 10).toLocaleString('pt-BR');
+async function desenharPizzasDia(box){
+  box.textContent = '';
+  box.appendChild(el('h2', '', 'Pizzas vendidas no dia'));
+  box.appendChild(el('p', 'dica', 'Quantas pizzas de cada sabor saíram no dia escolhido (site novo e PDV; pedidos cancelados e de teste ficam de fora). O meio a meio conta cada sabor como ½ pizza. Entram também os pedidos que ainda estão em andamento, então hoje o número vai subindo ao longo do dia.'));
+  const hoje = agoraLocal().data; if(!pizzaDia) pizzaDia = hoje;
+  const di = el('input'); di.type = 'date'; di.value = pizzaDia; di.id = 'pizzaDia';
+  const mk = (rot, dia)=>{ const b = el('button', 'btn peq cinza', rot); b.onclick = ()=>{ pizzaDia = dia; desenharPizzasDia(box); }; return b; };
+  const lin = el('div', 'linha'); lin.appendChild(campo('Dia', di)); lin.appendChild(mk('Hoje', hoje)); lin.appendChild(mk('Ontem', somaDias(hoje, -1)));
+  const ver = el('button', 'btn verde peq', 'Ver'); ver.onclick = ()=>{ if(!di.value){ aviso('Escolha o dia.', 'erro'); return; } pizzaDia = di.value; desenharPizzasDia(box); }; lin.appendChild(ver);
+  box.appendChild(lin);
+  const corpo = el('div'); corpo.appendChild(el('div', 'vazio', 'Contando...')); box.appendChild(corpo);
+  let peds;
+  try{ peds = await api('/rest/v1/pedidos?select=numero,itens,origem,status&loja_id=eq.' + LOJA + '&status=neq.cancelado&criado_em=gte.' + pizzaDia + 'T00:00:00-03:00&criado_em=lt.' + somaDias(pizzaDia, 1) + 'T00:00:00-03:00&limit=2000'); }
+  catch(e){ corpo.textContent = ''; corpo.appendChild(el('div', 'vazio', 'Não consegui contar as pizzas agora. Tente de novo.')); return; }
+  corpo.textContent = '';
+  peds = (peds || []).filter(p=>!origemEhTesteJs(p.origem));
+  const r = contarPizzas(peds);
+  if(!r.lista.length){ corpo.appendChild(el('div', 'vazio', 'Nenhuma pizza vendida em ' + brData(pizzaDia) + '.')); return; }
+  const sd = el('div', 'saldo');
+  [[fmtPz(r.total), 'pizzas no dia'], [String(peds.length), 'pedidos'], [fmtPz(r.meioAMeio), 'meio a meio']].forEach(([n, t])=>{ const d = el('div'); d.appendChild(document.createTextNode(n)); d.appendChild(el('small', '', t)); sd.appendChild(d); });
+  corpo.appendChild(sd);
+  const tamTxt = o=>Object.keys(o).sort().map(k=>k + ' ' + fmtPz(o[k])).join(' · ');
+  const linhas = r.lista.map(x=>[x.sabor, x.inteiras, x.metades ? x.metades + ' (½)' : '-', fmtPz(x.total), tamTxt(x.tam)]);
+  linhas.push(['TOTAL', r.inteiras, fmtPz(r.meioAMeio * 2) + ' (½)', fmtPz(r.total), tamTxt(r.tam)]);
+  const bx = el('button', 'btn cinza peq', 'Exportar planilha');
+  bx.onclick = ()=>baixarCsv('pizzas-do-dia-' + pizzaDia + '.csv', '﻿' + ['Sabor', 'Inteiras', 'Metades', 'Total em pizzas', 'Por tamanho'].join(',') + '\n' + r.lista.map(x=>[x.sabor, x.inteiras, x.metades, String(x.total).replace('.', ','), tamTxt(x.tam)].map(csvCampo).join(',')).join('\n') + '\n');
+  corpo.appendChild(bx);
+  corpo.appendChild(tabelaSimples(['Sabor', 'Inteiras', 'Metades', 'Total em pizzas', 'Por tamanho'], linhas));
+  corpo.appendChild(el('p', 'dica', '"Total em pizzas" = inteiras + metades ÷ 2. Em "Por tamanho", a metade conta ½.'));
+}
+let pizzaDia = null;
 
 async function telaRelatorios(c, modo){
   modo = modo === 'marketing' ? 'marketing' : 'vendas'; const ABA_ID = modo === 'marketing' ? 'marketing' : 'relatorios';
@@ -3256,12 +3337,12 @@ async function telaRelatorios(c, modo){
   if(!R.pedidos){ corpo.appendChild(el('div', 'vazio', 'Nenhuma venda neste período.')); }
 
   /* ---- abas: Vendas | Pizzas e produtos | Marketing | Operação (o período de cima vale para todas) ---- */
-  const tVendas = el('div'), tPizzas = el('div'), tMkt = el('div'), tOper = el('div');
-  const abasRel = (modo === 'marketing') ? [['marketing', 'Marketing', tMkt]] : [['vendas', 'Vendas', tVendas], ['pizzas', 'Pizzas e produtos', tPizzas], ['operacao', 'Operação', tOper]];
+  const tVendas = el('div'), tPizzas = el('div'), tPizzasDia = el('div'), tMkt = el('div'), tOper = el('div');
+  const abasRel = (modo === 'marketing') ? [['marketing', 'Marketing', tMkt]] : [['vendas', 'Vendas', tVendas], ['pizzas', 'Pizzas e produtos', tPizzas], ['pizzasdia', 'Pizzas do dia', tPizzasDia], ['operacao', 'Operação', tOper]];
   const barraAbas = el('div', 'cheios'); barraAbas.style.margin = '12px 0';
-  const mostrarAba = id=>{ if(modo !== 'marketing') relAba = id; [tVendas, tPizzas, tMkt, tOper].forEach(d=>{ d.style.display = 'none'; }); abasRel.forEach(([k, , d])=>{ d.style.display = k === id ? '' : 'none'; }); barraAbas.querySelectorAll('button').forEach(b=>{ b.className = 'btn peq ' + (b.dataset.aba === id ? 'verde' : 'cinza'); }); };
+  const mostrarAba = id=>{ if(modo !== 'marketing') relAba = id; [tVendas, tPizzas, tPizzasDia, tMkt, tOper].forEach(d=>{ d.style.display = 'none'; }); abasRel.forEach(([k, , d])=>{ d.style.display = k === id ? '' : 'none'; }); barraAbas.querySelectorAll('button').forEach(b=>{ b.className = 'btn peq ' + (b.dataset.aba === id ? 'verde' : 'cinza'); }); };
   abasRel.forEach(([k, r])=>{ const b = el('button', 'btn peq cinza', r); b.dataset.aba = k; b.onclick = ()=>mostrarAba(k); barraAbas.appendChild(b); });
-  if(abasRel.length > 1) corpo.appendChild(barraAbas); [tVendas, tPizzas, tMkt, tOper].forEach(d=>corpo.appendChild(d));
+  if(abasRel.length > 1) corpo.appendChild(barraAbas); [tVendas, tPizzas, tPizzasDia, tMkt, tOper].forEach(d=>corpo.appendChild(d));
 
   const resumo = el('div');
   resumo.appendChild(el('div', 'dica', 'Por modalidade'));
@@ -3296,6 +3377,7 @@ async function telaRelatorios(c, modo){
   const segBox = el('div'); tMkt.appendChild(segBox); desenharSegmentos(segBox);
   const linksBox = el('div'); tMkt.appendChild(linksBox); montarGeradorLinks(linksBox);
 
+  desenharPizzasDia(tPizzasDia);
   secaoRel(tOper, 'bairros', 'Entregas por bairro', 'bairros', tabelaSimples(['Bairro', 'Pedidos', 'Faturamento', 'Ticket médio', 'Taxas'], relDados.bairros.map(x=>[x.bairro, x.pedidos, money(x.faturamento), money(x.ticket_medio), money(x.taxas)]), 'Nenhuma entrega neste período.'));
   const equipeBox = el('div'); tOper.appendChild(equipeBox); desenharEquipe(equipeBox);
   mostrarAba(modo === 'marketing' ? 'marketing' : (relAba === 'marketing' ? 'vendas' : relAba));
