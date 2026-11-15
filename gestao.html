@@ -2768,6 +2768,7 @@ async function desenharCrm(box){
 }
 function telaClientes(c){
   const crm = el('div'); c.appendChild(crm); desenharCrm(crm);
+  const fidBox = el('div'); c.appendChild(fidBox); desenharFidelidade(fidBox, periodoDoPreset('mes'));
   c.appendChild(el('h2', '', 'Saldo de um cliente'));
   c.appendChild(el('p', 'dica', 'Veja o saldo de um cliente, o extrato e faça ajustes (cortesia, correção, saldo importado).'));
   const tel = el('input', 'busca'); tel.type = 'tel'; tel.placeholder = 'WhatsApp do cliente (84 99999-0000)'; c.appendChild(tel);
@@ -2865,33 +2866,23 @@ const FUNIL_COLS = [['visita','Entraram'],['produto','Viram produto'],['carrinho
 function somaFunil(linhas, chave){ return linhas.reduce((a, x)=>a + (Number(x[chave]) || 0), 0); }
 async function desenharFunil(box){
   box.textContent = '';
-  box.appendChild(el('h2', '', 'Funil das visitas por origem'));
-  box.appendChild(el('p', 'dica', 'De onde a pessoa veio e até onde chegou no site. Conta visitas, não pessoas: cada etapa vale 1 por visita. O número entre parênteses é a % que seguiu da etapa anterior. Visitas e pedidos de teste (qualquer origem ou campanha com a palavra "teste") ficam de fora. Não guarda nome nem telefone. Só começa a contar depois que o site novo foi atualizado.'));
+  box.appendChild(el('h2', '', 'Visitas e pedidos por origem'));
+  box.appendChild(el('p', 'dica', 'De onde vieram as visitas do site e quantas viraram pedido. Conta visitas, não pessoas. Visitas e pedidos de teste ficam de fora. Não guarda nome nem telefone.'));
   const corpo = el('div'); corpo.appendChild(el('div', 'vazio', 'Calculando...')); box.appendChild(corpo);
   let dados;
   try{ dados = await rpc('rel_funil', {p_loja:LOJA, p_ini:relPeriodo.ini, p_fim:relPeriodo.fim}); }
-  catch(e){ corpo.textContent = ''; corpo.appendChild(el('div', 'vazio', /PGRST202|Could not find|404|does not exist/i.test(String(e.message || e)) ? 'O funil ainda não foi instalado no banco (falta rodar a Parte AB no Supabase).' : 'Não consegui carregar o funil agora. Tente de novo.')); return; }
+  catch(e){ corpo.textContent = ''; corpo.appendChild(el('div', 'vazio', /PGRST202|Could not find|404|does not exist/i.test(String(e.message || e)) ? 'O funil ainda não foi instalado no banco (falta rodar a Parte AB no Supabase).' : 'Não consegui carregar as visitas agora. Tente de novo.')); return; }
   corpo.textContent = '';
   if(!dados.length){ corpo.appendChild(el('div', 'vazio', 'Nenhuma visita registrada neste período.')); return; }
-  const pct = (a, b)=> b > 0 ? Math.round(a * 100 / b) + '%' : '—';
-  // cada etapa mostra quantas visitas chegaram e, entre parênteses, quantas % seguiram da etapa anterior
-  const celulas = (v)=>v.map((n, i)=> i === 0 ? String(n) : (v[i - 1] > 0 ? n + ' (' + Math.min(100, Math.round(n * 100 / v[i - 1])) + '%)' : String(n)));
-  const valsDe = (L)=>FUNIL_COLS.map(([k])=>somaFunil(L, k));
-  const linhaDe = (rot, L)=>[rot, ...celulas(valsDe(L)), pct(somaFunil(L, 'pedido'), somaFunil(L, 'visita'))];
-  const cab = ['Origem', ...FUNIL_COLS.map(([, r])=>r), 'Viraram pedido'];
+  const pct = (a, b)=> b > 0 ? (Math.round(a * 1000 / b) / 10).toString().replace('.', ',') + '%' : '—';
   const porOrigem = {}; dados.forEach(x=>{ (porOrigem[x.origem] = porOrigem[x.origem] || []).push(x); });
-  const linhasOrigem = Object.keys(porOrigem).map(o=>[somaFunil(porOrigem[o], 'visita'), linhaDe(o, porOrigem[o])]).sort((a, b)=>b[0] - a[0]).map(x=>x[1]);
-  linhasOrigem.push(linhaDe('TOTAL', dados));
-  corpo.appendChild(tabelaSimples(cab, linhasOrigem));
-  const tot = valsDe(dados); let pior = null;
-  for(let i = 1; i < tot.length; i++){ const perdeu = tot[i - 1] - tot[i]; if(tot[i - 1] > 0 && perdeu > 0 && (!pior || perdeu > pior.perdeu)) pior = {de:FUNIL_COLS[i - 1][1], para:FUNIL_COLS[i][1], perdeu, base:tot[i - 1]}; }
-  if(pior) corpo.appendChild(el('div', 'dica', 'Onde mais se perde: de "' + pior.de + '" para "' + pior.para + '" saíram ' + pior.perdeu + ' de ' + pior.base + ' visitas (' + Math.round(pior.perdeu * 100 / pior.base) + '%).'));
-  const anuncios = dados.filter(x=>x.anuncio).map(x=>[x.visita, [x.origem + ' | ' + x.anuncio, ...celulas(valsDe([x])), pct(x.pedido, x.visita)]]).sort((a, b)=>b[0] - a[0]).map(x=>x[1]);
-  if(anuncios.length){ corpo.appendChild(el('div', 'dica', 'Por anúncio (utm_content)')); corpo.appendChild(tabelaSimples(['Campanha | anúncio', ...FUNIL_COLS.map(([, r])=>r), 'Viraram pedido'], anuncios)); }
-  const trava = [['Loja fechada na hora de enviar', 'loja_fechada'], ['Esqueceu o nome', 'faltou_nome'], ['Esqueceu o WhatsApp', 'faltou_telefone'], ['Esqueceu o endereço (entrega)', 'faltou_endereco'], ['Esqueceu o bairro (entrega)', 'faltou_bairro']].map(([r, k])=>[r, somaFunil(dados, k)]).filter(x=>x[1] > 0);
-  if(trava.length){ corpo.appendChild(el('div', 'dica', 'O que travou na hora de enviar o pedido (visitas)')); corpo.appendChild(tabelaSimples(['Motivo', 'Visitas'], trava)); }
+  const lin = (rot, L)=>{ const v = somaFunil(L, 'visita'), p = somaFunil(L, 'pedido'); return [v, [rot, v, p, pct(p, v)]]; };
+  const linhas = Object.keys(porOrigem).map(o=>lin(o, porOrigem[o])).sort((a, b)=>b[0] - a[0]).map(x=>x[1]);
+  linhas.push(lin('TOTAL', dados)[1]);
+  corpo.appendChild(tabelaSimples(['Origem', 'Visitas', 'Pedidos', '% que pedem'], linhas));
+  corpo.appendChild(el('p', 'dica', '"% que pedem" = pedidos enviados ÷ visitas. Anúncio novo costuma começar baixo e melhora com os dias.'));
   const b = el('button', 'btn cinza peq', 'Exportar planilha');
-  b.onclick = ()=>baixarCsv('funil-' + relPeriodo.ini + '_a_' + relPeriodo.fim + '.csv', '\ufeff' + ['Origem', 'Anuncio', ...FUNIL_COLS.map(([, r])=>r), 'Loja fechada', 'Faltou nome', 'Faltou WhatsApp', 'Faltou endereco', 'Faltou bairro'].join(',') + '\n' + dados.map(x=>[x.origem, x.anuncio, ...FUNIL_COLS.map(([k])=>x[k]), x.loja_fechada, x.faltou_nome, x.faltou_telefone, x.faltou_endereco, x.faltou_bairro].map(csvCampo).join(',')).join('\n') + '\n');
+  b.onclick = ()=>baixarCsv('visitas-origem-' + relPeriodo.ini + '_a_' + relPeriodo.fim + '.csv', '\ufeff' + ['Origem', 'Anuncio', ...FUNIL_COLS.map(([, r])=>r), 'Loja fechada', 'Faltou nome', 'Faltou WhatsApp', 'Faltou endereco', 'Faltou bairro'].join(',') + '\n' + dados.map(x=>[x.origem, x.anuncio, ...FUNIL_COLS.map(([k])=>x[k]), x.loja_fechada, x.faltou_nome, x.faltou_telefone, x.faltou_endereco, x.faltou_bairro].map(csvCampo).join(',')).join('\n') + '\n');
   corpo.appendChild(b);
 }
 async function desenharVisitasDia(box){
@@ -3089,23 +3080,24 @@ async function chamarDeVolta(seg, rotulo){
 
 const SEGMENTOS_PROMO = [['ativos', 'Pediram nos últimos 30 dias'], ['parados_30', 'Sem pedir há 30 a 59 dias'], ['parados_60', 'Sem pedir há 60 a 89 dias'], ['parados_90', 'Sem pedir há 90 dias ou mais'], ['novos', 'Só 1 pedido (novos)'], ['recorrentes', '2 ou mais pedidos (recorrentes)']];
 /* ---------- Cashback e fidelidade (Relatorios > Marketing) ---------- */
-async function desenharFidelidade(box){
+async function desenharFidelidade(box, per){
+  per = per || relPeriodo;
   box.textContent = '';
   box.appendChild(el('h2', '', 'Cashback e fidelidade'));
   const corpo = el('div'); corpo.appendChild(el('div', 'vazio', 'Calculando...')); box.appendChild(corpo);
   let d;
-  try{ d = await rpc('marketing_fidelidade_resumo', {p_loja:LOJA, p_ini:relPeriodo.ini, p_fim:relPeriodo.fim}); }
+  try{ d = await rpc('marketing_fidelidade_resumo', {p_loja:LOJA, p_ini:per.ini, p_fim:per.fim}); }
   catch(e){ corpo.textContent = ''; corpo.appendChild(el('div', 'vazio', erroRelNovo(e, 'CF1', 'o cashback e a fidelidade'))); return; }
   corpo.textContent = '';
   const S = d.saldo || {}, M = d.periodo || {}, P = d.pedidos || {}, n = x=>Number(x) || 0;
   const tk = (v, q)=> n(q) > 0 ? money(n(v) / n(q)) : '—';
-  corpo.appendChild(el('p', 'dica', 'Cashback e pontos que os clientes têm guardados hoje, e o que ganharam e usaram no período escolhido.'));
+  corpo.appendChild(el('p', 'dica', 'Cashback e pontos que os clientes têm guardados hoje, e o que ganharam e usaram neste mês (de ' + brData(per.ini) + ' a ' + brData(per.fim) + ').'));
   corpo.appendChild(el('div', 'dica', 'Guardado hoje pelos clientes'));
   corpo.appendChild(tabelaSimples(['', 'Valor', 'Clientes'], [
     ['Cashback para usar', money(n(S.cashback_aberto)), pnInt(n(S.clientes_cashback))],
     ['Cashback que vence em até 7 dias', money(n(S.cashback_vence_7d)), pnInt(n(S.clientes_vence_7d))],
     ['Pontos de fidelidade', pnInt(n(S.pontos_abertos)) + ' pontos', pnInt(n(S.clientes_pontos))]]));
-  corpo.appendChild(el('div', 'dica', 'No período'));
+  corpo.appendChild(el('div', 'dica', 'Neste mês'));
   corpo.appendChild(tabelaSimples(['', 'Cashback', 'Pontos'], [
     ['Ganho pelos clientes', money(n(M.cashback_ganho)), pnInt(n(M.pontos_ganhos))],
     ['Usado nos pedidos', money(n(M.cashback_usado)), pnInt(n(M.pontos_usados))],
@@ -3221,21 +3213,18 @@ async function desenharSegmentos(box){
         const som = k=>rs.reduce((a, c)=>a + Number(c[k] || 0), 0);
         linhasC.push(['TOTAL', som('enviados'), som('responderam'), som('pediram_sair'), som('pessoas_pediram'), som('pedidos'), money(som('valor')),
           money(som('enviados') * CAMPANHA_VOLTA.custoMsg), retorno(som('valor'), som('enviados')), som('pediram_combo'), som('erros')]);
-        corpo.appendChild(tabelaSimples(['Envio · oferta', 'Enviadas', 'Responderam', 'Pediram sair', 'Pessoas que pediram', 'Pedidos', 'Vendeu', 'Custo dos envios', 'Retorno', 'Combo Dupla', 'Com erro'], linhasC));
-        try{
-          const cn = await rpc('campanha_resumo_canais', {p_loja:LOJA, p_ini:relPeriodo.ini, p_fim:relPeriodo.fim});
-          const porChave = {}; (cn || []).forEach(x=>{ porChave[x.campanha + '|' + x.dia_envio] = x; });
-          const lc = []; const t = {zp:0, zv:0, op:0, ov:0, sp:0, sv:0, env:0};
-          rs.forEach(c=>{ const x = porChave[c.campanha + '|' + c.dia_envio] || {}; const zv = Number(x.zap_valor || 0), env = Number(c.enviados || 0);
-            t.zp += Number(x.zap_pedidos || 0); t.zv += zv; t.op += Number(x.outros_pedidos || 0); t.ov += Number(x.outros_valor || 0); t.sp += Number(x.suitable_pedidos || 0); t.sv += Number(x.suitable_valor || 0); t.env += env;
-            lc.push([fmtDia(c.dia_envio) + ' · ' + (c.oferta || ofertaDoDia(c.dia_envio)), c.enviados, Number(x.zap_pedidos || 0), money(zv), Number(x.outros_pedidos || 0), money(Number(x.outros_valor || 0)), Number(x.suitable_pedidos || 0), money(Number(x.suitable_valor || 0)), retorno(zv, env)]); });
-          lc.push(['TOTAL', t.env, t.zp, money(t.zv), t.op, money(t.ov), t.sp, money(t.sv), retorno(t.zv, t.env)]);
-          corpo.appendChild(el('h3', '', 'De onde vieram os pedidos de quem recebeu a mensagem'));
-          corpo.appendChild(tabelaSimples(['Envio · oferta', 'Enviadas', 'Pedidos pelo WhatsApp', 'Vendeu (WhatsApp)', 'Pedidos em outros canais', 'Vendeu (outros)', 'Pedidos no Suitable', 'Vendeu (Suitable)', 'Retorno só do WhatsApp'], lc));
-          corpo.appendChild(el('p', 'dica', 'Separa os pedidos do quadro acima (mesmas pessoas, mesmos 7 dias). "WhatsApp" = o pedido entrou pelo link vindo do WhatsApp. "Outros canais" = a pessoa recebeu a mensagem, mas pediu por Instagram, anúncio ou direto no site. "Retorno só do WhatsApp" usa apenas a primeira coluna de vendas. Os pedidos do Suitable não informam o canal.'));
-        }catch(e){ corpo.appendChild(el('div', 'vazio', erroRelNovo(e, 'CK2', 'a separação dos pedidos por canal'))); }
-        const pend = rs.reduce((a, c)=>a + Number(c.pendentes || 0), 0);
-        corpo.appendChild(el('p', 'dica', 'Enviadas = aceitas pelo WhatsApp. "Pessoas que pediram", "Pedidos" e "Vendeu" contam quem recebeu a mensagem e fez qualquer pedido em até 7 dias depois do envio, no site novo ou no Suitable (confere pelo telefone), só pedidos feitos dentro do período escolhido acima. "Combo Dupla" conta só quem pediu o Combo Dupla no site novo. "Responderam" são respostas no WhatsApp do robô. "Custo dos envios" = enviadas × R$ 0,32 (valor estimado por mensagem). "Retorno" = quanto foi vendido para cada R$ 1 gasto no envio (ex.: 20x = R$ 20 vendidos por R$ 1). É faturamento, não lucro, e ainda não inclui anúncio do Meta.' + (pend ? ' Atenção: ' + pend + ' envio(s) ficaram pendentes (sem confirmação) e não são reenviados sozinhos.' : '')));
+        let cn = []; try{ cn = (await rpc('campanha_resumo_canais', {p_loja:LOJA, p_ini:relPeriodo.ini, p_fim:relPeriodo.fim})) || []; }catch(e){ corpo.appendChild(el('div', 'vazio', erroRelNovo(e, 'CK2', 'o resultado por canal'))); }
+        const porChave = {}; cn.forEach(x=>{ porChave[x.campanha + '|' + x.dia_envio] = x; });
+        const lc = []; const t = {zp:0, zv:0, op:0, ov:0, sp:0, sv:0, env:0};
+        rs.forEach(c=>{ const x = porChave[c.campanha + '|' + c.dia_envio] || {}; const zv = Number(x.zap_valor || 0), env = Number(c.enviados || 0);
+          t.zp += Number(x.zap_pedidos || 0); t.zv += zv; t.op += Number(x.outros_pedidos || 0); t.ov += Number(x.outros_valor || 0); t.sp += Number(x.suitable_pedidos || 0); t.sv += Number(x.suitable_valor || 0); t.env += env;
+          lc.push([fmtDia(c.dia_envio) + ' · ' + (c.oferta || ofertaDoDia(c.dia_envio)), env, Number(x.zap_pedidos || 0), money(zv), money(env * CAMPANHA_VOLTA.custoMsg), retorno(zv, env)]); });
+        lc.push(['TOTAL', t.env, t.zp, money(t.zv), money(t.env * CAMPANHA_VOLTA.custoMsg), retorno(t.zv, t.env)]);
+        corpo.appendChild(tabelaSimples(['Envio · oferta', 'Enviadas', 'Pedidos', 'Vendeu', 'Custo', 'Retorno'], lc));
+        corpo.appendChild(el('p', 'dica', 'Só entram os pedidos que chegaram pelo link da mensagem de WhatsApp, em até 7 dias. Retorno = vendido ÷ custo do envio (ex.: 9x = R$ 9 vendidos para cada R$ 1 gasto). É faturamento, não lucro. Custo estimado: R$ ' + String(CAMPANHA_VOLTA.custoMsg).replace('.', ',') + ' por mensagem.'));
+        if(t.op || t.sp) corpo.appendChild(el('p', 'dica', 'Também pediram depois da mensagem, mas por outro caminho (não contam no retorno acima): ' + t.op + ' pedido(s) por Instagram, anúncio ou direto no site (' + money(t.ov) + ') e ' + t.sp + ' no Suitable (' + money(t.sv) + ').'));
+        const pend = rs.reduce((a, c)=>a + Number(c.pendentes || 0), 0), errs = rs.reduce((a, c)=>a + Number(c.erros || 0), 0), saiu = rs.reduce((a, c)=>a + Number(c.pediram_sair || 0), 0);
+        if(pend || errs || saiu) corpo.appendChild(el('p', 'dica', 'Atenção: ' + [saiu ? saiu + ' pessoa(s) pediram para sair da lista' : '', errs ? errs + ' envio(s) com erro' : '', pend ? pend + ' envio(s) pendentes (não são reenviados sozinhos)' : ''].filter(Boolean).join(' · ') + '.'));
         if(PAPEL !== 'leitor'){
           const caixaQuem = el('div'); const btnQuem = el('button', 'btn cinza peq', 'Ver quem pediu depois da mensagem');
           btnQuem.onclick = async ()=>{
@@ -3369,10 +3358,8 @@ async function telaRelatorios(c, modo){
   tMkt.appendChild(el('p', 'dica', 'Origem das vendas: quanto cada campanha, link ou anúncio vendeu. Pedidos sem origem vieram direto do site.'));
   secaoRel(tMkt, 'origem', 'Origem das vendas', 'origem', tabelaSimples(['Origem', 'Pedidos', 'Faturamento', 'Ticket médio'], relDados.origem.map(x=>[x.origem, x.pedidos, money(x.faturamento), money(x.ticket_medio)]), 'Nenhuma venda neste período.'));
   const gastoBox = el('div'); tMkt.appendChild(gastoBox); desenharGastosMeta(gastoBox, relDados);
-  const fidBox = el('div'); tMkt.appendChild(fidBox); desenharFidelidade(fidBox);
   const funilBox = el('div'); tMkt.appendChild(funilBox); desenharFunil(funilBox);
   const diaBox = el('div'); tMkt.appendChild(diaBox); desenharVisitasDia(diaBox);
-  const novosBox = el('div'); tMkt.appendChild(novosBox); desenharNovosRecorrentes(novosBox);
   const roboBox = el('div'); tMkt.appendChild(roboBox); desenharRoboNumeros(roboBox);
   const segBox = el('div'); tMkt.appendChild(segBox); desenharSegmentos(segBox);
   const linksBox = el('div'); tMkt.appendChild(linksBox); montarGeradorLinks(linksBox);
