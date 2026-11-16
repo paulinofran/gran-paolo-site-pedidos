@@ -1246,7 +1246,9 @@ async function telaMotor(c){
   /* retirada do dono nao e custo da pizzaria: e o proprio ganho do dono (ja esta dentro do lucro) */
   const retiradaReal = catsReal.filter(x=>/retirada/i.test(x.cat)).reduce((a, x)=>a + x.v, 0);
   const demaisReal = catsReal.filter(x=>!/insumo/i.test(x.cat) && !/retirada/i.test(x.cat)).reduce((a, x)=>a + x.v, 0);
-  const usaReal = mtPreset === 'ant' && !!FX && demaisReal > 0;
+  /* so usa o custo real do mes fechado se as contas do mes estiverem razoavelmente lancadas (>= 30% do previsto); senao o lucro "real" sairia inflado */
+  const contasCompletas = custosPrev > 0 && demaisReal >= custosPrev * 0.3;
+  const usaReal = mtPreset === 'ant' && !!FX && contasCompletas;
   const custos = usaReal ? demaisReal : custosPrev;
   const pe = custos / margem;
   const lucroProj = projFat * margem - custos;
@@ -1261,6 +1263,7 @@ async function telaMotor(c){
   [['Faturamento até agora' + (ext > 0 ? ' (sistema + Suitable)' : ''), money(fat)], ['CMV pelas fichas (' + money(cmv) + ')', fatSis > 0 ? mtPct(cmv / fatSis, 1) : '—'], ['Margem usada' + (pouco ? ' (referência)' : ' (real)'), mtPct(margem, 1)], [usaReal ? 'Despesas pagas no mês (sem compras de insumo)' : 'Custos fixos + folha + equipe', money(custos)]].forEach(([rot, val])=>{
     const t = el('div', 'pn-tile'); t.appendChild(el('div', 'rot', rot)); t.appendChild(el('div', 'val', val)); tiles.appendChild(t); });
   topo.appendChild(tiles); corpo.appendChild(topo);
+  if(mtPreset === 'ant' && !!FX && !usaReal) corpo.appendChild(el('div', '', '⚠️ As despesas deste mês não estão todas lançadas em Contas e no Caixa (pago e registrado: ' + money(demaisReal) + ' de ' + money(custosPrev) + ' previstos). Por isso o Motor usou os custos previstos e o lucro acima é uma estimativa. A retirada e os valores pagos abaixo também podem estar incompletos.')).style.cssText = 'background:#FFF1CC;border-radius:12px;padding:12px;margin:12px 0;font-size:14px';
   /* ganho do dono: a retirada nao e custo, entao o lucro acima ja a inclui */
   if(FX){
     const cG = pnCartao('Seu ganho no mês', 'A sua retirada não é custo da pizzaria: o lucro acima já é o seu ganho. Aqui você vê quanto dele já tirou e quanto ficou na empresa.');
