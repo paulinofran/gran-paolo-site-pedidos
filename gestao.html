@@ -1243,7 +1243,9 @@ async function telaMotor(c){
   /* custo real: nos meses fechados usa o que foi pago (Contas + gastos do Caixa), sem compras de insumo (o custo da comida ja esta na margem) */
   const catsReal = FX ? (FX.contas_por_categoria || []).map(x=>({cat:mtNomeCat(x.categoria), v:pnNum(x.valor)})).concat(pnNum(FX.gastos_caixa) > 0 ? [{cat:'Gastos do caixa (gaveta)', v:pnNum(FX.gastos_caixa)}] : []) : [];
   const comprasReal = catsReal.filter(x=>/insumo/i.test(x.cat)).reduce((a, x)=>a + x.v, 0);
-  const demaisReal = catsReal.filter(x=>!/insumo/i.test(x.cat)).reduce((a, x)=>a + x.v, 0);
+  /* retirada do dono nao e custo da pizzaria: e o proprio ganho do dono (ja esta dentro do lucro) */
+  const retiradaReal = catsReal.filter(x=>/retirada/i.test(x.cat)).reduce((a, x)=>a + x.v, 0);
+  const demaisReal = catsReal.filter(x=>!/insumo/i.test(x.cat) && !/retirada/i.test(x.cat)).reduce((a, x)=>a + x.v, 0);
   const usaReal = mtPreset === 'ant' && !!FX && demaisReal > 0;
   const custos = usaReal ? demaisReal : custosPrev;
   const pe = custos / margem;
@@ -1259,12 +1261,21 @@ async function telaMotor(c){
   [['Faturamento até agora' + (ext > 0 ? ' (sistema + Suitable)' : ''), money(fat)], ['CMV pelas fichas (' + money(cmv) + ')', fatSis > 0 ? mtPct(cmv / fatSis, 1) : '—'], ['Margem usada' + (pouco ? ' (referência)' : ' (real)'), mtPct(margem, 1)], [usaReal ? 'Despesas pagas no mês (sem compras de insumo)' : 'Custos fixos + folha + equipe', money(custos)]].forEach(([rot, val])=>{
     const t = el('div', 'pn-tile'); t.appendChild(el('div', 'rot', rot)); t.appendChild(el('div', 'val', val)); tiles.appendChild(t); });
   topo.appendChild(tiles); corpo.appendChild(topo);
+  /* ganho do dono: a retirada nao e custo, entao o lucro acima ja a inclui */
+  if(FX){
+    const cG = pnCartao('Seu ganho no mês', 'A sua retirada não é custo da pizzaria: o lucro acima já é o seu ganho. Aqui você vê quanto dele já tirou e quanto ficou na empresa.');
+    const tg = el('div', 'pn-tiles'); tg.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:8px';
+    const ficou = lucroProj - retiradaReal;
+    [[mtPreset === 'ant' ? 'Lucro do mês' : 'Lucro projetado do mês', money(lucroProj)], ['Você já retirou', money(retiradaReal)], [ficou >= 0 ? 'Ainda fica na empresa' : 'Retirou a mais que o lucro', money(Math.abs(ficou))]].forEach(([rot, val], i)=>{
+      const t = el('div', 'pn-tile'); t.appendChild(el('div', 'rot', rot)); const v = el('div', 'val', val); if(i === 2) v.style.color = ficou >= 0 ? '#02341b' : '#b3261e'; t.appendChild(v); tg.appendChild(t); });
+    cG.appendChild(tg); corpo.appendChild(cG);
+  }
   /* realizado no mes: puxa o que foi lancado em Contas e no Caixa */
   if(FX){
     const cR = pnCartao('Realizado no mês (puxado de Contas e Caixa)', 'O que de fato entrou e saiu do Caixa neste período, com o que você lançou em Contas e nos gastos do PDV. O Motor acima usa uma média prevista' + (usaReal ? ' (neste mês fechado, ele já usa o valor pago)' : '') + '; aqui é a realidade até hoje.');
     const entR = pnNum(FX.entradas), saiR = pnNum(FX.saidas);
     const tl = el('div', 'pn-tiles'); tl.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:8px 0 12px';
-    [['Entrou no Caixa', money(entR)], ['Saiu (pago)', money(saiR)], ['Sobrou até hoje', money(entR - saiR)], ['Saiu sem compras de insumo', money(demaisReal)]].forEach(([rot, val], i)=>{
+    [['Entrou no Caixa', money(entR)], ['Saiu (pago)', money(saiR)], ['Sobrou até hoje', money(entR - saiR)], ['Saiu sem insumos e sem sua retirada', money(demaisReal)]].forEach(([rot, val], i)=>{
       const t = el('div', 'pn-tile'); t.appendChild(el('div', 'rot', rot)); const v = el('div', 'val', val); if(i === 2) v.style.color = (entR - saiR) >= 0 ? '#02341b' : '#b3261e'; t.appendChild(v); tl.appendChild(t); });
     cR.appendChild(tl);
     /* quanto do previsto ja foi pago */
