@@ -3440,15 +3440,19 @@ async function desenharPizzasDia(box){
   box.appendChild(lin);
   const corpo = el('div'); corpo.appendChild(el('div', 'vazio', 'Contando...')); box.appendChild(corpo);
   let peds;
-  try{ peds = await api('/rest/v1/pedidos?select=numero,itens,origem,status&loja_id=eq.' + LOJA + '&status=neq.cancelado&criado_em=gte.' + pizzaDia + 'T00:00:00-03:00&criado_em=lt.' + somaDias(pizzaDia, 1) + 'T00:00:00-03:00&limit=2000'); }
+  try{ peds = await api('/rest/v1/pedidos?select=numero,itens,origem,status,pagamento,pagamento_final&loja_id=eq.' + LOJA + '&status=neq.cancelado&criado_em=gte.' + pizzaDia + 'T00:00:00-03:00&criado_em=lt.' + somaDias(pizzaDia, 1) + 'T00:00:00-03:00&limit=2000'); }
   catch(e){ corpo.textContent = ''; corpo.appendChild(el('div', 'vazio', 'Não consegui contar as pizzas agora. Tente de novo.')); return; }
   corpo.textContent = '';
   peds = (peds || []).filter(p=>!origemEhTesteJs(p.origem));
+  const ehEquipe = p=>/consumo interno/i.test(String(p.pagamento_final || '') + ' ' + String(p.pagamento || ''));
+  const nEquipe = peds.filter(ehEquipe).length;
+  peds = peds.filter(p=>!ehEquipe(p));   // consumo da equipe nao e venda
   const r = contarPizzas(peds);
   if(!r.lista.length){ corpo.appendChild(el('div', 'vazio', 'Nenhuma pizza vendida em ' + brData(pizzaDia) + '.')); return; }
   const sd = el('div', 'saldo');
   [[fmtPz(r.total), 'pizzas no dia'], [String(peds.length), 'pedidos'], [fmtPz(r.meioAMeio), 'meio a meio']].forEach(([n, t])=>{ const d = el('div'); d.appendChild(document.createTextNode(n)); d.appendChild(el('small', '', t)); sd.appendChild(d); });
   corpo.appendChild(sd);
+  if(nEquipe) corpo.appendChild(el('div', 'dica', 'Fora da contagem: ' + nEquipe + ' pedido(s) de consumo da equipe (veja em Operação).'));
   const tamTxt = o=>Object.keys(o).sort().map(k=>k + ' ' + fmtPz(o[k])).join(' · ');
   const linhas = r.lista.map(x=>[x.sabor, x.inteiras, x.metades ? x.metades + ' (½)' : '-', fmtPz(x.total), tamTxt(x.tam)]);
   linhas.push(['TOTAL', r.inteiras, fmtPz(r.meioAMeio * 2) + ' (½)', fmtPz(r.total), tamTxt(r.tam)]);
