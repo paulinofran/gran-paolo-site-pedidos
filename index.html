@@ -339,6 +339,8 @@ nav.bottom button.active{color:var(--accent);}
 .bloco-saldo .op input{margin-top:3px;width:18px;height:18px;flex:none;}
 .bloco-saldo .nota{font-size:12.5px;color:#3B6B4B;margin-top:6px;}
 .bloco-saldo.ganho{background:#FFF8E6;border-color:#EBD58D;color:#5A4308;}
+.dica-drive{font-size:12.5px;color:#14804A;background:#EAF7EF;border-radius:8px;padding:8px 10px;margin-top:8px;font-weight:600;}
+.faixa-drive{background:#14804A;color:#fff;text-align:center;font-size:13.5px;font-weight:700;padding:9px 14px;}
 .linha-desc{display:flex;justify-content:space-between;font-size:13px;color:#14804A;margin-top:6px;font-weight:600;}
 .promo-etapa{margin:14px 0 4px;}
 .promo-etapa-titulo{font-size:14px;font-weight:700;color:var(--ink);display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
@@ -414,6 +416,7 @@ body.com-barra #app{padding-bottom:150px;}
       <button class="modalidade-pill" style="background:transparent;border-color:rgba(255,255,255,.5);" onclick="mostrarTela('home')">trocar</button>
     </div>
   </header>
+  <div id="faixaDrive" class="faixa-drive hidden" role="status"></div>
   <div id="avisoLoja" class="aviso-loja hidden" role="status"></div>
 
   <!-- ===================== HOME: escolher modalidade ===================== -->
@@ -536,7 +539,7 @@ body.com-barra #app{padding-bottom:150px;}
 
     <div class="field">
       <label id="rotuloPagamento">Como você quer pagar?</label>
-      <select id="campoPagamento" onchange="atualizarDicaPix(); atualizarTroco(); atualizarBandeira(); desenharPagamento()">
+      <select id="campoPagamento" onchange="atualizarDicaPix(); atualizarTotalCheckout(); atualizarTroco(); atualizarBandeira(); desenharPagamento()">
         <option value="Pix online (QR Code)" id="optPixOnline" hidden disabled>Pix pelo site (QR Code)</option>
         <option value="Cartão online (Mercado Pago)" id="optCartaoOnline" hidden disabled>Cartão pelo site (crédito ou débito)</option>
         <option value="Cartão de crédito (maquininha)">Cartão de crédito (levamos a maquininha)</option>
@@ -587,6 +590,7 @@ body.com-barra #app{padding-bottom:150px;}
     <div style="background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin:16px 0;">
       <div id="resumoCheckout" style="font-size:13px;color:var(--ink-soft);"></div>
       <div id="linhasDesconto"></div>
+      <div id="dicaDrivePix" class="dica-drive hidden"></div>
       <div class="total-row" style="border-top:1px solid var(--line);margin-top:10px;padding-top:10px;">
         <span>Total</span><span id="checkoutTotalValor">R$ 0,00</span>
       </div>
@@ -1082,11 +1086,58 @@ async function buscarSaldo(){
   }catch(e){ return; }
   atualizarTotalCheckout();
 }
+/* ---------- Desconto Pix do Drive (so para quem veio pelo link da campanha) ----------
+   Regra: pedido no Drive-thru + pagamento Pix online pelo site + cliente veio do link ?oferta=drive5
+   + oferta ligada no banco (tabela ofertas_pix_drive). Vale so nas pizzas (sem bebidas); entra antes de cashback/pontos. */
+let OFERTA_DRIVE = {ativo:false, pct:0};
+function ofertaDriveDoLink(params){
+  try{
+    const v = String(params.get('oferta')||'').toLowerCase();
+    if(v === 'drive5') localStorage.setItem('gp_oferta_drive', JSON.stringify({cod:'drive5', t:Date.now()}));
+  }catch(e){}
+}
+function clienteVeioDaOfertaDrive(){
+  try{
+    const g = JSON.parse(localStorage.getItem('gp_oferta_drive') || 'null');
+    return !!(g && g.cod === 'drive5' && (Date.now() - g.t) < 3*24*3600*1000);
+  }catch(e){ return false; }
+}
+function carregarOfertaDrive(){
+  rpcAnon('oferta_pix_drive', {p_loja: LOJA_ID}).then(j=>{
+    if(j && typeof j === 'object' && j.ativo && Number(j.pct) > 0) OFERTA_DRIVE = {ativo:true, pct:Number(j.pct)};
+    atualizarFaixaDrive(); try{ atualizarTotalCheckout(); }catch(e){}
+  }).catch(()=>{ /* sem a resposta do banco a oferta fica desligada: ninguem leva desconto por engano */ });
+}
+function ofertaDriveVale(){ return OFERTA_DRIVE.ativo && clienteVeioDaOfertaDrive(); }
+function atualizarFaixaDrive(){
+  const f = document.getElementById('faixaDrive'); if(!f) return;
+  if(ofertaDriveVale()){ f.textContent = '🚗 Drive-thru: ' + OFERTA_DRIVE.pct + '% de desconto nas pizzas pagando no Pix aqui no site'; f.classList.remove('hidden'); }
+  else f.classList.add('hidden');
+}
+function itemEhPizza(nome, tamanho){
+  // Pizza = nome com "Pizza" ou "Meio a Meio" (inclui as pizzas dos combos). Bebida nunca tem isso no nome.
+  return /pizza|meio a meio/i.test(String(nome||''));
+}
+function baseDescontoPixDrive(){
+  let base = 0;
+  carrinho.forEach(i=>{
+    if(i.componentes){ i.componentes.forEach(c=>{ if(itemEhPizza(c.nome, c.tamanho)) base += (Number(c.preco)||0) * i.qtd; }); }
+    else if(itemEhPizza(i.nome, i.tamanho)) base += i.precoUnit * i.qtd;
+  });
+  return arred2(base);
+}
+function descontoPixDrive(){
+  if(!ofertaDriveVale() || modalidadeAtual !== 'Drive-thru') return 0;
+  const sel = document.getElementById('campoPagamento');
+  if(!sel || sel.value !== PIX_ROTULO || !PIX || !PIX.ativo) return 0;
+  return arred2(baseDescontoPixDrive() * OFERTA_DRIVE.pct / 100);
+}
 function calcularDescontos(){
   const bruto = arred2(totalCarrinho() + taxaEntregaSelecionada());
-  const out = {cashback:0, pontos:0, descontoPontos:0, bruto, total:bruto};
+  const dPix = Math.min(descontoPixDrive(), bruto);
+  const out = {cashback:0, pontos:0, descontoPontos:0, descontoPix:dPix, bruto, total:arred2(bruto - dPix)};
   const s = saldoCliente; if(!s) return out;
-  let resta = bruto;
+  let resta = out.total;
   if(usarCashback && Number(s.cashback) > 0){ out.cashback = arred2(Math.min(Number(s.cashback), resta)); resta = arred2(resta - out.cashback); }
   const ptsRes = Number(s.pontos_por_resgate) || 0, valRes = Number(s.valor_do_resgate) || 0;
   if(usarPontos && ptsRes > 0 && valRes > 0){
@@ -1103,7 +1154,7 @@ function estimarGanho(){
   let cb = 0, pts = 0;
   if(r.cashback_ativo && (r.canais_cashback||[]).indexOf(modalidadeAtual) >= 0){
     const itens = carrinho.reduce((a,i)=>a + ((r.cashback_exclui_promocoes && ehPromo(i)) ? 0 : i.precoUnit*i.qtd), 0);
-    cb = arred2(Math.max(itens - d.cashback - d.descontoPontos, 0) * Number(r.cashback_pct) / 100);
+    cb = arred2(Math.max(itens - d.cashback - d.descontoPontos - (d.descontoPix||0), 0) * Number(r.cashback_pct) / 100);
   }
   if(r.fidelidade_ativa && (r.canais_fidelidade||[]).indexOf(modalidadeAtual) >= 0){
     let base = d.total; if(!r.conta_frete) base -= taxaEntregaSelecionada();
@@ -1153,6 +1204,18 @@ function desenharSaldo(){
     box.appendChild(el('div', '🎁 Neste pedido você ganha ' + [ganho.cb > 0 ? fmtMoeda(ganho.cb) + ' de cashback' : '', ganho.pts > 0 ? ganho.pts + (ganho.pts>1 ? ' pontos' : ' ponto') : ''].filter(Boolean).join(' e ') + ', depois que ele for entregue.', 'nota'));
     if(!algo) box.classList.add('ganho');
   }
+}
+// Grava no pedido quanto foi o desconto Pix do Drive (a nota fiscal precisa desse valor para a conta fechar).
+// Tenta ate 3 vezes; se nao der, o pedido segue e a Gestao mostra o aviso na nota.
+async function enviarDescontoPixDrive(telefone, valor, total){
+  for(let t=0; t<3; t++){
+    try{
+      const r = await rpcAnon('aplicar_desconto_pix_drive', {p_loja: LOJA_ID, p_telefone: telefone, p_valor: valor, p_total: total});
+      if(r && r.ok) return true;
+    }catch(e){}
+    await new Promise(ok=>setTimeout(ok, 700));
+  }
+  return false;
 }
 // Avisa o banco quanto do saldo foi usado (funcao separada: se falhar, o pedido nao e afetado)
 function enviarSaldoDoPedido(telefone, cashback, pontos){
@@ -1610,6 +1673,7 @@ function init(){
   atualizarStatusLoja();
   carregarCardapioDoBanco();
   iniciarCodigos(params);
+  ofertaDriveDoLink(params); atualizarFaixaDrive(); carregarOfertaDrive();
   carregarFiscalAtivo();
   carregarPix();
   const campoTel = document.getElementById('campoTelefone');
@@ -2356,8 +2420,15 @@ function atualizarTotalCheckout(){
   if(linhas){
     linhas.innerHTML = '';
     const add = (t,v)=>{ const d = document.createElement('div'); d.className = 'linha-desc'; d.innerHTML = '<span></span><span></span>'; d.firstChild.textContent = t; d.lastChild.textContent = '− ' + fmtMoeda(v); linhas.appendChild(d); };
+    if(desc.descontoPix > 0) add('Desconto Pix Drive (' + OFERTA_DRIVE.pct + '%)', desc.descontoPix);
     if(desc.cashback > 0) add('Cashback usado', desc.cashback);
     if(desc.pontos > 0) add('Pontos usados (' + desc.pontos + ')', desc.descontoPontos);
+  }
+  const dica = document.getElementById('dicaDrivePix');
+  if(dica){
+    const mostrar = ofertaDriveVale() && modalidadeAtual === 'Drive-thru' && !(desc.descontoPix > 0);
+    dica.classList.toggle('hidden', !mostrar);
+    if(mostrar) dica.textContent = '🚗 Escolha "Pix online (QR Code)" em Forma de pagamento e ganhe ' + OFERTA_DRIVE.pct + '% de desconto nas pizzas.';
   }
   desenharSaldo();
   try{ atualizarTroco(); }catch(e){}
@@ -2495,11 +2566,12 @@ async function enviarPedidoWhatsapp(){
   const textoBtn = btnEnv ? btnEnv.textContent : '';
   enviandoPedido = true;
   if(btnEnv){ btnEnv.disabled = true; btnEnv.textContent = 'Enviando seu pedido...'; }
+  const obsDrive = desc.descontoPix > 0 ? ('[Desconto Pix Drive ' + OFERTA_DRIVE.pct + '%: -' + fmtMoeda(desc.descontoPix) + ']') : '';
   const res = await salvarPedidoNoCRM({
     nome, telefone, endereco: modalidadeAtual==='Entrega' ? endereco : '',
     modalidade: modalidadeAtual, bairro: bairro ? bairro.nome : null, taxa,
     itens: linhasDoPedido(),
-    total: desc.total, pagamento, obs,
+    total: desc.total, pagamento, obs: [obs, obsDrive].filter(Boolean).join(' ') || '',
   });
   enviandoPedido = false;
   if(btnEnv){ btnEnv.disabled = false; btnEnv.textContent = textoBtn || 'Enviar pedido pelo WhatsApp'; }
@@ -2511,6 +2583,7 @@ async function enviarPedidoWhatsapp(){
       : 'Não conseguimos registrar o seu pedido, então ele NÃO foi enviado. Confira sua internet e toque em "Enviar pedido" de novo. Se continuar, fale com a gente pelo WhatsApp.');
     return;
   }
+  if(desc.descontoPix > 0) await enviarDescontoPixDrive(telefone, desc.descontoPix, desc.total);
   enviarSaldoDoPedido(telefone, desc.cashback, desc.pontos);
   avisarCodigoDoPedido(telefone);
   if(cpfDigitos) enviarCpfDoPedido(telefone, cpfDigitos);
@@ -2542,6 +2615,7 @@ async function enviarPedidoWhatsapp(){
     }
   });
   if(taxa>0) msg += `\nTaxa de entrega: ${fmtMoeda(taxa)}\n`;
+  if(desc.descontoPix > 0) msg += `Desconto Pix Drive (${OFERTA_DRIVE.pct}%): -${fmtMoeda(desc.descontoPix)}\n`;
   if(desc.cashback > 0) msg += `Cashback usado: -${fmtMoeda(desc.cashback)}\n`;
   if(desc.pontos > 0) msg += `Pontos usados: ${desc.pontos} (-${fmtMoeda(desc.descontoPontos)})\n`;
   msg += `\n*Total: ${fmtMoeda(desc.total)}*\n`;
