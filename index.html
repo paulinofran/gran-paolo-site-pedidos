@@ -260,6 +260,20 @@ header.top{padding:10px 16px 10px;padding-top:calc(10px + env(safe-area-inset-to
   width:100%;padding:11px 12px;border:1.5px solid var(--line);border-radius:12px;font-size:14px;background:#fff;font-family:inherit;
 }
 .field textarea{resize:vertical;min-height:60px;}
+/* ---------- Forma de pagamento em botoes (o select fica escondido e continua sendo a fonte do valor) ---------- */
+#campoPagamento.pg-escondido{position:absolute;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;}
+.pg-lista{display:flex;flex-direction:column;gap:8px;}
+.pg-op{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:12px 14px;border:1.5px solid var(--line);border-radius:14px;background:#fff;color:var(--ink);font-size:14.5px;line-height:1.25;min-height:54px;}
+.pg-op .pg-ic{font-size:22px;flex:0 0 auto;width:28px;text-align:center;}
+.pg-op .pg-tx{flex:1 1 auto;display:flex;flex-direction:column;gap:2px;}
+.pg-op .pg-tx b{font-weight:700;}
+.pg-op .pg-tx small{font-size:12px;color:var(--ink-soft);font-weight:500;}
+.pg-op .pg-radio{flex:0 0 auto;width:20px;height:20px;border-radius:50%;border:2px solid #cdbfae;position:relative;}
+.pg-op.on{border-color:var(--accent-dark);background:var(--ok-soft);box-shadow:0 0 0 1px var(--accent-dark) inset;}
+.pg-op.on .pg-radio{border-color:var(--accent-dark);}
+.pg-op.on .pg-radio::after{content:"";position:absolute;inset:3px;border-radius:50%;background:var(--accent-dark);}
+.pg-op .pg-tag{flex:0 0 auto;font-size:10.5px;font-weight:700;letter-spacing:.2px;text-transform:uppercase;background:var(--gold-soft);color:#7a5513;border-radius:999px;padding:3px 8px;}
+
 .dica-cpf{display:block;margin-top:5px;font-size:12px;color:var(--ink-soft);}
 .dica-cpf.erro{color:#b3261e;font-weight:600;}
 #campoCpf.invalido{border-color:#b3261e !important;}
@@ -521,15 +535,16 @@ body.com-barra #app{padding-bottom:150px;}
     </div>
 
     <div class="field">
-      <label id="rotuloPagamento">Forma de pagamento (na entrega/retirada)</label>
-      <select id="campoPagamento" onchange="atualizarDicaPix(); atualizarTroco(); atualizarBandeira()">
-        <option>Cartão de crédito (maquininha)</option>
-        <option>Cartão de débito (maquininha)</option>
-        <option value="Pix">Pix na entrega ou retirada (pago pessoalmente)</option>
-        <option>Dinheiro</option>
-        <option value="Pix online (QR Code)" id="optPixOnline" hidden disabled>Pix agora pelo site (QR Code) — pedido começa após o Pix cair</option>
-        <option value="Cartão online (Mercado Pago)" id="optCartaoOnline" hidden disabled>Cartão de crédito ou débito pelo site (à vista) — pedido começa após aprovar</option>
+      <label id="rotuloPagamento">Como você quer pagar?</label>
+      <select id="campoPagamento" onchange="atualizarDicaPix(); atualizarTroco(); atualizarBandeira(); desenharPagamento()">
+        <option value="Pix online (QR Code)" id="optPixOnline" hidden disabled>Pix pelo site (QR Code)</option>
+        <option value="Cartão online (Mercado Pago)" id="optCartaoOnline" hidden disabled>Cartão pelo site (crédito ou débito)</option>
+        <option value="Cartão de crédito (maquininha)">Cartão de crédito (levamos a maquininha)</option>
+        <option value="Cartão de débito (maquininha)">Cartão de débito (levamos a maquininha)</option>
+        <option value="Dinheiro">Dinheiro</option>
+        <option value="Pix">Pix pessoalmente (na entrega ou retirada)</option>
       </select>
+      <div id="opcoesPagamento" class="pg-lista" role="radiogroup" aria-labelledby="rotuloPagamento"></div>
       <div class="field hidden" id="blocoBandeira" style="margin-top:10px">
         <label>Bandeira do cartão</label>
         <select id="campoBandeira" onchange="this.classList.remove('invalido')">
@@ -1586,6 +1601,7 @@ function init(){
   montarTabs();
   mostrarCategoria(CATEGORIAS_ORDEM[0]);
   popularSelectsMeio();
+  try{ desenharPagamento(); }catch(e){}
   popularBordasMeio();
   atualizarBadgeCarrinho();
   promoPendente = params.get('promo') ? slugSabor(params.get('promo')) : null;
@@ -2607,9 +2623,38 @@ async function carregarPix(){
       const o = document.getElementById('optPixOnline'); if(o){ o.hidden = false; o.disabled = false; }
       if(j.mp && j.cartao){ const oc = document.getElementById('optCartaoOnline'); if(oc){ oc.hidden = false; oc.disabled = false; } }
       try{ padraoPixQR(); }catch(e){}
+      try{ const sp = document.getElementById('campoPagamento'); if(sp && !pgMexeu){ sp.value = PIX_ROTULO; atualizarDicaPix(); atualizarTroco(); atualizarBandeira(); } }catch(e){}
     }
+    try{ desenharPagamento(); }catch(e){}
   }catch(e){ /* sem internet ou banco sem a Parte I: a opcao simplesmente nao aparece */ }
 }
+
+/* ---------- Forma de pagamento em botoes ---------- */
+const PG_INFO = {
+  'Pix online (QR Code)':            {ic:'⚡', t:'Pix pelo site', d:'QR Code na hora · seu pedido entra sozinho', tag:'Mais rápido'},
+  'Cartão online (Mercado Pago)':    {ic:'💳', t:'Cartão pelo site', d:'Crédito ou débito, à vista · pagamento seguro'},
+  'Cartão de crédito (maquininha)':  {ic:'💳', t:'Cartão de crédito', d:'Levamos a maquininha'},
+  'Cartão de débito (maquininha)':   {ic:'💳', t:'Cartão de débito', d:'Levamos a maquininha'},
+  'Dinheiro':                        {ic:'💵', t:'Dinheiro', d:'Pague na entrega ou retirada'},
+  'Pix':                             {ic:'📱', t:'Pix pessoalmente', d:'Pague por Pix na entrega ou retirada'}
+};
+function desenharPagamento(){
+  const sel = document.getElementById('campoPagamento'), box = document.getElementById('opcoesPagamento'); if(!sel || !box) return;
+  sel.classList.add('pg-escondido'); sel.setAttribute('tabindex','-1'); sel.setAttribute('aria-hidden','true');
+  box.innerHTML = '';
+  Array.from(sel.options).forEach(o=>{
+    if(o.hidden || o.disabled) return;
+    const inf = PG_INFO[o.value] || {ic:'💰', t:o.textContent, d:''};
+    const b = document.createElement('button'); b.type = 'button';
+    b.className = 'pg-op' + (sel.value === o.value ? ' on' : '');
+    b.setAttribute('role','radio'); b.setAttribute('aria-checked', sel.value === o.value ? 'true' : 'false');
+    b.innerHTML = '<span class="pg-ic">' + inf.ic + '</span><span class="pg-tx"><b>' + inf.t + '</b>' + (inf.d ? '<small>' + inf.d + '</small>' : '') + '</span>'
+      + (inf.tag ? '<span class="pg-tag">' + inf.tag + '</span>' : '') + '<span class="pg-radio"></span>';
+    b.onclick = ()=>{ sel.value = o.value; pgMexeu = true; sel.dispatchEvent(new Event('change')); };
+    box.appendChild(b);
+  });
+}
+let pgMexeu = false;
 function atualizarDicaPix(){
   const sel = document.getElementById('campoPagamento'), d = document.getElementById('dicaPixOnline');
   if(sel && d){ d.classList.toggle('hidden', sel.value !== PIX_ROTULO);
