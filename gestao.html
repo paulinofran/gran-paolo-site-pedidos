@@ -1778,6 +1778,7 @@ async function telaContas(c){
     ]);
   }catch(e){ topo.innerHTML = ''; topo.appendChild(el('div', 'vazio', 'As contas ainda não foram instaladas no banco de dados (falta rodar a Parte W no Supabase).')); return; }
   await carregarCategoriasConta();
+  await carregarCartoes();
   if(aba !== 'contas') return;
   topo.remove();
   const hoje = agoraLocal().data, mes = hoje.slice(0,7);
@@ -1815,13 +1816,25 @@ async function telaContas(c){
   [['pix', 'PIX'], ['gaveta', '💵 Dinheiro da gaveta (aparece no Caixa do PDV)'], ['dinheiro', 'Dinheiro (de outro lugar)'], ['cartao_debito', 'Cartão débito'], ['cartao_credito', 'Cartão crédito']].forEach(([k, r])=>{ const o = el('option', '', r); o.value = k; rforma.appendChild(o); });
   const rdata = el('input'); rdata.type = 'date'; rdata.value = agoraLocal().data;
   const rcampoCat = campo('Categoria', rcat);
-  rforma.onchange = ()=>{ rcampoCat.style.display = rforma.value === 'gaveta' ? 'none' : ''; };
+  const rcartao = el('select'), rparc = el('select');
+  (CARTOES || []).forEach(k=>{ const o = el('option', '', k.nome + ' (vence dia ' + k.dia_vencimento + ')'); o.value = k.id; rcartao.appendChild(o); });
+  for(let n = 1; n <= 12; n++){ const o = el('option', '', n === 1 ? 'À vista (1x)' : n + 'x'); o.value = n; rparc.appendChild(o); }
+  const rcampoCartao = campo('Qual cartão', rcartao), rcampoParc = el('div'); rcampoParc.appendChild(campo('Parcelas', rparc));
+  rcampoParc.appendChild(el('div', 'dica', 'Vai lançar cada parcela como conta a pagar, no vencimento da fatura certa. O valor acima é o TOTAL da compra.'));
+  const mostraCartao = ()=>{ const cc = rforma.value === 'cartao_credito'; rcampoCartao.style.display = rcampoParc.style.display = cc ? '' : 'none'; };
+  rforma.onchange = ()=>{ rcampoCat.style.display = rforma.value === 'gaveta' ? 'none' : ''; mostraCartao(); };
   const rhist = el('div', 'dica'); rhist.style.cssText = 'font-weight:700;margin:6px 0';
   const rb = el('button', 'btn verde', 'Lançar gasto'); rb.style.marginTop = '6px';
   rb.onclick = ()=>tentar(async()=>{
     const nome = rd.value.trim(); if(!nome) throw new Error('Diga com o quê foi o gasto.');
     const v = num(rv.value); if(v === null || v <= 0) throw new Error('Valor inválido.');
     const dia = rdata.value || agoraLocal().data;
+    if(rforma.value === 'cartao_credito'){
+      const k = (CARTOES || []).find(z=>String(z.id) === rcartao.value); if(!k) throw new Error('Cadastre o cartão primeiro (Meus cartões, aqui em Contas).');
+      const r = await lancarNoCartao(k, nome, v, Number(rparc.value), rcat.value, dia);
+      rhist.appendChild(el('div', '', '✔ ' + nome + ' · ' + money(v) + ' no ' + k.nome + (r.n > 1 ? ' em ' + r.n + 'x' : '') + ' · 1ª fatura vence ' + dataBR(r.primeira)));
+      rd.value = ''; rv.value = ''; rd.focus(); return;
+    }
     if(rforma.value === 'gaveta') await rpc('caixa_saida_add', {p_loja:LOJA, p_valor:v, p_descricao:nome, p_dia:dia});
     else await inserir('contas_pagar', {loja_id:LOJA, fornecedor:nome, categoria:rcat.value, valor:v, vencimento:dia, status:'paga', forma_pagamento:rforma.value, data_pagamento:dia});
     rhist.appendChild(el('div', '', '✔ ' + nome + ' · ' + money(v) + ' · ' + rforma.options[rforma.selectedIndex].textContent.replace('💵 ', '').replace(/ \(.*\)/, '') + ' · ' + dataBR(dia)));
@@ -1829,10 +1842,11 @@ async function telaContas(c){
   }, 'Gasto lançado');
   const rpronto = el('button', 'btn cinza', 'Pronto, atualizar a lista'); rpronto.style.marginTop = '6px'; rpronto.onclick = ()=>{ if(voltarCaixa){ voltarCaixa = false; aba = 'caixa'; window.scrollTo(0,0); } desenhar(); };
   const rl1 = el('div', 'linha'); rl1.appendChild(campo('Com o quê', rd)); rl1.appendChild(campo('Valor (R$)', rv));
-  rcx.appendChild(rl1); rcx.appendChild(campo('Como pagou', rforma)); rcx.appendChild(rcampoCat); rcx.appendChild(campo('Dia', rdata));
+  rcx.appendChild(rl1); rcx.appendChild(campo('Como pagou', rforma)); rcx.appendChild(rcampoCartao); rcx.appendChild(rcampoParc); rcx.appendChild(rcampoCat); mostraCartao(); rcx.appendChild(campo('Dia', rdata));
   rcx.appendChild(rb); rcx.appendChild(rhist); rcx.appendChild(rpronto);
   if(abrirRapido){ rap.open = true; abrirRapido = false; }
 
+  c.appendChild(blocoCartoes());
   // nova conta
   const nova = el('details'); nova.appendChild(el('summary', '', '+ Nova conta'));
   const fn = el('input'); fn.placeholder = 'Fornecedor'; fn.setAttribute('list', 'listaForn');
@@ -1927,6 +1941,7 @@ async function telaContas(c){
     desenhar();
   }, 'Conta salva');
   f1.appendChild(bs); nova.appendChild(f1); c.appendChild(rap); c.appendChild(nova);
+  c.appendChild(blocoRepetir(contas));
   c.appendChild(blocoCategorias(contas));
 
   // filtros
@@ -2026,6 +2041,133 @@ async function copiarCodigo(x){
   try{ await navigator.clipboard.writeText(l); aviso('Código copiado (' + l.length + ' números). Cole no app do banco.', 'ok'); }
   catch(e){ window.prompt('Copie o código abaixo:', l); }
 }
+/* ---------- cartoes de credito (compras e parcelas caem na fatura certa) ---------- */
+let CARTOES = [];
+async function carregarCartoes(){
+  try{ CARTOES = await api(`/rest/v1/cartoes_credito?select=*&loja_id=eq.${LOJA}&ativo=eq.true&order=nome.asc`); }
+  catch(e){ CARTOES = null; }
+}
+function isoDia(y, m, d){ const ult = new Date(Date.UTC(y, m, 0)).getUTCDate(); return y + '-' + String(m).padStart(2, '0') + '-' + String(Math.min(d, ult)).padStart(2, '0'); }
+function vencimentoFatura(k, compraISO){   // em que dia vence a fatura que recebe essa compra
+  const [y, m, d] = compraISO.split('-').map(Number);
+  let t = y * 12 + (m - 1);
+  if(d > k.dia_fechamento) t += 1;            // passou do fechamento: entra na fatura seguinte
+  if(k.dia_vencimento <= k.dia_fechamento) t += 1;   // vence no mes depois do fechamento
+  return isoDia(Math.floor(t / 12), t % 12 + 1, k.dia_vencimento);
+}
+async function lancarNoCartao(k, desc, total, n, cat, compraISO){
+  const centavos = Math.round(total * 100), base = Math.floor(centavos / n), resto = centavos - base * n;
+  const [y0, m0] = vencimentoFatura(k, compraISO).split('-').map(Number);
+  const linhas = [];
+  for(let i = 0; i < n; i++){
+    const t = y0 * 12 + (m0 - 1) + i;
+    const valor = (i === n - 1 ? base + resto : base) / 100;   // sobra de centavos vai na ultima parcela
+    linhas.push({loja_id:LOJA, fornecedor:'💳 ' + k.nome + ' · ' + desc + (n > 1 ? ' (' + (i + 1) + '/' + n + ')' : ''), categoria:cat || 'outros', valor,
+      vencimento:isoDia(Math.floor(t / 12), t % 12 + 1, k.dia_vencimento), status:'pendente', forma_pagamento:'cartao_credito',
+      observacao:'Compra de ' + dataBR(compraISO) + ' no ' + k.nome + (n > 1 ? ' · total ' + money(total) + ' em ' + n + 'x' : '')});
+  }
+  await inserir('contas_pagar', linhas);
+  return {n, primeira:linhas[0].vencimento};
+}
+function blocoCartoes(){
+  const det = el('details'); det.appendChild(el('summary', '', '💳 Meus cartões de crédito'));
+  const caixa = el('div', 'cartao'); caixa.style.marginTop = '8px'; det.appendChild(caixa);
+  if(CARTOES === null){ caixa.appendChild(el('div', 'vazio', 'Falta instalar os cartões no banco de dados (rodar o SQL "parte-CARTOES" no Supabase).')); return det; }
+  caixa.appendChild(el('div', 'dica', 'Cadastre cada cartão com o dia que a fatura VENCE e o dia que ela FECHA (está no app do banco). Aí, em "⚡ Lançar gasto já pago" escolha "Cartão crédito", o cartão e as parcelas: cada parcela vira uma conta a pagar no vencimento da fatura certa. Compra feita depois do fechamento já cai na fatura seguinte.'));
+  const linha = (k)=>{
+    const box = el('div'); box.style.cssText = 'border-top:1px solid var(--line);padding:8px 0';
+    const nm = el('input'); nm.value = k ? k.nome : ''; nm.placeholder = 'Nome (ex.: Santander)';
+    const vn = el('input'); vn.type = 'number'; vn.min = 1; vn.max = 31; vn.value = k ? k.dia_vencimento : '';
+    const fc = el('input'); fc.type = 'number'; fc.min = 1; fc.max = 31; fc.value = k ? k.dia_fechamento : '';
+    const l = el('div', 'linha'); l.appendChild(campo('Cartão', nm)); l.appendChild(campo('Vence dia', vn)); l.appendChild(campo('Fecha dia', fc)); box.appendChild(l);
+    const sv = el('button', 'btn verde', k ? 'Salvar' : 'Adicionar cartão');
+    sv.onclick = ()=>tentar(async()=>{
+      const corpo = {nome:nm.value.trim(), dia_vencimento:Number(vn.value), dia_fechamento:Number(fc.value)};
+      if(!corpo.nome || !(corpo.dia_vencimento >= 1 && corpo.dia_vencimento <= 31) || !(corpo.dia_fechamento >= 1 && corpo.dia_fechamento <= 31)) throw new Error('Preencha o nome e os dias (1 a 31).');
+      if(k) await atualizar('cartoes_credito', 'id=eq.' + k.id, corpo); else await inserir('cartoes_credito', Object.assign({loja_id:LOJA}, corpo));
+      desenhar();
+    }, 'Cartão salvo');
+    const lb = el('div', 'linha'); lb.appendChild(sv);
+    if(k){ const rm = el('button', 'btn cinza', 'Tirar cartão'); rm.onclick = ()=>{ if(!confirm('Tirar o cartão ' + k.nome + ' da lista? As contas já lançadas continuam.')) return; tentar(async()=>{ await atualizar('cartoes_credito', 'id=eq.' + k.id, {ativo:false}); desenhar(); }, 'Cartão removido'); }; lb.appendChild(rm); }
+    box.appendChild(lb); return box;
+  };
+  (CARTOES || []).forEach(k=>caixa.appendChild(linha(k)));
+  caixa.appendChild(el('div', 'dica', '+ Novo cartão')); caixa.appendChild(linha(null));
+  return det;
+}
+/* ---------- repetir contas nos proximos meses (nao precisa lancar tudo de novo; depois so ajusta o valor) ---------- */
+const MESES_PT = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+function repNomeMes(ym){ const [y, m] = String(ym).split('-').map(Number); return MESES_PT[m - 1] + '/' + y; }
+function repAddMes(iso, n){   // mesmo dia do mes (ou o ultimo dia, se o mes for mais curto)
+  const [y, m, d] = iso.split('-').map(Number); const t = (y * 12 + (m - 1)) + n; const ny = Math.floor(t / 12), nm = t % 12 + 1;
+  const ult = new Date(Date.UTC(ny, nm, 0)).getUTCDate();
+  return ny + '-' + String(nm).padStart(2, '0') + '-' + String(Math.min(d, ult)).padStart(2, '0');
+}
+const REP_MARCA = '↻ repetida: confira o valor';
+async function repetirContas(lista, meses){
+  const ja = await api(`/rest/v1/contas_pagar?select=fornecedor,categoria,vencimento&loja_id=eq.${LOJA}&limit=5000`);
+  const chave = (f, c, v)=>String(f || '').trim().toLowerCase() + '|' + (c || 'outros') + '|' + String(v || '').slice(0, 7);
+  const tem = new Set((ja || []).map(x=>chave(x.fornecedor, x.categoria, x.vencimento)));
+  const novas = []; let puladas = 0, semData = 0;
+  lista.forEach(x=>{
+    if(!x.vencimento){ semData++; return; }
+    const base = String(x.observacao || '').replace(REP_MARCA, '').replace(/\s*·\s*$/, '').trim();
+    for(let i = 1; i <= meses; i++){
+      const v = repAddMes(x.vencimento, i), k = chave(x.fornecedor, x.categoria, v);
+      if(tem.has(k)){ puladas++; continue; }
+      tem.add(k);
+      novas.push({loja_id:LOJA, fornecedor:x.fornecedor, categoria:x.categoria || 'outros', valor:Number(x.valor || 0), vencimento:v, observacao:(base ? base + ' · ' : '') + REP_MARCA});
+    }
+  });
+  if(novas.length) await inserir('contas_pagar', novas);
+  return {criadas:novas.length, puladas, semData};
+}
+function repResumo(r){
+  let t = r.criadas + ' conta(s) criada(s)';
+  if(r.puladas) t += ' · ' + r.puladas + ' já existia(m) e foi(ram) pulada(s)';
+  if(r.semData) t += ' · ' + r.semData + ' sem vencimento';
+  return t + '. Agora é só ajustar o valor de cada uma.';
+}
+function blocoRepetir(contas){
+  const det = el('details'); det.appendChild(el('summary', '', '📅 Repetir contas para os próximos meses'));
+  const caixa = el('div', 'cartao'); caixa.style.marginTop = '8px'; det.appendChild(caixa);
+  caixa.appendChild(el('div', 'dica', 'Escolha o mês de onde copiar e para quantos meses seguintes. As contas novas entram como pendentes, com o mesmo valor e o mesmo dia do vencimento; depois é só ajustar o valor de cada uma (elas ficam marcadas com "' + REP_MARCA + '"). Se a conta já existir naquele mês, ela não é duplicada.'));
+  const lista = el('div'); lista.style.margin = '8px 0';
+  const meses = Array.from(new Set(contas.map(x=>String(x.vencimento || '').slice(0, 7)).filter(Boolean))).sort().reverse();
+  if(!meses.length){ caixa.appendChild(el('div', 'vazio', 'Ainda não há contas com vencimento para copiar.')); return det; }
+  const selMes = el('select'); meses.forEach(m=>{ const o = el('option', '', repNomeMes(m)); o.value = m; selMes.appendChild(o); });
+  const atual = agoraLocal().data.slice(0, 7); selMes.value = meses.includes(atual) ? atual : meses[0];
+  const selQtd = el('select'); [1, 2, 3, 4, 5, 6].forEach(n=>{ const o = el('option', '', n + (n === 1 ? ' mês' : ' meses')); o.value = n; selQtd.appendChild(o); }); selQtd.value = '3';
+  const lin = el('div', 'linha'); lin.appendChild(campo('Copiar as contas de', selMes)); lin.appendChild(campo('Repetir por', selQtd)); caixa.appendChild(lin);
+  let itens = [];
+  const desenhaLista = ()=>{
+    lista.innerHTML = '';
+    itens = contas.filter(x=>String(x.vencimento || '').slice(0, 7) === selMes.value).sort((a, b)=>String(a.fornecedor).localeCompare(String(b.fornecedor)));
+    itens.forEach(x=>{
+      const l = el('label'); l.style.cssText = 'display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid var(--line)';
+      const ck = el('input'); ck.type = 'checkbox'; ck.checked = x.categoria !== 'insumos'; ck.style.cssText = 'width:auto;flex:0 0 auto'; x._ck = ck;
+      l.appendChild(ck); l.appendChild(el('span', '', x.fornecedor + ' · ' + catNomeCurto(x.categoria) + ' · ' + money(x.valor) + ' · dia ' + dataBR(x.vencimento).slice(0, 2)));
+      lista.appendChild(l);
+    });
+    if(!itens.length) lista.appendChild(el('div', 'vazio', 'Nenhuma conta nesse mês.'));
+  };
+  selMes.onchange = desenhaLista; desenhaLista();
+  caixa.appendChild(lista);
+  const lb = el('div', 'linha');
+  const bTodas = el('button', 'btn peq cinza', 'Marcar todas'); bTodas.onclick = ()=>itens.forEach(x=>{ x._ck.checked = true; });
+  const bNen = el('button', 'btn peq cinza', 'Desmarcar todas'); bNen.onclick = ()=>itens.forEach(x=>{ x._ck.checked = false; });
+  lb.appendChild(bTodas); lb.appendChild(bNen); caixa.appendChild(lb);
+  caixa.appendChild(el('div', 'dica', 'Dica: contas de insumos (compras) e valores que mudam muito ficam melhor sem repetir. Salários e contas fixas repetem bem.'));
+  const go = el('button', 'btn verde', 'Repetir as contas marcadas'); go.style.marginTop = '8px';
+  go.onclick = ()=>{
+    const esc = itens.filter(x=>x._ck.checked); const n = Number(selQtd.value);
+    if(!esc.length){ aviso('Marque pelo menos uma conta.', 'erro'); return; }
+    if(!confirm('Criar até ' + (esc.length * n) + ' contas pendentes (' + esc.length + ' conta(s) por ' + n + (n === 1 ? ' mês' : ' meses') + ') a partir de ' + repNomeMes(selMes.value) + '?')) return;
+    tentar(async()=>{ const r = await repetirContas(esc, n); aviso(repResumo(r), 'ok'); desenhar(); });
+  };
+  caixa.appendChild(go);
+  return det;
+}
 function cartaoConta(x, forn){
   const card = el('div', 'cartao'); const topo = el('div', 'topo');
   topo.appendChild(el('span', 'nome', x.fornecedor));
@@ -2062,7 +2204,13 @@ function cartaoConta(x, forn){
   if(x.linha_digitavel){ const cp = el('button', 'btn cinza', 'Copiar código'); cp.onclick = ()=>copiarCodigo(x); l3.appendChild(cp); }
   const ex = el('button', 'btn cinza', 'Excluir');
   ex.onclick = ()=>{ if(!confirm('Excluir a conta de ' + x.fornecedor + ' (' + money(x.valor) + ')?')) return; tentar(async()=>{ await api('/rest/v1/contas_pagar?id=eq.' + x.id, {method:'DELETE'}); desenhar(); }, 'Conta excluída'); };
-  l3.appendChild(ex); mais.appendChild(l3); card.appendChild(mais);
+  l3.appendChild(ex); mais.appendChild(l3);
+  const selR = el('select'); [1, 2, 3, 4, 5, 6].forEach(n=>{ const o = el('option', '', n + (n === 1 ? ' mês' : ' meses')); o.value = n; selR.appendChild(o); }); selR.value = '3';
+  const bR = el('button', 'btn cinza', '📅 Repetir nos próximos meses');
+  bR.onclick = ()=>{ if(!x.vencimento){ aviso('Essa conta não tem vencimento. Coloque uma data, salve e tente de novo.', 'erro'); return; }
+    tentar(async()=>{ const r = await repetirContas([x], Number(selR.value)); aviso(repResumo(r), 'ok'); desenhar(); }); };
+  const l4 = el('div', 'linha'); l4.style.marginTop = '8px'; l4.appendChild(campo('Repetir por', selR)); l4.appendChild(bR); mais.appendChild(l4);
+  card.appendChild(mais);
   return card;
 }
 
