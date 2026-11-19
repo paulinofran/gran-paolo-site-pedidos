@@ -844,9 +844,13 @@ function abrirCarrinho(){
   const ob = el('input'); ob.type = 'text'; ob.placeholder = 'Observação para a cozinha (opcional)'; ob.style.cssText = 'width:100%;margin-top:10px'; ob.value = carrinho.obs || ''; ob.oninput = ()=>{ carrinho.obs = ob.value; }; j.appendChild(ob);
   const ac = el('div','acoes'); const b1 = el('button','btn','Voltar'); b1.onclick = fechar; const b2 = el('button','btn verm', mesaAtual === 'Entrega' ? 'Enviar entrega' : 'Lançar pedido'); b2.onclick = lancar; ac.appendChild(b1); ac.appendChild(b2); j.appendChild(ac);
 }
+let lancando = false;
 async function lancar(){
+  if(lancando) return;                 // toque repetido enquanto o 1o pedido ainda esta indo: ignora
   if(!carrinho.length) return;
   if(mesaAtual === 'Entrega'){ fechar(); return abrirEnviarEntrega(); }
+  lancando = true;
+  document.querySelectorAll('button.verm').forEach(b=>{ b.disabled = true; });
   const itens = carrinho.map(i=>({nome:i.nome, tamanho:i.tamanho, qtd:i.qtd, precoUnit:i.precoUnit}));
   try{
     const r = await rpc('mesa_lancar',{p_loja:LOJA,p_mesa:mesaAtual,p_comanda:comandaAtual,p_itens:itens,p_obs:carrinho.obs||null,p_por:'Tablet'});
@@ -854,6 +858,7 @@ async function lancar(){
     await atualizarContas(); await carregarDetalhe(); desenhar();
     if(ehRapido(mesaAtual)) abrirConta();   // Drive-thru/Retirada: já abre o pagamento (a cozinha já está produzindo)
   }catch(e){ aviso('Não consegui lançar: ' + e.message + '. O carrinho foi mantido.'); }
+  finally{ lancando = false; document.querySelectorAll('button.verm').forEach(b=>{ b.disabled = !carrinho.length; }); }
 }
 async function cancelarPedido(p){
   if(!confirm('Cancelar o pedido #' + (p.numero||p.id) + '? A cozinha será avisada pelo painel.')) return;
