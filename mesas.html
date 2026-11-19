@@ -150,6 +150,44 @@ body.comLateral main{margin:0;max-width:none;padding-right:366px}
 <div id="modais"></div>
 
 <script>
+/* ===== SESSAO ESTAVEL, parte 1 (painel / gestao / PDV compartilham o mesmo login salvo no navegador) =====
+   Problema: o login se renova com um "refresh token" que so vale uma vez. Varias chamadas na mesma aba e varias abas abertas
+   renovavam ao mesmo tempo com o mesmo token: uma invalidava a outra e o painel caia na tela de senha.
+   Agora: (1) uma renovacao por vez (na aba e entre abas), (2) antes de renovar olha se outra aba ja renovou e adota o login novo,
+   (3) as abas se avisam, (4) falha de internet/servidor nunca desloga. */
+(function(){
+  function lerSalva(){ try{ return JSON.parse(localStorage.getItem(CHAVE_SESSAO) || 'null'); }catch(e){ return null; } }
+  async function executar(){
+    const s = lerSalva();
+    if(s && s.refresh_token){
+      if(!sessao || s.refresh_token !== sessao.refresh_token || (s.expira || 0) > (sessao.expira || 0)) sessao = s;   // outra aba ja renovou: adota
+      if((s.expira || 0) - Date.now() > 120000) return true;                                                           // login novo e valido
+    }
+    if(!sessao || !sessao.refresh_token) return false;
+    try{
+      const r = await fetch(SUPABASE_URL + '/auth/v1/token?grant_type=refresh_token', {
+        method: 'POST', headers: {apikey: SUPABASE_KEY, 'Content-Type': 'application/json'},
+        body: JSON.stringify({refresh_token: sessao.refresh_token})});
+      if(r.ok){ salvarSessao(await r.json()); return true; }
+      const s2 = lerSalva();                                                                  // falhou: talvez outra aba renovou agora mesmo
+      if(s2 && s2.refresh_token && s2.refresh_token !== sessao.refresh_token){ sessao = s2; return true; }
+      if(r.status >= 500 || r.status === 429) return null;                                    // servidor com problema: nao desloga
+      return false;                                                                           // login realmente vencido
+    }catch(e){ return null; }                                                                 // sem internet: nao desloga
+  }
+  let voo = null;                                                                             // renovacao em andamento nesta aba
+  window.__renovarSeguro = function(){
+    if(voo) return voo;
+    const roda = (navigator.locks && navigator.locks.request) ? navigator.locks.request('gp-renovar-login', executar) : executar();
+    voo = Promise.resolve(roda).finally(function(){ voo = null; });
+    return voo;
+  };
+  window.addEventListener('storage', function(e){                                             // outra aba renovou: pega o login novo
+    if(e.key === CHAVE_SESSAO && e.newValue){ try{ const s = JSON.parse(e.newValue); if(s && s.refresh_token) sessao = s; }catch(_){} }
+  });
+})();
+</script>
+<script>
 const SUPABASE_URL = "https://shhdqvhjvtwoviiqtxng.supabase.co";
 const SUPABASE_KEY = "sb_publishable_qpfP7hAj0tmvwVEEqkqluA_iKzPYFUJ";
 const LOJA = "gran-paolo";
@@ -263,7 +301,8 @@ async function entrar(email, senha){
   const r = await fetch(SUPABASE_URL+'/auth/v1/token?grant_type=password',{method:'POST',headers:{apikey:SUPABASE_KEY,'Content-Type':'application/json'},body:JSON.stringify({email,password:senha})});
   if(!r.ok) return false; salvarSessao(await r.json()); return true;
 }
-async function renovar(){
+async function renovar(){ return window.__renovarSeguro ? window.__renovarSeguro() : renovarAntiga(); }
+async function renovarAntiga(){
   if(!sessao || !sessao.refresh_token) return false;
   try{
     const r = await fetch(SUPABASE_URL+'/auth/v1/token?grant_type=refresh_token',{method:'POST',headers:{apikey:SUPABASE_KEY,'Content-Type':'application/json'},body:JSON.stringify({refresh_token:sessao.refresh_token})});
@@ -1236,6 +1275,44 @@ $('btnSite').onclick = async ()=>{ await atualizarContas(); abrirPedidosSite(); 
 $('btnAtualizar').onclick = async ()=>{ await Promise.all([carregarMenu(), atualizarContas()]); if(tela==='mesa') await carregarDetalhe(); desenhar(); aviso('Atualizado.'); };
 (function retomar(){
   try{ const s = JSON.parse(localStorage.getItem(CHAVE_SESSAO) || 'null'); if(s && s.refresh_token){ sessao = s; renovar().then(ok=>{ if(ok === false) sair(); else iniciar(); }); } }catch(e){}
+})();
+</script>
+<script>
+/* ===== SESSAO ESTAVEL, parte 2 ===== */
+(function(){
+  // renovacao preventiva (aba em segundo plano roda timers devagar) e ao voltar para a aba
+  function preventiva(){ if(sessao && (sessao.expira || 0) - Date.now() < 600000) renovar().then(function(ok){ if(ok === false) sair(); }); }
+  setInterval(preventiva, 120000);
+  document.addEventListener('visibilitychange', function(){ if(!document.hidden) preventiva(); });
+
+  // ---- so no painel de pedidos (tem a sirene): alarme se a sessao cair ----
+  if(typeof tocarPedido === 'function'){
+    let manual = false, avisoTimer = null;
+    const tituloOriginal = document.title;
+    const btn = document.getElementById('btnSair');
+    if(btn) btn.addEventListener('click', function(){ manual = true; setTimeout(function(){ manual = false; }, 1000); }, true);
+    const sairOriginal = sair;
+    function parar(){ if(avisoTimer){ clearInterval(avisoTimer); avisoTimer = null; } const a = document.getElementById('avisoCaiu'); if(a) a.remove(); document.title = tituloOriginal; }
+    sair = function(){
+      const eraManual = manual;
+      sairOriginal.apply(this, arguments);
+      if(eraManual || avisoTimer) return;
+      const login = document.getElementById('login');
+      if(login && !document.getElementById('avisoCaiu')){
+        const a = document.createElement('div'); a.id = 'avisoCaiu';
+        a.style.cssText = 'background:#c62828;color:#fff;font-weight:700;font-size:18px;padding:14px;border-radius:12px;margin-bottom:16px;text-align:center';
+        a.textContent = '⚠ A sessão caiu. Entre de novo para voltar a receber pedidos.';
+        login.insertBefore(a, login.firstChild);
+      }
+      let piscar = false;
+      const tocar = function(){
+        if(sessao){ parar(); return; }                                                         // entrou de novo: para o alarme
+        piscar = !piscar; document.title = piscar ? '⚠ ENTRE DE NOVO' : '🔴 SESSÃO CAIU';
+        try{ tocarPedido(); }catch(e){}
+      };
+      tocar(); avisoTimer = setInterval(tocar, 8000);
+    };
+  }
 })();
 </script>
 </body>
