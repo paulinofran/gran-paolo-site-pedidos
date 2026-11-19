@@ -611,6 +611,9 @@ async function mandarParaMesa(p){
   try{ await rpc('mesa_anexar_pedido', {p_loja: LOJA, p_pedido: p.id, p_mesa: mesa, p_comanda: 'Comanda 1'}); await carregar(); }
   catch(e){ avisoErro('Não consegui mandar para a mesa: ' + ((e && e.message) || 'tente de novo') + '. (A Parte AN precisa estar instalada no Supabase.)'); }
 }
+// Pedido lancado no PDV (mesa, balcao, drive-thru, retirada: tem conta_id) some do painel assim que imprime nas DUAS impressoras.
+// So o pedido do site fica ali pra apertar Pronto. Se NAO imprimiu, continua na tela (alerta de falha de impressao).
+function somePdv(p){ return !!p.conta_id && !!p.impresso_cozinha_em && !!p.impresso_caixa_em; }
 function rotuloFinal(p){
   if(p.modalidade === 'Entrega') return 'Saiu para entrega';
   if(p.modalidade === 'Vem comer') return 'Levei na mesa';
@@ -618,7 +621,7 @@ function rotuloFinal(p){
 }
 async function alternarLoja(){
   const abrir = !(loja && loja.aberta);
-  if(!abrir && ativos.length && !confirm('Ainda há ' + ativos.length + ' pedido(s) na tela. Fechar a loja mesmo assim? Pedidos novos deixam de entrar.')) return;
+  if(!abrir && ativos.filter(p => !somePdv(p)).length && !confirm('Ainda há ' + ativos.filter(p => !somePdv(p)).length + ' pedido(s) na tela. Fechar a loja mesmo assim? Pedidos novos deixam de entrar.')) return;
   try{ statusLoja = await rpc('painel_definir_loja', {p_loja: LOJA, p_aberta: abrir}); await carregar(); }
   catch(e){ avisoErro('Não consegui ' + (abrir ? 'abrir' : 'fechar') + ' a loja. Tente de novo.'); }
 }
@@ -741,7 +744,7 @@ function desenhar(){
   const cols = {novo: $('cNovos'), cozinha: $('cCozinha'), pronto: $('cProntos')};
   const titulos = {novo: ['tNovos', 'Novos'], cozinha: ['tCozinha', 'Na cozinha'], pronto: ['tProntos', 'Prontos']};
   Object.keys(cols).forEach(s => {
-    const lista = ativos.filter(p => p.status === s).sort(ordenar);
+    const lista = ativos.filter(p => p.status === s && !somePdv(p)).sort(ordenar);
     cols[s].textContent = '';
     $(titulos[s][0]).textContent = titulos[s][1] + ' (' + lista.length + ')';
     if(!lista.length) cols[s].appendChild(el('div', 'vazio', s === 'novo' ? 'Nenhum pedido novo' : 'Nada por aqui'));
