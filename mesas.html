@@ -702,7 +702,7 @@ function promoAPartirDe(pm){ let t = 0; for(const et of pm.etapas){ const ops = 
 function abrirPromo(pm){
   const j = janela(), area = el('div'); j.appendChild(area);
   const esc = pm.etapas.map(et=>{ const ops = opcoesEtapa(et); return (ops.length===1 && Number(et.min)===1 && Number(et.max)===1) ? [ops[0]] : []; });
-  let qtd = 1;
+  let qtd = 1; const filtros = [];
   const completa = ()=>pm.etapas.every((et,k)=>esc[k].length >= (Number(et.min)||1));
   const total = ()=>arred(pm.etapas.reduce((a,et,k)=>a + precoEtapa(et, esc[k]).final, 0));
   function desenhar2(){
@@ -712,8 +712,21 @@ function abrirPromo(pm){
       area.appendChild(el('div','rot', (k+1) + '. ' + et.titulo + (fixa ? '' : (mx>1 ? '  (escolha ' + (mn===mx ? mx : 'até ' + mx) + ', meio a meio)' : '  (escolha 1)'))));
       if(fixa){ area.appendChild(el('div','sub', ops[0].nome + ' · incluso')); }
       else if(!ops.length){ area.appendChild(el('div','sub','Sem opções disponíveis no momento.')); }
-      else { const o = el('div','opcoes'); ops.forEach(op=>{ const b = el('button','opc' + (esc[k].some(x=>x.id===op.id)?' sel':''), op.nome.replace(/^Pizza /,'') + ' · ' + money(op.preco));
-        b.onclick = ()=>{ const i = esc[k].findIndex(x=>x.id===op.id); if(i>=0) esc[k].splice(i,1); else { esc[k].push(op); while(esc[k].length > mx) esc[k].shift(); } desenhar2(); }; o.appendChild(b); }); area.appendChild(o); }
+      else {
+        const o = el('div','opcoes');
+        const desenhaOps = ()=>{
+          o.innerHTML = ''; const q = semAcento(filtros[k]||'').trim();
+          const vis = ops.filter(op=>!q || esc[k].some(x=>x.id===op.id) || semAcento(op.nome).includes(q));   // o que ja foi escolhido fica sempre na lista
+          if(!vis.length) o.appendChild(el('div','dica','Nenhum sabor encontrado.'));
+          vis.forEach(op=>{ const b = el('button','opc' + (esc[k].some(x=>x.id===op.id)?' sel':''), op.nome.replace(/^Pizza /,'') + ' · ' + money(op.preco));
+            b.onclick = ()=>{ const i = esc[k].findIndex(x=>x.id===op.id); if(i>=0) esc[k].splice(i,1); else { esc[k].push(op); while(esc[k].length > mx) esc[k].shift(); } filtros[k] = ''; desenhar2(); }; o.appendChild(b); });
+        };
+        if(ops.length > 6){   // lista longa (ex.: Quinta Especial): campo de busca, ignora acento e maiuscula
+          const bu = el('input'); bu.type = 'text'; bu.placeholder = '🔍 Digite para buscar o sabor...'; bu.style.cssText = 'width:100%;margin-bottom:8px'; bu.value = filtros[k] || '';
+          bu.setAttribute('autocomplete','off'); bu.oninput = ()=>{ filtros[k] = bu.value; desenhaOps(); }; area.appendChild(bu);
+        }
+        desenhaOps(); area.appendChild(o);
+      }
       if(esc[k].length >= mn){ const pr = precoEtapa(et, esc[k]); area.appendChild(el('div','sub', pr.final < pr.normal ? 'De ' + money(pr.normal) + ' por ' + money(pr.final) + (pr.final===0 ? ' (GRÁTIS)' : '') : money(pr.final))); }
     });
     area.appendChild(el('div','rot','Observações (vai para a cozinha)'));
