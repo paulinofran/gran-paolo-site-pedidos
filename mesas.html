@@ -328,7 +328,8 @@ async function carregarMenu(){
 const ehPizza = (c)=> c.tipo === 'pizza';
 const nomeProd = (c,p)=> ehPizza(c) ? 'Pizza ' + p.nome : p.nome;
 function categorias(){
-  const base = ((MENU && MENU.categorias) || []).map(c=>({...c, produtos:(c.produtos||[]).filter(p=>(p.disponivel||p.esgotado) && (p.tamanhos||[]).length)})).filter(c=>c.produtos.length);
+  const base = ((MENU && MENU.categorias) || []).map(c=>({...c, produtos:(c.produtos||[]).filter(p=>(p.disponivel||p.esgotado) && (p.tamanhos||[]).length)})).filter(c=>c.produtos.length)
+    .filter(c=>c.slug !== 'embalagens' || MESAS.includes(mesaAtual));   // Embalagem so no salao: nos outros canais a embalagem nao e cobrada (so a sobra que o cliente quer levar)
   // "Tradicionais" e "Especiais" viram uma lista só: Pizzas Salgadas (so na tela; o banco continua igual)
   const juntar = base.filter(c=>c.tipo==='pizza' && (c.slug==='tradicional' || c.slug==='especial'));
   if(juntar.length < 2) return base;
