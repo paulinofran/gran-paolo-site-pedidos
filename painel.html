@@ -323,7 +323,9 @@ function ordenar(a, b){
   return ordemPrioridade(a) - ordemPrioridade(b) || new Date(a.criado_em) - new Date(b.criado_em);
 }
 function semImpressao(p){
-  return (!p.impresso_cozinha_em || !p.impresso_caixa_em) && minutosDesde(p.criado_em) > 2;
+  // pedido do PDV (tem conta_id): o recibo do caixa so sai no fechamento da conta, entao so a COZINHA conta como "nao imprimiu"
+  const faltou = p.conta_id ? !p.impresso_cozinha_em : (!p.impresso_cozinha_em || !p.impresso_caixa_em);
+  return faltou && minutosDesde(p.criado_em) > 2;
 }
 
 /* ---------- ações ---------- */
@@ -611,9 +613,9 @@ async function mandarParaMesa(p){
   try{ await rpc('mesa_anexar_pedido', {p_loja: LOJA, p_pedido: p.id, p_mesa: mesa, p_comanda: 'Comanda 1'}); await carregar(); }
   catch(e){ avisoErro('Não consegui mandar para a mesa: ' + ((e && e.message) || 'tente de novo') + '. (A Parte AN precisa estar instalada no Supabase.)'); }
 }
-// Pedido lancado no PDV (mesa, balcao, drive-thru, retirada: tem conta_id) some do painel assim que imprime nas DUAS impressoras.
+// Pedido lancado no PDV (mesa, balcao, drive-thru, retirada: tem conta_id) some do painel assim que imprime na COZINHA.
 // So o pedido do site fica ali pra apertar Pronto. Se NAO imprimiu, continua na tela (alerta de falha de impressao).
-function somePdv(p){ return !!p.conta_id && !!p.impresso_cozinha_em && !!p.impresso_caixa_em; }
+function somePdv(p){ return !!p.conta_id && !!p.impresso_cozinha_em; }
 function rotuloFinal(p){
   if(p.modalidade === 'Entrega') return 'Saiu para entrega';
   if(p.modalidade === 'Vem comer') return 'Levei na mesa';

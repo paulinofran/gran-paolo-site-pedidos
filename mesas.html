@@ -388,10 +388,10 @@ function desenharInicio(c){
   const soma = (cs)=>cs.reduce((a,x)=>a+Number(x.total),0);
   const dr = contasDaMesa('Drive'), rt = contasDaMesa('Retirada'), ms = contas.filter(x=>MESAS.includes(x.mesa));
   const mk = (cls, ic, nome, sub, ocupado, fn)=>{ const b = el('button','gt ' + cls + (ocupado ? ' ocupa' : '')); b.appendChild(el('div','ic',ic)); b.appendChild(el('div','n',nome)); b.appendChild(el('div','s',sub)); b.onclick = fn; g.appendChild(b); };
-  mk('drive','🚗','Drive-thru', dr.length ? dr.length + ' atendendo · ' + money(soma(dr)) : 'Novo cliente', dr.length > 0, ()=>abrirRapido('Drive'));
+  mk('drive','🚗','Drive-thru', dr.length ? dr.length + ' atendendo · ' + money(soma(dr)) : 'Novo cliente', dr.length > 0, ()=>entrarRapido('Drive'));
   mk('entrega','🛵','Entrega','Novo pedido', false, ()=>{ entrega = null; abrirEntrega(); });
   mk('mesas','🍽','Mesas', ms.length ? ms.length + (ms.length === 1 ? ' conta aberta' : ' contas abertas') : 'Todas livres', ms.length > 0, ()=>{ tela = 'grade'; desenhar(); });
-  mk('retirada','🥡','Retirada', rt.length ? rt.length + ' atendendo · ' + money(soma(rt)) : 'Novo cliente', rt.length > 0, ()=>abrirRapido('Retirada'));
+  mk('retirada','🥡','Retirada', rt.length ? rt.length + ' atendendo · ' + money(soma(rt)) : 'Novo cliente', rt.length > 0, ()=>entrarRapido('Retirada'));
   c.appendChild(g);
   if(pedSite.length) c.appendChild(el('p','dica','🔔 ' + pedSite.length + (pedSite.length === 1 ? ' pedido' : ' pedidos') + ' "Vem comer" do site esperando mesa. Toque em "Pedidos do site", no alto.')).style.marginTop = '16px';
 }
@@ -452,8 +452,9 @@ function desenharMesa(c){
     sel.onchange = async ()=>{ comandaAtual = sel.value; carrinho = []; await carregarDetalhe(); desenhar(); };
     topo.appendChild(sel);
     const bn = el('button','btn peq', rap ? '+ Novo cliente' : '+ Comanda');
-    bn.onclick = ()=>{ if(carrinho.length) return aviso('Lance ou limpe o carrinho antes.'); if(rap){ liberarVazio().then(async ()=>{ await atualizarContas(); abrirRapido(mesaAtual); }); return; } let k = 2; const ex = new Set(nomes); while(ex.has('Comanda ' + k)) k++; comandaAtual = 'Comanda ' + k; detalhe = null; desenhar(); };
+    bn.onclick = ()=>{ if(carrinho.length) return aviso('Lance ou limpe o carrinho antes.'); if(rap){ liberarVazio().then(async ()=>{ await atualizarContas(); entrarRapido(mesaAtual); }); return; } let k = 2; const ex = new Set(nomes); while(ex.has('Comanda ' + k)) k++; comandaAtual = 'Comanda ' + k; detalhe = null; desenhar(); };
     topo.appendChild(bn);
+    const bcli = el('button','btn peq','👤 Cliente'); bcli.onclick = abrirCliente; topo.appendChild(bcli);
     const bc = el('button','btn verm','Conta'); bc.onclick = abrirConta; topo.appendChild(bc);
     if(!rap){ const bt = el('button','btn','Trocar mesa'); bt.onclick = abrirTroca; topo.appendChild(bt); }
   }
@@ -918,7 +919,21 @@ function abrirTroca(){
   j.appendChild(o); const bv = el('button','btn','Voltar'); bv.onclick = fechar; j.appendChild(bv);
 }
 
-/* ---------- Drive-thru e Retirada: um cliente por vez (nome + telefone), paga na hora ---------- */
+/* ---------- Drive-thru e Retirada: vai direto pro pedido; telefone/nome (cashback e pontos) so no final ou no botao "Cliente" ---------- */
+let abrindoAt = false;
+async function novoAtendimento(tipo){
+  if(abrindoAt) return; abrindoAt = true;
+  try{
+    // sem nome: o sistema numera (Carro 1, Carro 2... / Cliente 1, Cliente 2...)
+    const pref = tipo === 'Drive' ? 'Carro ' : 'Cliente ', usados = contasDaMesa(tipo).map(x=>String(x.comanda||'')), re = new RegExp('^' + pref + '(\\d+)');
+    let k = 1; usados.forEach(n=>{ const m = n.match(re); if(m && Number(m[1]) >= k) k = Number(m[1]) + 1; });
+    const r = await rpc('pdv_abrir_atendimento',{p_loja:LOJA,p_tipo:tipo,p_nome:pref + k,p_telefone:null});
+    fechar(); await atualizarContas(); await abrirMesa(tipo, r.comanda);
+  }catch(e){ aviso(e.message); }
+  finally{ abrindoAt = false; }
+}
+// toque em Drive-thru/Retirada: se nao ha ninguem sendo atendido, ja abre o pedido; se ha, mostra a lista + "Novo atendimento"
+function entrarRapido(tipo){ if(contasDaMesa(tipo).length) abrirRapido(tipo); else novoAtendimento(tipo); }
 function abrirRapido(tipo){
   const R = RAPIDOS[tipo], abertos = contasDaMesa(tipo);
   const j = janela(); j.appendChild(el('h3','', R.ic + ' ' + R.rot));
@@ -932,38 +947,46 @@ function abrirRapido(tipo){
       j.appendChild(b);
     });
   }
-  j.appendChild(el('div','sec', abertos.length ? 'Novo cliente' : 'Quem vai ser atendido?'));
-  j.appendChild(el('div','rot','Telefone (com DDD) · para cashback e pontos'));
+  const ac = el('div','acoes'); const bv = el('button','btn','Voltar'); bv.onclick = fechar;
+  const bo = el('button','btn verm','➕ Novo atendimento'); bo.onclick = ()=>novoAtendimento(tipo);
+  ac.appendChild(bv); ac.appendChild(bo); j.appendChild(ac);
+}
+// Botao "Cliente" (fica no topo, funciona com item no carrinho): liga telefone/nome ao atendimento pra ganhar e usar cashback e pontos
+function abrirCliente(){
+  const c = contas.find(x=>x.mesa===mesaAtual && x.comanda===comandaAtual);
+  if(!c){ aviso('Lance o primeiro pedido antes de informar o cliente.'); return; }
+  const cd = (detalhe && detalhe.conta) || {};
+  const j = janela(); j.appendChild(el('h3','','👤 Cliente · cashback e pontos'));
+  const tentar = async (fn)=>{ try{ await fn(); }catch(e){ aviso(e.message); } };
+  const atualizaTudo = async ()=>{ await atualizarContas(); await carregarDetalhe(); fechar(); desenhar(); };
+  if(cd.cliente_telefone){
+    const sd = detalhe.saldo || {};
+    const l = el('div','linha'); l.appendChild(el('span','','👤 ' + (cd.cliente_nome || 'Cliente') + ' · ' + cd.cliente_telefone)); j.appendChild(l);
+    const l1 = el('div','linha'); l1.appendChild(el('span','','Cashback disponível')); l1.appendChild(el('span','',money(Number(sd.cashback)||0))); j.appendChild(l1);
+    const l2 = el('div','linha'); l2.appendChild(el('span','','Pontos')); l2.appendChild(el('span','',(Number(sd.pontos)||0) + ' pts')); j.appendChild(l2);
+    j.appendChild(el('p','dica','Para usar o saldo no pagamento, abra a Conta depois de lançar o pedido.'));
+    const ac = el('div','acoes'); const bv = el('button','btn','Voltar'); bv.onclick = fechar;
+    const bx = el('button','btn','Trocar cliente'); bx.onclick = ()=>tentar(async ()=>{ await rpc('mesa_desvincular_cliente',{p_loja:LOJA,p_conta:c.conta_id}); await atualizaTudo(); abrirCliente(); });
+    ac.appendChild(bv); ac.appendChild(bx); j.appendChild(ac); return;
+  }
+  j.appendChild(el('p','dica','Informe o telefone (com DDD). Pode fazer agora ou só no final, na Conta.'));
   const iTel = el('input'); iTel.type = 'tel'; iTel.inputMode = 'tel'; iTel.placeholder = '(84) 9 9999-9999'; iTel.style.width = '100%'; j.appendChild(iTel);
-  const info = el('div','dica'); info.style.marginTop = '6px'; j.appendChild(info);
-  j.appendChild(el('div','rot','Nome (opcional)'));
-  const iNome = el('input'); iNome.type = 'text'; iNome.placeholder = 'Deixe em branco se o cliente não quiser informar'; iNome.style.width = '100%'; j.appendChild(iNome);
-  let busca = 0;
+  const res = el('div'); res.style.marginTop = '8px'; j.appendChild(res);
+  let busca = 0, iNome = null, dadosBusca = null;
+  const bvinc = el('button','btn verde','Buscar cliente'); bvinc.style.cssText = 'width:100%;margin-top:8px'; bvinc.disabled = true;
   iTel.oninput = async ()=>{
-    const d = iTel.value.replace(/\D/g,''); info.textContent = '';
+    const d = iTel.value.replace(/\D/g,''); res.innerHTML = ''; iNome = null; dadosBusca = null; bvinc.disabled = true; bvinc.textContent = 'Buscar cliente';
     if(d.length < 10) return; const k = ++busca;
     try{
-      const r = await rpc('mesa_cliente_buscar',{p_loja:LOJA,p_telefone:d}); if(k !== busca) return;
-      if(r.existe){ const sd = r.saldo || {}; info.textContent = '👤 ' + (r.nome || 'Cliente') + ' · Cashback ' + money(Number(sd.cashback)||0) + ' · ' + (Number(sd.pontos)||0) + ' pts'; if(!iNome.value.trim() && r.nome) iNome.value = r.nome; }
-      else info.textContent = 'Cliente novo: será cadastrado.';
+      const r = await rpc('mesa_cliente_buscar',{p_loja:LOJA,p_telefone:d}); if(k !== busca) return; dadosBusca = r; const sd = r.saldo || {};
+      if(r.existe){ const l = el('div','linha'); l.appendChild(el('span','','👤 ' + (r.nome || 'Cliente'))); l.appendChild(el('span','','Cashback ' + money(Number(sd.cashback)||0) + ' · ' + (Number(sd.pontos)||0) + ' pts')); res.appendChild(l); bvinc.textContent = 'Vincular a este atendimento'; }
+      else { res.appendChild(el('p','dica','Cliente novo. Digite o nome para cadastrar (opcional).')); iNome = el('input'); iNome.type = 'text'; iNome.placeholder = 'Nome do cliente'; iNome.style.width = '100%'; res.appendChild(iNome); bvinc.textContent = 'Cadastrar e vincular'; }
+      bvinc.disabled = false;
     }catch(e){}
   };
-  const ac = el('div','acoes'); const bv = el('button','btn','Voltar'); bv.onclick = fechar;
-  const bo = el('button','btn verm','Começar pedido');
-  bo.onclick = async ()=>{
-    bo.disabled = true;
-    let nome = iNome.value.trim();
-    if(!nome){   // cliente que não quer dar nome: o sistema numera (Carro 1, Carro 2... / Cliente 1, Cliente 2...)
-      const pref = tipo === 'Drive' ? 'Carro ' : 'Cliente ', usados = contasDaMesa(tipo).map(x=>String(x.comanda||'')), re = new RegExp('^' + pref + '(\\d+)');
-      let k = 1; usados.forEach(n=>{ const m = n.match(re); if(m && Number(m[1]) >= k) k = Number(m[1]) + 1; });
-      nome = pref + k;
-    }
-    try{
-      const r = await rpc('pdv_abrir_atendimento',{p_loja:LOJA,p_tipo:tipo,p_nome:nome,p_telefone:iTel.value.trim() || null});
-      fechar(); await atualizarContas(); await abrirMesa(tipo, r.comanda);
-    }catch(e){ bo.disabled = false; aviso(e.message); }
-  };
-  ac.appendChild(bv); ac.appendChild(bo); j.appendChild(ac);
+  bvinc.onclick = ()=>tentar(async ()=>{ if(!dadosBusca) return; bvinc.disabled = true; await rpc('mesa_vincular_cliente',{p_loja:LOJA,p_conta:c.conta_id,p_telefone:dadosBusca.telefone,p_nome:iNome ? iNome.value : null}); await atualizaTudo(); aviso('Cliente vinculado.'); });
+  j.appendChild(bvinc);
+  const bv = el('button','btn','Voltar'); bv.style.cssText = 'width:100%;margin-top:8px'; bv.onclick = fechar; j.appendChild(bv);
   setTimeout(()=>iTel.focus(), 50);
 }
 
