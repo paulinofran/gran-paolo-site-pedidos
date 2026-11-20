@@ -637,13 +637,14 @@ function avisoErro(txt){
 
 /* ---------- desenho ---------- */
 function classeTipo(m){ return m === 'Drive-thru' ? 't-drive' : m === 'Vem comer' ? 't-comer' : m === 'Retirada' ? 't-retirada' : 't-entrega'; }
-// Copia SO o telefone (para colar no app do motoboy). Mostra "Copiado" no proprio botao.
-function copiarTelefone(tel, alvo){
-  const t = String(tel || '').replace(/\D/g, '');
+// Copia um texto (endereco) ou SO os numeros do telefone, para colar no app do motoboy. Mostra "Copiado" no proprio botao.
+function copiarTexto(texto, alvo){
+  const t = String(texto || '').trim();
   const ok = () => { if(!alvo) return; const antes = alvo.textContent; alvo.textContent = '✔ Copiado'; setTimeout(() => { alvo.textContent = antes; }, 1500); };
   const velho = () => { try{ const ta = document.createElement('textarea'); ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); ok(); }catch(e){} };
   try{ if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(t).then(ok, velho); } else velho(); }catch(e){ velho(); }
 }
+function copiarTelefone(tel, alvo){ copiarTexto(String(tel || '').replace(/\D/g, ''), alvo); }
 // "Chamar cliente": abre uma caixinha com mensagens prontas + "Conversa em branco" (voce digita o que quiser). Nada e enviado sozinho:
 // o WhatsApp abre com o texto na caixa de mensagem e voce edita ou apaga antes de enviar.
 function chamarCliente(p){
@@ -714,7 +715,17 @@ function cartao(p){
   });
   c.appendChild(itens);
   if(p.modalidade === 'Entrega'){
-    c.appendChild(el('div', 'extra', 'Bairro: ' + (p.bairro || '—') + ' · ' + (p.endereco || 'sem endereço')));
+    const le = el('div', 'extra', 'Bairro: ' + (p.bairro || '—') + ' · ');
+    const te = el('span', 'tel', p.endereco || 'sem endereço'); te.title = 'Toque para copiar só o endereço';
+    le.appendChild(te);
+    if(p.endereco){
+      te.onclick = () => copiarTexto(p.endereco, te);
+      le.appendChild(document.createTextNode(' '));
+      const bce = el('button', 'copiar', '📋 Copiar');
+      bce.onclick = () => copiarTexto(p.endereco, bce);
+      le.appendChild(bce);
+    }
+    c.appendChild(le);
   }
   if(p.telefone){
     const lw = el('div', 'extra', 'WhatsApp: ');
