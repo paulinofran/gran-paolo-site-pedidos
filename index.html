@@ -715,10 +715,10 @@ const CATALOGO = [{"nome": "Suco De Laranja 300ml", "categoria": "Bebida", "tama
 const FOTOS = {"Pizza Bacon": "img/bacon.webp?v=1", "Pizza Banana Com Chocolate": "img/banana-com-chocolate.webp?v=1", "Pizza Banana Nevada": "img/banana-nevada.webp?v=1", "Pizza Calabresa": "img/calabresa.webp?v=1", "Pizza Chocolate": "img/chocolate.webp?v=1", "Pizza Carne De Sol Com Catupiry": "img/carne-de-sol-com-catupiry.webp?v=1", "Pizza Camarão Com Catupiry": "img/camarao-com-catupiry.webp?v=1", "Pizza Camarão": "img/camarao.webp?v=1", "Pizza Frango Com Bacon": "img/frango-com-bacon.webp?v=1", "Pizza Lombo Com Catupiry": "img/lombo-com-catupiry.webp?v=1", "Pizza Chocolate Mesclado": "img/chocolate-mesclado.webp?v=1", "Pizza Frango Ao Milho": "img/frango-ao-milho.webp?v=1", "Pizza Lombo": "img/lombo.webp?v=1", "Pizza Marguerita Especial": "img/marguerita-especial.webp?v=1", "Pizza Mista": "img/mista.webp?v=1", "Pizza Marguerita": "img/marguerita.webp?v=1", "Pizza Pepperoni C/ Catupiry": "img/pepperoni-com-catupiry.webp?v=1", "Pizza Pepperoni": "img/pepperoni.webp?v=1", "Pizza Morango Com Chocolate": "img/morango-com-chocolate.webp?v=1", "Pizza Peito De Perú Com Catupiry": "img/peito-de-peru-com-catupiry.webp?v=1", "Pizza Portuguesa": "img/portuguesa.webp?v=1", "Pizza Carne De Sol": "img/carne-de-sol.webp?v=1", "Pizza Frango C/ Cream Cheese": "img/frango-com-cream-cheese.webp?v=1", "Pizza Frango Com Catupiry": "img/frango-com-catupiry.webp?v=1", "Pizza Gorgonzola Especial": "img/gorgonzola-especial.webp?v=1", "Pizza Muçarela": "img/mucarela.webp?v=1", "Pizza Napolitana": "img/napolitana.webp?v=1", "Pizza Quatro Queijos": "img/quatro-queijos.webp?v=1", "Pizza Siciliana": "img/siciliana.webp?v=1"};
 const SABORES_MEIO = [{"nome": "Pizza Calabresa Com Catupiry", "grande": 75.9, "pequena": 47.9}, {"nome": "Pizza Camarão", "grande": 79.9, "pequena": 52.9}, {"nome": "Pizza Camarão Com Catupiry", "grande": 94.9, "pequena": 54.9}, {"nome": "Pizza Carne De Sol", "grande": 75.9, "pequena": 47.9}, {"nome": "Pizza Carne De Sol C/ Queijo Coalho", "grande": 77.9, "pequena": 49.9}, {"nome": "Pizza Carne De Sol Com Catupiry", "grande": 79.9, "pequena": 52.9}, {"nome": "Pizza Frango C/ Cream Cheese", "grande": 75.9, "pequena": 45.9}, {"nome": "Pizza Frango Com Catupiry", "grande": 75.9, "pequena": 45.9}, {"nome": "Pizza Gorgonzola Especial", "grande": 75.9, "pequena": 47.9}, {"nome": "Pizza Gran Paolo Especial", "grande": 83.9, "pequena": 55.9}, {"nome": "Pizza Lombo", "grande": 73.9, "pequena": 45.9}, {"nome": "Pizza Lombo Com Catupiry", "grande": 84.9, "pequena": 47.9}, {"nome": "Pizza Marguerita Especial", "grande": 75.9, "pequena": 47.9}, {"nome": "Pizza Peito De Peru", "grande": 73.9, "pequena": 45.9}, {"nome": "Pizza Peito De Perú Com Catupiry", "grande": 75.9, "pequena": 47.9}, {"nome": "Pizza Pepperoni", "grande": 75.9, "pequena": 47.9}, {"nome": "Pizza Pepperoni C/ Catupiry", "grande": 89.9, "pequena": 49.9}, {"nome": "Pizza Pepperoni C/ Cream Cheese", "grande": 89.9, "pequena": 49.9}, {"nome": "Pizza Quatro Queijos", "grande": 73.9, "pequena": 45.9}, {"nome": "Pizza Bacon", "grande": 69.9, "pequena": 40.9}, {"nome": "Pizza Calabresa", "grande": 59.9, "pequena": 35.9}, {"nome": "Pizza Frango Ao Milho", "grande": 59.9, "pequena": 35.9}, {"nome": "Pizza Frango Com Bacon", "grande": 73.9, "pequena": 45.9}, {"nome": "Pizza Marguerita", "grande": 59.9, "pequena": 35.9}, {"nome": "Pizza Mista", "grande": 59.9, "pequena": 35.9}, {"nome": "Pizza Muçarela", "grande": 59.9, "pequena": 35.9}, {"nome": "Pizza Napolitana", "grande": 59.9, "pequena": 35.9}, {"nome": "Pizza Portuguesa", "grande": 59.9, "pequena": 35.9}, {"nome": "Pizza Siciliana", "grande": 69.9, "pequena": 42.9}];
 
-const CATEGORIAS_ORDEM = ["Salgada","MeioAMeio","Doce","Promoção","Bebida"];   // "Salgada" = Tradicionais + Especiais juntas
+const CATEGORIAS_ORDEM = ["Salgada","MeioAMeio","Doce","Promoção","Bebida","Sobremesa"];   // "Salgada" = Tradicionais + Especiais juntas
 const CATEGORIAS_LABEL = {
   "MeioAMeio":"🍕 Meio a Meio", "Salgada":"Pizzas Salgadas", "Doce":"Pizzas Doces",
-  "Promoção":"Promoções", "Bebida":"Bebidas"
+  "Promoção":"Promoções", "Bebida":"Bebidas", "Sobremesa":"Sobremesas"
 };
 // Taxas de entrega por bairro (vindas do cadastro do Suitable). Ordenado do mais barato pro mais caro,
 // pra facilitar a escolha (bairros mais próximos/mais pedidos aparecem primeiro).
@@ -944,7 +944,7 @@ function enviarOrigemDoPedido(telefone){
 // Abas que podem ser abertas por link: ?categoria=promocoes | tradicional | especial | doce | bebida | meio-a-meio
 const CATEGORIA_POR_LINK = {promocoes:'Promoção', promocao:'Promoção', combos:'Promoção', combo:'Promoção',
   tradicional:'Salgada', tradicionais:'Salgada', especial:'Salgada', especiais:'Salgada', salgada:'Salgada', salgadas:'Salgada',
-  doce:'Doce', doces:'Doce', bebida:'Bebida', bebidas:'Bebida', 'meio-a-meio':'MeioAMeio', meioameio:'MeioAMeio'};
+  doce:'Doce', doces:'Doce', bebida:'Bebida', bebidas:'Bebida', sobremesa:'Sobremesa', sobremesas:'Sobremesa', 'meio-a-meio':'MeioAMeio', meioameio:'MeioAMeio'};
 // Link direto: ?produto=camarao  |  ?meio1=camarao&meio2=carne-de-sol  (&tamanho=pequena)
 function abrirPeloLink(params){
   const tamanhoPedido = slugSabor(params.get('tamanho') || 'grande');
@@ -1516,7 +1516,7 @@ function abrirAjuda(ev){
 
 /* ---------- Cardapio vindo do banco (com o cardapio embutido como plano B) ---------- */
 const DESCRICOES = {};
-const SLUG_CATEGORIA = {tradicional:'Tradicional', especial:'Especial', doce:'Doce', bebida:'Bebida'};
+const SLUG_CATEGORIA = {tradicional:'Tradicional', especial:'Especial', doce:'Doce', bebida:'Bebida', sobremesas:'Sobremesa'};
 function vendeNoCanal(p){ return !modalidadeAtual || !p.canais || p.canais.indexOf(modalidadeAtual) >= 0; }
 function nomeNoSite(c, p){ return c.tipo === 'pizza' ? 'Pizza ' + p.nome : p.nome; }
 function idDoTamanho(nome, tam){ return slugLink(nome) + (tam === 'Única' ? '' : '-' + slugLink(tam)); }
