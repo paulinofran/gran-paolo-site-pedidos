@@ -193,7 +193,7 @@ const SUPABASE_KEY = "sb_publishable_qpfP7hAj0tmvwVEEqkqluA_iKzPYFUJ";
 const LOJA = "gran-paolo";
 const CHAVE_SESSAO = "gp_painel_sessao";      // a mesma do painel: entrou lá, entrou aqui
 const QTD_MESAS = 10;
-const MESAS = ['Balcao'].concat(Array.from({length:QTD_MESAS}, (_,i)=>String(i+1)));
+const MESAS = Array.from({length:QTD_MESAS}, (_,i)=>String(i+1));   // Balcao saiu da tela (20/11): quem busca no local usa Retirada; historico e relatorios antigos de 'Balcao' seguem intactos
 const FORMAS = ['Pix','Dinheiro','Débito','Crédito'];
 let FISCAL = {ativo:false};   // nota fiscal (Gestão > Notas): enquanto estiver desligada, o PDV nem mostra a caixinha
 function cpfValido(c){ const d = String(c||'').replace(/\D/g,''); if(d.length !== 11 || /^(\d)\1{10}$/.test(d)) return false;
