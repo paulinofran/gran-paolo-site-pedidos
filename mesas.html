@@ -869,7 +869,16 @@ async function lancar(){
   try{
     const r = await rpc('mesa_lancar',{p_loja:LOJA,p_mesa:mesaAtual,p_comanda:comandaAtual,p_itens:itens,p_obs:carrinho.obs||null,p_por:'Tablet'});
     carrinho = []; fechar(); aviso('Pedido #' + (r.numero||r.pedido_id) + ' enviado para a cozinha.');
-    await atualizarContas(); await carregarDetalhe(); desenhar();
+    await atualizarContas();
+    if(clientePend && Date.now() - clientePend.t > 20*60000) clientePend = null;
+    if(clientePend && clientePend.mesa === mesaAtual && clientePend.comanda === comandaAtual){
+      const cc = contas.find(x=>x.mesa===mesaAtual && x.comanda===comandaAtual);
+      if(cc){
+        try{ await rpc('mesa_vincular_cliente',{p_loja:LOJA,p_conta:cc.conta_id,p_telefone:clientePend.telefone,p_nome:clientePend.nome}); clientePend = null; await atualizarContas(); }
+        catch(e2){ aviso('Pedido enviado, mas não consegui ligar o cliente: ' + e2.message + '. Use o botão 👤 Cliente.'); }
+      }
+    }
+    await carregarDetalhe(); desenhar();
     if(ehRapido(mesaAtual)) abrirConta();   // Drive-thru/Retirada: já abre o pagamento (a cozinha já está produzindo)
   }catch(e){ aviso('Não consegui lançar: ' + e.message + '. O carrinho foi mantido.'); }
   finally{ lancando = false; document.querySelectorAll('button.verm').forEach(b=>{ b.disabled = !carrinho.length; }); }
@@ -952,9 +961,47 @@ function abrirRapido(tipo){
   ac.appendChild(bv); ac.appendChild(bo); j.appendChild(ac);
 }
 // Botao "Cliente" (fica no topo, funciona com item no carrinho): liga telefone/nome ao atendimento pra ganhar e usar cashback e pontos
+let clientePend = null;   // cliente escolhido ANTES do 1o pedido: {mesa, comanda, telefone, nome}; liga na conta assim que ela existir
+function abrirClientePre(){
+  const j = janela(); j.appendChild(el('h3','','👤 Cliente · cashback e pontos'));
+  if(clientePend && Date.now() - clientePend.t > 20*60000) clientePend = null;   // esquecido: expira em 20 min (evita ligar o cliente errado num "Carro 1" reaproveitado)
+  const mesmo = clientePend && clientePend.mesa === mesaAtual && clientePend.comanda === comandaAtual;
+  if(mesmo){
+    const l = el('div','linha'); l.appendChild(el('span','','👤 ' + (clientePend.nome || 'Cliente') + ' · ' + clientePend.telefone)); j.appendChild(l);
+    if(clientePend.saldoTxt) j.appendChild(el('p','dica', clientePend.saldoTxt));
+    j.appendChild(el('p','dica','Fica ligado ao atendimento quando você lançar o pedido. Para usar o saldo no pagamento, abra a Conta depois de lançar.'));
+    const ac = el('div','acoes'); const bv = el('button','btn','Voltar'); bv.onclick = fechar;
+    const bx = el('button','btn','Trocar cliente'); bx.onclick = ()=>{ clientePend = null; fechar(); abrirClientePre(); };
+    ac.appendChild(bv); ac.appendChild(bx); j.appendChild(ac); return;
+  }
+  j.appendChild(el('p','dica','Informe o telefone (com DDD). O cliente fica ligado a este atendimento assim que o pedido for lançado.'));
+  const iTel = el('input'); iTel.type = 'tel'; iTel.inputMode = 'tel'; iTel.placeholder = '(84) 9 9999-9999'; iTel.style.width = '100%'; j.appendChild(iTel);
+  const res = el('div'); res.style.marginTop = '8px'; j.appendChild(res);
+  let busca = 0, iNome = null, dadosBusca = null;
+  const bok = el('button','btn verde','Usar este cliente'); bok.style.cssText = 'width:100%;margin-top:8px'; bok.disabled = true;
+  iTel.oninput = async ()=>{
+    const d = iTel.value.replace(/\D/g,''); res.innerHTML = ''; iNome = null; dadosBusca = null; bok.disabled = true;
+    if(d.length < 10) return; const k = ++busca;
+    try{
+      const r = await rpc('mesa_cliente_buscar',{p_loja:LOJA,p_telefone:d}); if(k !== busca) return; dadosBusca = r; const sd = r.saldo || {};
+      if(r.existe){ const l = el('div','linha'); l.appendChild(el('span','','👤 ' + (r.nome || 'Cliente'))); l.appendChild(el('span','','Cashback ' + money(Number(sd.cashback)||0) + ' · ' + (Number(sd.pontos)||0) + ' pts')); res.appendChild(l); }
+      else { res.appendChild(el('p','dica','Cliente novo. Digite o nome para cadastrar (opcional).')); iNome = el('input'); iNome.type = 'text'; iNome.placeholder = 'Nome do cliente'; iNome.style.width = '100%'; res.appendChild(iNome); }
+      bok.disabled = false;
+    }catch(e){}
+  };
+  bok.onclick = ()=>{
+    if(!dadosBusca) return; const sd = dadosBusca.saldo || {};
+    clientePend = {t:Date.now(), mesa:mesaAtual, comanda:comandaAtual, telefone:dadosBusca.telefone, nome:(dadosBusca.existe ? dadosBusca.nome : (iNome ? iNome.value : null)) || null,
+      saldoTxt:'Cashback ' + money(Number(sd.cashback)||0) + ' · ' + (Number(sd.pontos)||0) + ' pts'};
+    fechar(); aviso('Cliente ' + (clientePend.nome || clientePend.telefone) + ' anotado. Lance o pedido para ligar.');
+  };
+  j.appendChild(bok);
+  const bv = el('button','btn','Voltar'); bv.style.cssText = 'width:100%;margin-top:8px'; bv.onclick = fechar; j.appendChild(bv);
+  setTimeout(()=>iTel.focus(), 50);
+}
 function abrirCliente(){
   const c = contas.find(x=>x.mesa===mesaAtual && x.comanda===comandaAtual);
-  if(!c){ aviso('Lance o primeiro pedido antes de informar o cliente.'); return; }
+  if(!c){ abrirClientePre(); return; }
   const cd = (detalhe && detalhe.conta) || {};
   const j = janela(); j.appendChild(el('h3','','👤 Cliente · cashback e pontos'));
   const tentar = async (fn)=>{ try{ await fn(); }catch(e){ aviso(e.message); } };
