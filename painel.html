@@ -56,6 +56,8 @@ main{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;padding:14px 16px
 .acao{width:100%;height:50px;border:0;border-radius:12px;font-size:17px;font-weight:800;margin-top:6px}
 .acao.principal{background:var(--vermelho);color:#fff}
 .acao.final{background:var(--verde);color:#fff}
+.tel{user-select:all;-webkit-user-select:all;cursor:pointer;font-weight:700}
+.copiar{background:#fff;color:#333;border:1px solid #bbb;border-radius:8px;padding:3px 9px;font-size:12px;font-weight:700;margin-left:6px}
 .chamar{background:#25d366;color:#fff;border:0;border-radius:8px;padding:3px 9px;font-size:12px;font-weight:700;margin-left:6px}
 .mini{display:flex;gap:12px;margin-top:8px}
 .mini button{background:none;border:0;color:var(--soft);font-size:12px;text-decoration:underline;padding:0}
@@ -635,6 +637,13 @@ function avisoErro(txt){
 
 /* ---------- desenho ---------- */
 function classeTipo(m){ return m === 'Drive-thru' ? 't-drive' : m === 'Vem comer' ? 't-comer' : m === 'Retirada' ? 't-retirada' : 't-entrega'; }
+// Copia SO o telefone (para colar no app do motoboy). Mostra "Copiado" no proprio botao.
+function copiarTelefone(tel, alvo){
+  const t = String(tel || '').replace(/\D/g, '');
+  const ok = () => { if(!alvo) return; const antes = alvo.textContent; alvo.textContent = '✔ Copiado'; setTimeout(() => { alvo.textContent = antes; }, 1500); };
+  const velho = () => { try{ const ta = document.createElement('textarea'); ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); ok(); }catch(e){} };
+  try{ if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(t).then(ok, velho); } else velho(); }catch(e){ velho(); }
+}
 // "Chamar cliente": abre uma caixinha com mensagens prontas + "Conversa em branco" (voce digita o que quiser). Nada e enviado sozinho:
 // o WhatsApp abre com o texto na caixa de mensagem e voce edita ou apaga antes de enviar.
 function chamarCliente(p){
@@ -708,7 +717,12 @@ function cartao(p){
     c.appendChild(el('div', 'extra', 'Bairro: ' + (p.bairro || '—') + ' · ' + (p.endereco || 'sem endereço')));
   }
   if(p.telefone){
-    const lw = el('div', 'extra', 'WhatsApp: ' + p.telefone + ' ');
+    const lw = el('div', 'extra', 'WhatsApp: ');
+    const tl = el('span', 'tel', p.telefone); tl.title = 'Toque para copiar só o telefone'; tl.onclick = () => copiarTelefone(p.telefone, tl);
+    lw.appendChild(tl); lw.appendChild(document.createTextNode(' '));
+    const bcp = el('button', 'copiar', '📋 Copiar');
+    bcp.onclick = () => copiarTelefone(p.telefone, bcp);
+    lw.appendChild(bcp);
     const bw = el('button', 'chamar', '💬 Chamar cliente');
     bw.onclick = () => chamarCliente(p);
     lw.appendChild(bw); c.appendChild(lw);
