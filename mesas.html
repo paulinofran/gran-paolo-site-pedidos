@@ -524,7 +524,8 @@ function desenharLateral(){
   if(mesaAtual === 'Entrega' && entrega){ const lt = el('div','linha'); lt.appendChild(el('span','','Taxa de entrega')); lt.appendChild(el('span','',money(entrega.taxa))); rp.appendChild(lt); }
   const t = el('div','total'); t.appendChild(el('span','','Total')); t.appendChild(el('span','',money(tot + (mesaAtual === 'Entrega' && entrega && carrinho.length ? entrega.taxa : 0)))); rp.appendChild(t);
   const ob = el('input'); ob.type = 'text'; ob.placeholder = 'Observação para a cozinha (opcional)'; ob.style.cssText = 'width:100%;margin-top:8px'; ob.value = carrinho.obs || ''; ob.oninput = ()=>{ carrinho.obs = ob.value; }; rp.appendChild(ob);
-  const bl = el('button','btn verm', mesaAtual === 'Entrega' ? 'Enviar entrega' : 'Lançar pedido'); bl.style.cssText = 'width:100%;margin-top:8px;padding:15px;font-size:17px'; bl.disabled = !carrinho.length; bl.onclick = lancar; rp.appendChild(bl);
+  const bl = el('button','btn verm', rotLancar()); bl.style.cssText = 'width:100%;margin-top:8px;padding:15px;font-size:17px'; bl.disabled = !carrinho.length; bl.onclick = ()=>lancar(); rp.appendChild(bl);
+  if(mesaAtual === 'Retirada'){ const br = el('button','btn','💰 Receber agora'); br.style.cssText = 'width:100%;margin-top:8px;padding:13px;font-size:16px'; br.disabled = !carrinho.length; br.onclick = ()=>lancar(true); rp.appendChild(br); }
 }
 window.addEventListener('resize', ()=>{ if(sessao) desenharCarrinho(); });
 function desenharCarrinho(){
@@ -536,7 +537,9 @@ function desenharCarrinho(){
   const bt = el('button','btn peq','Ver carrinho'); bt.onclick = abrirCarrinho; bt.style.background = '#fff'; bt.style.color = 'var(--verde)';
   b.appendChild(el('div','', n + (n===1?' item':' itens') + ' · ' + money(tot) + (mesaAtual === 'Entrega' && entrega ? ' + taxa ' + money(entrega.taxa) : '')));
   const d = el('div'); d.style.display = 'flex'; d.style.gap = '8px'; d.appendChild(bt);
-  const bl = el('button','btn', mesaAtual === 'Entrega' ? 'Enviar entrega' : 'Lançar pedido'); bl.onclick = lancar; d.appendChild(bl); b.appendChild(d);
+  const bl = el('button','btn', rotLancar()); bl.onclick = ()=>lancar(); d.appendChild(bl);
+  if(mesaAtual === 'Retirada'){ const br = el('button','btn','💰 Receber agora'); br.onclick = ()=>lancar(true); d.appendChild(br); }
+  b.appendChild(d);
 }
 
 /* ---------- janelas ---------- */
@@ -857,13 +860,17 @@ function abrirCarrinho(){
   }
   ver();
   const ob = el('input'); ob.type = 'text'; ob.placeholder = 'Observação para a cozinha (opcional)'; ob.style.cssText = 'width:100%;margin-top:10px'; ob.value = carrinho.obs || ''; ob.oninput = ()=>{ carrinho.obs = ob.value; }; j.appendChild(ob);
-  const ac = el('div','acoes'); const b1 = el('button','btn','Voltar'); b1.onclick = fechar; const b2 = el('button','btn verm', mesaAtual === 'Entrega' ? 'Enviar entrega' : 'Lançar pedido'); b2.onclick = lancar; ac.appendChild(b1); ac.appendChild(b2); j.appendChild(ac);
+  const ac = el('div','acoes'); const b1 = el('button','btn','Voltar'); b1.onclick = fechar; const b2 = el('button','btn verm', rotLancar()); b2.onclick = ()=>lancar(); ac.appendChild(b1); ac.appendChild(b2);
+  if(mesaAtual === 'Retirada'){ const b3 = el('button','btn','💰 Receber agora'); b3.onclick = ()=>lancar(true); ac.appendChild(b3); }
+  j.appendChild(ac);
 }
 let lancando = false;
-async function lancar(){
+const rotLancar = ()=> mesaAtual === 'Entrega' ? 'Enviar entrega' : mesaAtual === 'Retirada' ? 'Salvar pedido' : 'Lançar pedido';
+async function lancar(arg){
   if(lancando) return;                 // toque repetido enquanto o 1o pedido ainda esta indo: ignora
   if(!carrinho.length) return;
   if(mesaAtual === 'Entrega'){ fechar(); return abrirEnviarEntrega(); }
+  if(mesaAtual === 'Retirada') return lancarRetirada(arg === true);
   lancando = true;
   document.querySelectorAll('button.verm').forEach(b=>{ b.disabled = true; });
   const itens = carrinho.map(i=>({nome:i.nome, tamanho:i.tamanho, qtd:i.qtd, precoUnit:i.precoUnit}));
@@ -882,6 +889,27 @@ async function lancar(){
     await carregarDetalhe(); desenhar();
     if(ehRapido(mesaAtual)) abrirConta();   // Drive-thru/Retirada: já abre o pagamento (a cozinha já está produzindo)
   }catch(e){ aviso('Não consegui lançar: ' + e.message + '. O carrinho foi mantido.'); }
+  finally{ lancando = false; document.querySelectorAll('button.verm').forEach(b=>{ b.disabled = !carrinho.length; }); }
+}
+// RETIRADA (20/11): "Salvar pedido" = identifica o cliente (telefone), manda na hora para a cozinha e deixa o pagamento para quando ele chegar.
+// "Receber agora" = salva e ja abre o pagamento. A retirada aparece no Painel, com PAGO / A RECEBER; ao apertar "Pronto" o cliente recebe o aviso no WhatsApp.
+async function lancarRetirada(receber){
+  const cd = (detalhe && detalhe.conta) || {};
+  let tel = cd.cliente_telefone || null, nome = cd.cliente_nome || null;
+  if(clientePend && Date.now() - clientePend.t > 20*60000) clientePend = null;
+  if(clientePend && clientePend.mesa === mesaAtual && clientePend.comanda === comandaAtual){ tel = clientePend.telefone; nome = clientePend.nome || nome; }
+  if(!tel){ fechar(); abrirClientePre(()=>lancarRetirada(receber), true); return; }     // sem cliente: pede o telefone primeiro (o carrinho fica guardado)
+  if(lancando) return; lancando = true;
+  document.querySelectorAll('button.verm').forEach(b=>{ b.disabled = true; });
+  const itens = carrinho.map(i=>({nome:i.nome, tamanho:i.tamanho, qtd:i.qtd, precoUnit:i.precoUnit}));
+  try{
+    const r = await rpc('retirada_salvar',{p_loja:LOJA,p_comanda:comandaAtual,p_telefone:tel,p_nome:nome,p_itens:itens,p_obs:carrinho.obs||null,p_por:'Tablet'});
+    clientePend = null; carrinho = []; fechar(); comandaAtual = r.comanda || comandaAtual;
+    aviso('Retirada de ' + (r.nome || 'cliente') + ' enviada para a cozinha (pedido #' + (r.numero||r.pedido_id) + ').');
+    await atualizarContas();
+    if(receber){ await carregarDetalhe(); desenhar(); abrirConta(); }
+    else { tela = 'inicio'; mesaAtual = null; detalhe = null; desenhar(); }
+  }catch(e){ aviso('Não consegui salvar a retirada: ' + e.message + '. O carrinho foi mantido.'); }
   finally{ lancando = false; document.querySelectorAll('button.verm').forEach(b=>{ b.disabled = !carrinho.length; }); }
 }
 async function cancelarPedido(p){
@@ -963,8 +991,8 @@ function abrirRapido(tipo){
 }
 // Botao "Cliente" (fica no topo, funciona com item no carrinho): liga telefone/nome ao atendimento pra ganhar e usar cashback e pontos
 let clientePend = null;   // cliente escolhido ANTES do 1o pedido: {mesa, comanda, telefone, nome}; liga na conta assim que ela existir
-function abrirClientePre(){
-  const j = janela(); j.appendChild(el('h3','','👤 Cliente · cashback e pontos'));
+function abrirClientePre(depois, exigir){
+  const j = janela(); j.appendChild(el('h3','', exigir ? '👤 Quem vai retirar?' : '👤 Cliente · cashback e pontos'));
   if(clientePend && Date.now() - clientePend.t > 20*60000) clientePend = null;   // esquecido: expira em 20 min (evita ligar o cliente errado num "Carro 1" reaproveitado)
   const mesmo = clientePend && clientePend.mesa === mesaAtual && clientePend.comanda === comandaAtual;
   if(mesmo){
@@ -975,7 +1003,7 @@ function abrirClientePre(){
     const bx = el('button','btn','Trocar cliente'); bx.onclick = ()=>{ clientePend = null; fechar(); abrirClientePre(); };
     ac.appendChild(bv); ac.appendChild(bx); j.appendChild(ac); return;
   }
-  j.appendChild(el('p','dica','Informe o telefone (com DDD). O cliente fica ligado a este atendimento assim que o pedido for lançado.'));
+  j.appendChild(el('p','dica', exigir ? 'Informe o telefone (com DDD). Quando o pedido ficar pronto, o cliente recebe o aviso no WhatsApp.' : 'Informe o telefone (com DDD). O cliente fica ligado a este atendimento assim que o pedido for lançado.'));
   const iTel = el('input'); iTel.type = 'tel'; iTel.inputMode = 'tel'; iTel.placeholder = '(84) 9 9999-9999'; iTel.style.width = '100%'; j.appendChild(iTel);
   const res = el('div'); res.style.marginTop = '8px'; j.appendChild(res);
   let busca = 0, iNome = null, dadosBusca = null;
@@ -986,15 +1014,16 @@ function abrirClientePre(){
     try{
       const r = await rpc('mesa_cliente_buscar',{p_loja:LOJA,p_telefone:d}); if(k !== busca) return; dadosBusca = r; const sd = r.saldo || {};
       if(r.existe){ const l = el('div','linha'); l.appendChild(el('span','','👤 ' + (r.nome || 'Cliente'))); l.appendChild(el('span','','Cashback ' + money(Number(sd.cashback)||0) + ' · ' + (Number(sd.pontos)||0) + ' pts')); res.appendChild(l); }
-      else { res.appendChild(el('p','dica','Cliente novo. Digite o nome para cadastrar (opcional).')); iNome = el('input'); iNome.type = 'text'; iNome.placeholder = 'Nome do cliente'; iNome.style.width = '100%'; res.appendChild(iNome); }
+      else { res.appendChild(el('p','dica', exigir ? 'Cliente novo. Digite o nome para cadastrar.' : 'Cliente novo. Digite o nome para cadastrar (opcional).')); iNome = el('input'); iNome.type = 'text'; iNome.placeholder = 'Nome do cliente'; iNome.style.width = '100%'; res.appendChild(iNome); }
       bok.disabled = false;
     }catch(e){}
   };
   bok.onclick = ()=>{
     if(!dadosBusca) return; const sd = dadosBusca.saldo || {};
+    if(exigir && !dadosBusca.existe && !(iNome && iNome.value.trim())){ aviso('Digite o nome do cliente novo.'); return; }
     clientePend = {t:Date.now(), mesa:mesaAtual, comanda:comandaAtual, telefone:dadosBusca.telefone, nome:(dadosBusca.existe ? dadosBusca.nome : (iNome ? iNome.value : null)) || null,
       saldoTxt:'Cashback ' + money(Number(sd.cashback)||0) + ' · ' + (Number(sd.pontos)||0) + ' pts'};
-    fechar(); aviso('Cliente ' + (clientePend.nome || clientePend.telefone) + ' anotado. Lance o pedido para ligar.');
+    fechar(); if(depois){ depois(); return; } aviso('Cliente ' + (clientePend.nome || clientePend.telefone) + ' anotado. Lance o pedido para ligar.');
   };
   j.appendChild(bok);
   const bv = el('button','btn','Voltar'); bv.style.cssText = 'width:100%;margin-top:8px'; bv.onclick = fechar; j.appendChild(bv);
@@ -1353,6 +1382,15 @@ async function iniciar(){
   tela = 'inicio'; mesaAtual = null; entrega = null; carrinho = []; detalhe = null;
   await Promise.all([carregarMenu(), atualizarContas(), rpc('fiscal_pdv_config',{p_loja:LOJA}).then(c=>{ FISCAL = c || {ativo:false}; }).catch(()=>{ FISCAL = {ativo:false}; })]);
   desenhar();
+  // atalho vindo do Painel: mesas.html?retirada=<nome>&receber=1 abre aquela retirada (e, com receber=1, ja o pagamento)
+  try{
+    const qs = new URLSearchParams(location.search), alvo = qs.get('retirada');
+    if(alvo){
+      history.replaceState(null, '', location.pathname);
+      if(contas.some(x=>x.mesa==='Retirada' && x.comanda===alvo)){ await abrirMesa('Retirada', alvo); if(qs.get('receber') === '1') abrirConta(); }
+      else aviso('Essa retirada já foi finalizada ou não está mais aberta.');
+    }
+  }catch(e){}
   clearInterval(timer); timer = setInterval(async ()=>{ if((tela==='grade' || tela==='inicio') && !$('modais').children.length){ await atualizarContas(); desenhar(); } }, 20000);
 }
 $('formLogin').addEventListener('submit', async e=>{ e.preventDefault(); $('erroLogin').textContent = '';

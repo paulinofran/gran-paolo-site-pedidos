@@ -37,6 +37,11 @@ main{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;padding:14px 16px
 .coluna h2{margin:0 0 8px;font-size:15px;color:var(--soft);font-weight:700}
 .vazio{padding:18px;border:1.5px dashed var(--line);border-radius:12px;color:var(--soft);font-size:14px;text-align:center}
 .cartao{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px}
+.cartao.retirada{border:2px solid #5a2d86;background:#FBF7FE}
+.faixa-ret{background:#5a2d86;color:#fff;font-weight:800;font-size:13px;letter-spacing:.3px;padding:5px 10px;border-radius:8px;margin:0 0 8px;display:inline-block}
+.pg{padding:3px 9px;border-radius:8px;font-weight:800;font-size:12px}
+.pg.pago{background:var(--okbg);color:var(--ok)}
+.pg.areceber{background:#FDE8E8;color:#B3261E;border:1px solid #B3261E}
 .topo{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .nome{font-size:18px;font-weight:800}
 .tempo{padding:4px 10px;border-radius:8px;font-size:13px;font-weight:800;white-space:nowrap}
@@ -170,6 +175,7 @@ const CHAVE_SESSAO = "gp_painel_sessao";
 
 let sessao = null, loja = null, statusLoja = null;
 let ativos = [], feitos = [], vistos = new Set(), primeiraCarga = true;
+let contasRet = {};      // retiradas lancadas no PDV: cliente, telefone e se ja foi paga (por conta_id)
 let fiscal = {ativo:false, etapa:'concluido'};      // nota fiscal: so pede o pagamento quando estiver ligada
 let atendimentos = [], atendVistos = new Set(), atendSilenciados = new Set(), primeiraAtend = true;
 let INTERVALO_ATEND = 15000;      // de quanto em quanto tempo repete os bips enquanto alguem espera   // clientes pedindo atendente no WhatsApp
@@ -595,7 +601,8 @@ function editarPedido(p){
 }
 async function avancar(p){
   const proximo = p.status === 'novo' ? 'cozinha' : p.status === 'cozinha' ? 'pronto' : 'concluido';
-  if(fiscal.ativo && proximo === fiscal.etapa && !p.pagamento_final){ if(!(await pedirPagamento(p))) return; }
+  if(ehRetiradaPdv(p) && proximo === 'concluido' && !pagoRetirada(p) && !confirm('A retirada de ' + (p.nome || 'cliente') + ' ainda NÃO foi paga (' + money(p.total) + '). Entregar mesmo assim?')) return;
+  if(!p.conta_id && fiscal.ativo && proximo === fiscal.etapa && !p.pagamento_final){ if(!(await pedirPagamento(p))) return; }
   mudar(p, proximo);
 }
 async function conferirPix(p){
@@ -617,7 +624,15 @@ async function mandarParaMesa(p){
 }
 // Pedido lancado no PDV (mesa, balcao, drive-thru, retirada: tem conta_id) some do painel assim que imprime na COZINHA.
 // So o pedido do site fica ali pra apertar Pronto. Se NAO imprimiu, continua na tela (alerta de falha de impressao).
-function somePdv(p){ return !!p.conta_id && !!p.impresso_cozinha_em; }
+function somePdv(p){ return !!p.conta_id && !!p.impresso_cozinha_em && !ehRetiradaPdv(p); }
+// Retirada lancada no PDV (Parte CL1): fica no painel como as entregas, com PAGO / A RECEBER, ate o cliente buscar
+function ehRetiradaPdv(p){ return p.modalidade === 'Retirada' && !!p.conta_id && !!contasRet[p.conta_id]; }
+function pagoRetirada(p){ const c = contasRet[p.conta_id]; return !!((c && c.pago) || p.pagamento); }
+function abrirPdvRetirada(p, receber){
+  const c = contasRet[p.conta_id];
+  if(!c || c.status !== 'aberta'){ avisoErro(c && c.pago ? 'Esta retirada já foi paga.' : 'Esta retirada não está mais aberta no PDV.'); return; }
+  window.open('mesas.html?retirada=' + encodeURIComponent(c.comanda) + (receber ? '&receber=1' : ''), 'pdv');
+}
 function rotuloFinal(p){
   if(p.modalidade === 'Entrega') return 'Saiu para entrega';
   if(p.modalidade === 'Vem comer') return 'Levei na mesa';
@@ -689,7 +704,10 @@ function chamarCliente(p){
   document.body.appendChild(fundo);
 }
 function cartao(p){
-  const t = infoTempo(p), c = el('div', 'cartao');
+  const t = infoTempo(p), ret = ehRetiradaPdv(p), cr = ret ? contasRet[p.conta_id] : null;
+  const tel = ret ? (cr.cliente_telefone || '') : (p.telefone || '');
+  const c = el('div', 'cartao' + (ret ? ' retirada' : ''));
+  if(ret) c.appendChild(el('div', 'faixa-ret', '🥡 RETIRADA · o cliente vem buscar'));
   const topo = el('div', 'topo');
   topo.appendChild(el('div', 'nome', '#' + p.numero + ' ' + (p.nome || '')));
   topo.appendChild(el('span', 'tempo ' + t.cor, t.texto));
@@ -698,7 +716,9 @@ function cartao(p){
   meta.appendChild(el('span', 'tipo ' + classeTipo(p.modalidade), p.modalidade || ''));
   meta.appendChild(el('span', '', money(p.total)));
   const pagoOnline = !!p.pix_conferido_em && /online/i.test(p.pagamento || '');   // Pix/cartao pago pelo site: o Mercado Pago ja confirmou
-  meta.appendChild(el('span', '', (pagoOnline ? 'já pago: ' : 'cobrar: ') + (p.pagamento || (p.conta_id ? 'no PDV (ainda não pago)' : '—'))));
+  if(ret){
+    meta.appendChild(pagoRetirada(p) ? el('span', 'pg pago', '✅ PAGO' + ((cr && cr.forma) || p.pagamento ? ' · ' + ((cr && cr.forma) || p.pagamento) : '')) : el('span', 'pg areceber', '💰 A RECEBER ' + money(cr && cr.total ? cr.total : p.total)));
+  } else meta.appendChild(el('span', '', (pagoOnline ? 'já pago: ' : 'cobrar: ') + (p.pagamento || (p.conta_id ? 'no PDV (ainda não pago)' : '—'))));
   meta.appendChild(el('span', '', 'há ' + Math.floor(t.m) + ' min'));
   c.appendChild(meta);
   const pixPend = p.pix_retido === true;
@@ -727,15 +747,16 @@ function cartao(p){
     }
     c.appendChild(le);
   }
-  if(p.telefone){
+  if(ret && !tel) c.appendChild(el('div', 'pix-alerta', '⚠ Retirada sem telefone: o cliente NÃO recebe o aviso de pronto. Avise por outro meio.'));
+  if(tel){
     const lw = el('div', 'extra', 'WhatsApp: ');
-    const tl = el('span', 'tel', p.telefone); tl.title = 'Toque para copiar só o telefone'; tl.onclick = () => copiarTelefone(p.telefone, tl);
+    const tl = el('span', 'tel', tel); tl.title = 'Toque para copiar só o telefone'; tl.onclick = () => copiarTelefone(tel, tl);
     lw.appendChild(tl); lw.appendChild(document.createTextNode(' '));
     const bcp = el('button', 'copiar', '📋 Copiar');
-    bcp.onclick = () => copiarTelefone(p.telefone, bcp);
+    bcp.onclick = () => copiarTelefone(tel, bcp);
     lw.appendChild(bcp);
     const bw = el('button', 'chamar', '💬 Chamar cliente');
-    bw.onclick = () => chamarCliente(p);
+    bw.onclick = () => chamarCliente(Object.assign({}, p, {telefone: tel}));
     lw.appendChild(bw); c.appendChild(lw);
   }
   if(p.obs) c.appendChild(el('div', 'extra', 'Obs: ' + p.obs));
@@ -743,6 +764,8 @@ function cartao(p){
   else if(p.impresso_cozinha_em && p.impresso_caixa_em) c.appendChild(el('div', 'imp ok', 'Impresso'));
   else if(semImpressao(p)) c.appendChild(el('div', 'imp falha', 'NÃO IMPRIMIU' + (p.impressao_erro ? ' — ' + p.impressao_erro : '')));
   else c.appendChild(el('div', 'imp espera', 'Imprimindo...'));
+  if(ret && tel && p.status === 'cozinha') c.appendChild(el('div', 'extra', '📲 Ao apertar “Pronto”, o cliente recebe o aviso para retirar no WhatsApp.'));
+  if(ret && !pagoRetirada(p)){ const br = el('button', 'acao', '💰 Receber agora'); br.style.marginBottom = '8px'; br.onclick = () => abrirPdvRetirada(p, true); c.appendChild(br); }
   const b = el('button', 'acao ' + (p.status === 'pronto' ? 'final' : 'principal'),
     pixPend ? 'Pix caiu: imprimir' : p.status === 'novo' ? 'Recebi' : p.status === 'cozinha' ? 'Pronto' : rotuloFinal(p));
   b.onclick = () => pixPend ? conferirPix(p) : avancar(p);
@@ -754,12 +777,13 @@ function cartao(p){
   const re = el('button', pixPend ? 'oculto' : '', 'Reimprimir'); re.onclick = () => reimprimir(p);
   const canc = el('button', '', 'Cancelar pedido');
   canc.onclick = async () => {
-    if(!confirm('Cancelar o pedido #' + p.numero + '?')) return;
+    if(!confirm('Cancelar o pedido #' + p.numero + '?' + (ret && pagoRetirada(p) ? '\n\nATENÇÃO: esta retirada já foi PAGA. Depois de cancelar, desfaça o pagamento no PDV (Caixa).' : ''))) return;
     const motivo = (prompt('Motivo do cancelamento (opcional):') || '').trim();
+    if(ret){ try{ await rpc('mesa_cancelar_pedido', {p_loja: LOJA, p_pedido: p.id, p_motivo: motivo || 'Cancelado no painel'}); await carregar(); }catch(e){ avisoErro('Não consegui cancelar a retirada: ' + ((e && e.message) || 'tente de novo')); } return; }
     await mudar(p, 'cancelado');
     if(motivo){ try{ await rpc('painel_motivo_cancelamento', {p_pedido: p.id, p_motivo: motivo}); }catch(e){} }     // sem a Parte H, so nao anota o motivo
   };
-  const edit = el('button', '', 'Editar pedido'); edit.onclick = () => editarPedido(p);
+  const edit = el('button', '', ret ? 'Editar no PDV' : 'Editar pedido'); edit.onclick = () => ret ? abrirPdvRetirada(p, false) : editarPedido(p);
   mini.appendChild(voltar); mini.appendChild(re); mini.appendChild(edit); mini.appendChild(canc);
   c.appendChild(mini);
   if(p.modalidade === 'Vem comer' && !p.conta_id && !pixPend){
@@ -820,7 +844,7 @@ function desenhar(){
 function inicioDoDia(){ const d = new Date(); d.setHours(0, 0, 0, 0); return d.toISOString(); }
 async function carregar(){
   try{
-    const [a, f, l, st, at, fc] = await Promise.all([
+    const [a, f, l, st, at, fc, rc] = await Promise.all([
       api('/rest/v1/pedidos?select=*&loja_id=eq.' + LOJA + '&status=in.(novo,cozinha,pronto)&order=criado_em.asc'),
       api('/rest/v1/pedidos?select=*&loja_id=eq.' + LOJA + '&status=in.(concluido,cancelado)&criado_em=gte.' + encodeURIComponent(inicioDoDia()) + '&order=criado_em.desc'),
       api('/rest/v1/lojas?select=*&id=eq.' + LOJA),
@@ -828,6 +852,7 @@ async function carregar(){
       // isolado de proposito: se o robo ainda nao foi instalado no banco, o painel segue normal
       api('/rest/v1/bot_conversas?select=id,nome,telefone,motivo&loja_id=eq.' + LOJA + '&precisa_humano=eq.true&order=ultima_entrada_em.desc').catch(() => []),
       api('/rest/v1/fiscal_config?select=ativo,emitir_em&loja_id=eq.' + LOJA).catch(() => []),     // idem: sem a Parte G, nada muda
+      rpc('painel_retiradas_contas', {p_loja: LOJA}).catch(() => []),                               // idem: sem a Parte CL1, a retirada do PDV continua escondida como antes
     ]);
     ativos = a || []; feitos = f || []; loja = (l && l[0]) || loja; statusLoja = st; falhasSeguidas = 0;
     // toca na 1a vez que o pedido aparece: 'novo' OU ja em 'cozinha' (o agente aceita sozinho em ~4 s e a tela pode nao pegar o 'novo' a tempo)
@@ -837,6 +862,7 @@ async function carregar(){
     primeiraCarga = false;
     fiscal = (fc && fc[0]) ? {ativo: fc[0].ativo === true, etapa: fc[0].emitir_em || 'concluido'} : {ativo:false, etapa:'concluido'};
     atendimentos = at || [];
+    contasRet = {}; (rc || []).forEach(c => { contasRet[c.conta_id] = c; });
     // quem saiu da fila (Atendido) é esquecido: se o mesmo cliente chamar de novo, vale como aviso NOVO (bipa na hora)
     { const ids = new Set(atendimentos.map(c => c.id));
       [...atendVistos].forEach(id => { if(!ids.has(id)) atendVistos.delete(id); });
