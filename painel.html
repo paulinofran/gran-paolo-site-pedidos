@@ -891,7 +891,7 @@ function ligarTimers(){
   timers.forEach(clearInterval); timers = [];
   timers.push(setInterval(() => { if(sessao) carregar(); }, 3000));                       // atualiza a tela
   timers.push(setInterval(() => { if(sessao && loja && loja.aberta) rpc('painel_sinal', {p_loja: LOJA}).catch(() => {}); }, 60000)); // sinal de vida
-  timers.push(setInterval(() => { if(sessao && ativos.some(p => p.status === 'novo')) tocarPedido(); }, 7000));   // repete até tocar em Recebi
+  timers.push(setInterval(() => { if(sessao && ativos.some(p => p.status === 'novo' && !p.conta_id)) tocarPedido(); }, 7000));   // repete até tocar em Recebi (pedido lançado no PDV não toca: quem lançou já vê; falta de impressão tem alerta próprio)
   timers.push(setInterval(() => { if(sessao && ativos.some(semImpressao)) tocarAlerta(); }, 20000));              // aviso de impressão
   timers.push(setInterval(() => { if(sessao && atendimentos.some(c => !atendSilenciados.has(c.id))) tocarAtendimento(); }, INTERVALO_ATEND));   // bips ate alguem ver
 }
