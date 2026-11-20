@@ -761,7 +761,9 @@ function cartao(p){
     lw.appendChild(bw); c.appendChild(lw);
   }
   if(p.obs) c.appendChild(el('div', 'extra', 'Obs: ' + p.obs));
-  if(pixPend) c.appendChild(el('div', 'imp espera', 'Aguardando o Pix: ainda não imprime'));
+  const soBebida = ret && p.status === 'concluido';
+  if(soBebida) c.appendChild(el('div', 'extra', '🥤 Só bebida: não vai para a cozinha. Receba quando o cliente chegar.'));
+  else if(pixPend) c.appendChild(el('div', 'imp espera', 'Aguardando o Pix: ainda não imprime'));
   else if(p.impresso_cozinha_em && p.impresso_caixa_em) c.appendChild(el('div', 'imp ok', 'Impresso'));
   else if(semImpressao(p)) c.appendChild(el('div', 'imp falha', 'NÃO IMPRIMIU' + (p.impressao_erro ? ' — ' + p.impressao_erro : '')));
   else c.appendChild(el('div', 'imp espera', 'Imprimindo...'));
@@ -770,12 +772,12 @@ function cartao(p){
   const b = el('button', 'acao ' + (p.status === 'pronto' ? 'final' : 'principal'),
     pixPend ? 'Pix caiu: imprimir' : p.status === 'novo' ? 'Recebi' : p.status === 'cozinha' ? 'Pronto' : rotuloFinal(p));
   b.onclick = () => pixPend ? conferirPix(p) : avancar(p);
-  c.appendChild(b);
+  if(!soBebida) c.appendChild(b);
   const mini = el('div', 'mini');
   const voltar = el('button', '', 'Voltar etapa');
-  if(p.status === 'novo') voltar.className = 'oculto';
+  if(p.status === 'novo' || soBebida) voltar.className = 'oculto';
   voltar.onclick = () => mudar(p, p.status === 'cozinha' ? 'novo' : 'cozinha');
-  const re = el('button', pixPend ? 'oculto' : '', 'Reimprimir'); re.onclick = () => reimprimir(p);
+  const re = el('button', (pixPend || soBebida) ? 'oculto' : '', 'Reimprimir'); re.onclick = () => reimprimir(p);
   const canc = el('button', '', 'Cancelar pedido');
   canc.onclick = async () => {
     if(!confirm('Cancelar o pedido #' + p.numero + '?' + (ret && pagoRetirada(p) ? '\n\nATENÇÃO: esta retirada já foi PAGA. Depois de cancelar, desfaça o pagamento no PDV (Caixa).' : ''))) return;
@@ -796,7 +798,9 @@ function desenhar(){
   const cols = {novo: $('cNovos'), cozinha: $('cCozinha'), pronto: $('cProntos')};
   const titulos = {novo: ['tNovos', 'Novos'], cozinha: ['tCozinha', 'Na cozinha'], pronto: ['tProntos', 'Prontos']};
   Object.keys(cols).forEach(s => {
-    const lista = ativos.filter(p => p.status === s && !somePdv(p)).sort(ordenar);
+    let lista = ativos.filter(p => p.status === s && !somePdv(p)).sort(ordenar);
+    // retirada SO DE BEBIDA lancada no PDV (nao vai a cozinha, ja nasce concluida): fica em Prontos ate ser paga
+    if(s === 'pronto') lista = lista.concat(feitos.filter(p => p.status === 'concluido' && ehRetiradaPdv(p) && contasRet[p.conta_id].status === 'aberta'));
     cols[s].textContent = '';
     $(titulos[s][0]).textContent = titulos[s][1] + ' (' + lista.length + ')';
     if(!lista.length) cols[s].appendChild(el('div', 'vazio', s === 'novo' ? 'Nenhum pedido novo' : 'Nada por aqui'));
