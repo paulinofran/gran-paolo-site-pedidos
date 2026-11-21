@@ -708,8 +708,9 @@ function abrirPromo(pm){
   const j = janela(), area = el('div'); j.appendChild(area);
   const esc = pm.etapas.map(et=>{ const ops = opcoesEtapa(et); return (ops.length===1 && Number(et.min)===1 && Number(et.max)===1) ? [ops[0]] : []; });
   let qtd = 1; const filtros = [];
+  const bordasOp = ((MENU && MENU.bordas)||[]).map(b=>({nome:b.nome,preco:Number(b.preco)})), temBordaEtapa = pm.etapas.some(et=>et.tipo==='borda'), extraB = pm.etapas.map(()=>null);
   const completa = ()=>pm.etapas.every((et,k)=>esc[k].length >= (Number(et.min)||1));
-  const total = ()=>arred(pm.etapas.reduce((a,et,k)=>a + precoEtapa(et, esc[k]).final, 0));
+  const total = ()=>arred(pm.etapas.reduce((a,et,k)=>a + precoEtapa(et, esc[k]).final + (extraB[k] ? extraB[k].preco : 0), 0));
   function desenhar2(){
     area.innerHTML = ''; area.appendChild(el('h3','','🔥 ' + pm.nome)); if(pm.descricao) area.appendChild(el('div','sub',pm.descricao));
     pm.etapas.forEach((et,k)=>{
@@ -733,6 +734,12 @@ function abrirPromo(pm){
         desenhaOps(); area.appendChild(o);
       }
       if(esc[k].length >= mn){ const pr = precoEtapa(et, esc[k]); area.appendChild(el('div','sub', pr.final < pr.normal ? 'De ' + money(pr.normal) + ' por ' + money(pr.final) + (pr.final===0 ? ' (GRÁTIS)' : '') : money(pr.final))); }
+      if(!temBordaEtapa && et.tipo !== 'borda' && bordasOp.length){   // borda opcional (preço cheio) em promoção que não traz borda
+        area.appendChild(el('div','rot','Borda (opcional)' + (pm.etapas.length>1 ? ' · ' + et.titulo : '')));
+        const ob2 = el('div','opcoes'); const sb = el('button','opc' + (!extraB[k]?' sel':''),'Sem borda'); sb.onclick = ()=>{ extraB[k] = null; desenhar2(); }; ob2.appendChild(sb);
+        bordasOp.forEach(b=>{ const bt = el('button','opc' + (extraB[k] && extraB[k].nome===b.nome ? ' sel':''), b.nome + (b.preco>0 ? ' · +' + money(b.preco) : '')); bt.onclick = ()=>{ extraB[k] = b; desenhar2(); }; ob2.appendChild(bt); });
+        area.appendChild(ob2);
+      }
     });
     area.appendChild(el('div','rot','Observações (vai para a cozinha)'));
     const ob = el('input'); ob.type = 'text'; ob.style.width = '100%'; ob.value = pm._obs || ''; ob.oninput = ()=>{ pm._obs = ob.value; }; area.appendChild(ob);
@@ -747,7 +754,9 @@ function abrirPromo(pm){
         const e = esc[k]; if(!e.length) return; const pr = precoEtapa(et, e);
         if(et.tipo === 'borda'){ if(ultimo){ ultimo.tamanho += ' • Borda: ' + e[0].nome.replace(/^Borda /,'') + (pr.final===0 ? ' (grátis)' : ''); ultimo.precoUnit = arred(ultimo.precoUnit + pr.final); } return; }
         const nome = e.length===1 ? e[0].nome : 'Meio a Meio: ' + e.map(o=>o.nome).join(' / ');
-        ultimo = {nome, tamanho:et.tamanho + (pr.final===0 ? ' (grátis)' : '') + ' — ' + pm.nome, qtd, precoUnit:pr.final}; carrinho.push(ultimo);
+        ultimo = {nome, tamanho:et.tamanho + (pr.final===0 ? ' (grátis)' : '') + ' — ' + pm.nome, qtd, precoUnit:pr.final};
+        if(extraB[k]){ ultimo.tamanho += ' • Borda: ' + extraB[k].nome; ultimo.precoUnit = arred(ultimo.precoUnit + extraB[k].preco); }
+        carrinho.push(ultimo);
       });
       if(obs && ultimo) ultimo.tamanho += ' • Obs: ' + obs;
       pm._obs = ''; fechar(); desenharCarrinho();
@@ -1158,9 +1167,21 @@ function abrirEntrega(){
   };
   ac.appendChild(bv); ac.appendChild(ok); j.appendChild(ac);
 }
+/* Distribui um acréscimo (+) ou desconto (−) nos preços unitários, em centavos, sem sobrar nem faltar nenhum centavo */
+function espalhaAjuste(itens, aj){
+  const c = x=>Math.round(x*100); const sub = itens.reduce((a,i)=>a + i.qtd*c(i.precoUnit), 0); if(!sub) return itens;
+  const alvo = sub + c(aj); let out = itens.map(i=>({...i, precoUnit:Math.max(0, Math.round(c(i.precoUnit) * alvo / sub))}));
+  const falta = alvo - out.reduce((a,i)=>a + i.qtd*i.precoUnit, 0);   // centavos que sobraram do arredondamento
+  if(falta !== 0){
+    let k = out.map(i=>i.qtd).lastIndexOf(1);
+    if(k >= 0) out[k].precoUnit += falta;
+    else { k = out.length - 1; const i = out[k]; i.qtd -= 1; out.splice(k + 1, 0, {...i, qtd:1, precoUnit:i.precoUnit + falta}); }   // uma unidade absorve a diferença
+  }
+  return out.map(i=>({...i, precoUnit:i.precoUnit/100}));
+}
 function abrirEnviarEntrega(){
   if(!carrinho.length || !entrega) return;
-  const sub = arred(carrinho.reduce((a,i)=>a+i.qtd*i.precoUnit,0)); let total = arred(sub + entrega.taxa), primeOn = false;
+  const sub = arred(carrinho.reduce((a,i)=>a+i.qtd*i.precoUnit,0)); let total = arred(sub + entrega.taxa), primeOn = false, ajTipo = 'desc', ajVal = 0;
   const primeElig = (i)=> /^(Meio a Meio: )?Pizza /i.test(i.nome||'') && (i.tamanho||'').indexOf(' — ') < 0 && !/combo/i.test((i.nome||'') + ' ' + (i.tamanho||''));
   const precoPrime = (i)=> arred(i.precoUnit * 0.7);
   const descPrime = ()=> arred(carrinho.reduce((a,i)=> a + (primeElig(i) ? i.qtd * (i.precoUnit - precoPrime(i)) : 0), 0));
@@ -1169,12 +1190,20 @@ function abrirEnviarEntrega(){
   carrinho.forEach(i=>{ const l = el('div','linha'); const t = el('div'); preencheNomeItem(t, i); t.appendChild(el('small','',i.tamanho)); l.appendChild(t); l.appendChild(el('span','',money(i.qtd*i.precoUnit))); j.appendChild(l); });
   const l1 = el('div','linha'); l1.appendChild(el('span','','Taxa de entrega')); l1.appendChild(el('span','',money(entrega.taxa))); j.appendChild(l1);
   const t0 = el('div','total'); const t0v = el('span','',money(total)); t0.appendChild(el('span','','Total')); t0.appendChild(t0v); j.appendChild(t0);
+  const lAj = el('div','linha'); const sAj = el('span','',''); const vAj = el('span','',''); lAj.appendChild(sAj); lAj.appendChild(vAj); lAj.style.display = 'none'; j.insertBefore(lAj, t0);
   const bPr = el('div','bloco'); bPr.style.marginTop = '10px';
   const lPr = el('label','linha'); lPr.style.cursor = 'pointer'; const cPr = document.createElement('input'); cPr.type = 'checkbox'; cPr.style.cssText = 'width:22px;height:22px;margin-right:10px';
   const tPr = el('div'); tPr.style.flex = '1'; tPr.appendChild(el('b','','📱 Cliente do app Prime (30% nas pizzas fora de promoção e combo)')); const sPr = el('small',''); tPr.appendChild(sPr);
   lPr.appendChild(cPr); lPr.appendChild(tPr); bPr.appendChild(lPr); j.appendChild(bPr);
-  const refTotal = ()=>{ primeOn = cPr.checked; const d = primeOn ? descPrime() : 0; total = arred(sub - d + entrega.taxa); t0v.textContent = money(total); sPr.textContent = primeOn ? (d > 0 ? 'Desconto: − ' + money(d) : 'Nenhuma pizza elegível neste pedido') : ''; atualizaTroco(); };
+  const ajReal = (base)=>{ const v = Math.max(0, ajVal); return ajTipo === 'desc' ? -Math.min(v, base) : v; };
+  const refTotal = ()=>{ primeOn = cPr.checked; const d = primeOn ? descPrime() : 0; const aj = ajReal(arred(sub - d)); total = arred(sub - d + aj + entrega.taxa); lAj.style.display = aj ? 'flex' : 'none'; sAj.textContent = aj < 0 ? 'Desconto' : 'Acréscimo'; vAj.textContent = (aj < 0 ? '− ' : '+ ') + money(Math.abs(aj)); t0v.textContent = money(total); sPr.textContent = primeOn ? (d > 0 ? 'Desconto: − ' + money(d) : 'Nenhuma pizza elegível neste pedido') : ''; atualizaTroco(); };
   cPr.onchange = ()=>refTotal();
+  const bAj = el('div','bloco'); bAj.style.marginTop = '10px'; bAj.appendChild(el('b','','✏️ Acréscimo ou desconto (opcional)'));
+  const rAj = el('div','opcoes'); rAj.style.marginTop = '6px'; const bD = el('button','opc sel','Desconto'), bA = el('button','opc','Acréscimo');
+  const iAj = el('input'); iAj.type = 'text'; iAj.inputMode = 'decimal'; iAj.placeholder = 'Valor em R$ (ex.: 5,00)'; iAj.style.cssText = 'width:100%;margin-top:6px';
+  bD.onclick = ()=>{ ajTipo = 'desc'; bD.classList.add('sel'); bA.classList.remove('sel'); refTotal(); }; bA.onclick = ()=>{ ajTipo = 'acr'; bA.classList.add('sel'); bD.classList.remove('sel'); refTotal(); };
+  iAj.oninput = ()=>{ ajVal = num(iAj.value); refTotal(); };
+  rAj.appendChild(bD); rAj.appendChild(bA); bAj.appendChild(rAj); bAj.appendChild(iAj); j.appendChild(bAj);
   j.appendChild(el('div','rot','Forma de pagamento'));
   let forma = null; const of = el('div','opcoes');
   const boxTroco = el('div'); boxTroco.style.display = 'none';
@@ -1194,8 +1223,10 @@ function abrirEnviarEntrega(){
     if(!forma){ aviso('Escolha a forma de pagamento.'); return; }
     bo.disabled = true;
     try{
-      const itens = carrinho.map(i=>({nome:i.nome, tamanho:i.tamanho, qtd:i.qtd, precoUnit:(primeOn && primeElig(i)) ? precoPrime(i) : i.precoUnit}));
-      const obsFinal = ((primeOn ? '[APP PRIME -30%] ' : '') + iObs.value.trim()).trim();
+      let itens = carrinho.map(i=>({nome:i.nome, tamanho:i.tamanho, qtd:i.qtd, precoUnit:(primeOn && primeElig(i)) ? precoPrime(i) : i.precoUnit}));
+      const aj = ajReal(arred(itens.reduce((a,i)=>a+i.qtd*i.precoUnit,0)));
+      if(aj) itens = espalhaAjuste(itens, aj);   // o valor entra nos preços dos itens (igual ao Prime): total, nota e caixa batem sem mexer no banco
+      const obsFinal = ((primeOn ? '[APP PRIME -30%] ' : '') + (aj ? (aj < 0 ? '[DESCONTO ' : '[ACRÉSCIMO ') + money(Math.abs(aj)) + '] ' : '') + iObs.value.trim()).trim();
       const r = await rpc('pdv_criar_entrega',{p_loja:LOJA,p_nome:entrega.nome,p_telefone:entrega.telefone,p_endereco:endCompleto(entrega),p_bairro:entrega.bairro,p_taxa:entrega.taxa,p_pagamento:pagTxt(),p_itens:itens,p_obs:obsFinal || null});
       fechar(); aviso('Entrega #' + (r.numero || r.pedido_id) + ' enviada para a cozinha.');
       entrega = null; carrinho = []; mesaAtual = null; tela = 'inicio'; await atualizarContas(); desenhar();
