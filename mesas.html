@@ -1410,7 +1410,8 @@ async function iniciar(){
     const qs = new URLSearchParams(location.search), alvo = qs.get('retirada');
     if(alvo){
       history.replaceState(null, '', location.pathname);
-      if(contas.some(x=>x.mesa==='Retirada' && x.comanda===alvo)){ await abrirMesa('Retirada', alvo); if(qs.get('receber') === '1') abrirConta(); }
+      const mz = qs.get('mesa') === 'Drive' ? 'Drive' : 'Retirada';
+      if(contas.some(x=>x.mesa===mz && x.comanda===alvo)){ await abrirMesa(mz, alvo); if(qs.get('receber') === '1') abrirConta(); }
       else aviso('Essa retirada já foi finalizada ou não está mais aberta.');
     }
   }catch(e){}

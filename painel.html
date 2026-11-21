@@ -605,7 +605,7 @@ function editarPedido(p){
 }
 async function avancar(p){
   const proximo = p.status === 'novo' ? 'cozinha' : p.status === 'cozinha' ? 'pronto' : 'concluido';
-  if(ehRetiradaPdv(p) && proximo === 'concluido' && !pagoRetirada(p) && !confirm('A retirada de ' + (p.nome || 'cliente') + ' ainda NÃO foi paga (' + money(p.total) + '). Entregar mesmo assim?')) return;
+  if(ehRetiradaPdv(p) && proximo === 'concluido' && !pagoRetirada(p) && !confirm('O pedido de ' + (p.nome || 'cliente') + ' ainda NÃO foi pago (' + money(p.total) + '). Entregar mesmo assim?')) return;
   if(!p.conta_id && fiscal.ativo && proximo === fiscal.etapa && !p.pagamento_final){ if(!(await pedirPagamento(p))) return; }
   mudar(p, proximo);
 }
@@ -631,12 +631,13 @@ async function mandarParaMesa(p){
 function somePdv(p){ return !!p.conta_id && !!p.impresso_cozinha_em && !ehRetiradaPdv(p); }
 // Retirada lancada no PDV (Parte CL1): fica no painel como as entregas, com PAGO / A RECEBER, ate o cliente buscar
 function ehRetiradaPdv(p){ return !!p.conta_id && !!contasRet[p.conta_id]; }   // Retirada, ou Drive por telefone (Parte CM2): mesma conta 'Retirada' marcada drive
-function ehDriveTel(p){ return ehRetiradaPdv(p) && !!contasRet[p.conta_id].drive; }
+function ehDriveTel(p){ return ehRetiradaPdv(p) && !!contasRet[p.conta_id].drive; }   // Drive por telefone OU cliente no carro (CM3)
+function ehDriveAgora(p){ return ehRetiradaPdv(p) && !!contasRet[p.conta_id].agora; }   // cliente no carro agora (nao manda aviso de pronto)
 function pagoRetirada(p){ const c = contasRet[p.conta_id]; return !!((c && c.pago) || p.pagamento); }
 function abrirPdvRetirada(p, receber){
   const c = contasRet[p.conta_id];
-  if(!c || c.status !== 'aberta'){ avisoErro(c && c.pago ? 'Esta retirada já foi paga.' : 'Esta retirada não está mais aberta no PDV.'); return; }
-  window.open('mesas.html?retirada=' + encodeURIComponent(c.comanda) + (receber ? '&receber=1' : ''), 'pdv');
+  if(!c || c.status !== 'aberta'){ avisoErro(c && c.pago ? 'Este pedido já foi pago, então não dá para editar. Se precisar mudar, cancele e refaça.' : 'Este atendimento não está mais aberto no PDV.'); return; }
+  window.open('mesas.html?retirada=' + encodeURIComponent(c.comanda) + (c.mesa === 'Drive' ? '&mesa=Drive' : '') + (receber ? '&receber=1' : ''), 'pdv');
 }
 function rotuloFinal(p){
   if(p.modalidade === 'Entrega') return 'Saiu para entrega';
@@ -713,7 +714,7 @@ function cartao(p){
   const tel = ret ? (cr.cliente_telefone || '') : (p.telefone || '');
   const dtel = ret && ehDriveTel(p);
   const c = el('div', 'cartao' + (ret ? ' retirada' : '') + (dtel ? ' drivetel' : ''));
-  if(ret) c.appendChild(el('div', 'faixa-ret', dtel ? '🚗 DRIVE · pediu por telefone, vem buscar' : '🥡 RETIRADA · o cliente vem buscar'));
+  if(ret) c.appendChild(el('div', 'faixa-ret', dtel ? (ehDriveAgora(p) ? '🚗 DRIVE · cliente no carro' : '🚗 DRIVE · pediu por telefone, vem buscar') : '🥡 RETIRADA · o cliente vem buscar'));
   const topo = el('div', 'topo');
   topo.appendChild(el('div', 'nome', '#' + p.numero + ' ' + (p.nome || '')));
   topo.appendChild(el('span', 'tempo ' + t.cor, t.texto));
@@ -753,7 +754,7 @@ function cartao(p){
     }
     c.appendChild(le);
   }
-  if(ret && !tel) c.appendChild(el('div', 'pix-alerta', '⚠ Retirada sem telefone: o cliente NÃO recebe o aviso de pronto. Avise por outro meio.'));
+  if(ret && !tel && !ehDriveAgora(p)) c.appendChild(el('div', 'pix-alerta', '⚠ Retirada sem telefone: o cliente NÃO recebe o aviso de pronto. Avise por outro meio.'));
   if(tel){
     const lw = el('div', 'extra', 'WhatsApp: ');
     const tl = el('span', 'tel', tel); tl.title = 'Toque para copiar só o telefone'; tl.onclick = () => copiarTelefone(tel, tl);
@@ -772,7 +773,7 @@ function cartao(p){
   else if(p.impresso_cozinha_em && p.impresso_caixa_em) c.appendChild(el('div', 'imp ok', 'Impresso'));
   else if(semImpressao(p)) c.appendChild(el('div', 'imp falha', 'NÃO IMPRIMIU' + (p.impressao_erro ? ' — ' + p.impressao_erro : '')));
   else c.appendChild(el('div', 'imp espera', 'Imprimindo...'));
-  if(ret && tel && p.status === 'cozinha') c.appendChild(el('div', 'extra', '📲 Ao apertar “Pronto”, o cliente recebe o aviso no WhatsApp' + (dtel ? ' para vir ao drive.' : ' para retirar.')));
+  if(ret && tel && !ehDriveAgora(p) && p.status === 'cozinha') c.appendChild(el('div', 'extra', '📲 Ao apertar “Pronto”, o cliente recebe o aviso no WhatsApp' + (dtel ? ' para vir ao drive.' : ' para retirar.')));
   if(ret && !pagoRetirada(p)){ const br = el('button', 'acao', '💰 Receber agora'); br.style.marginBottom = '8px'; br.onclick = () => abrirPdvRetirada(p, true); c.appendChild(br); }
   const b = el('button', 'acao ' + (p.status === 'pronto' ? 'final' : 'principal'),
     pixPend ? 'Pix caiu: imprimir' : p.status === 'novo' ? 'Recebi' : p.status === 'cozinha' ? 'Pronto' : rotuloFinal(p));
@@ -785,7 +786,7 @@ function cartao(p){
   const re = el('button', (pixPend || soBebida) ? 'oculto' : '', 'Reimprimir'); re.onclick = () => reimprimir(p);
   const canc = el('button', '', 'Cancelar pedido');
   canc.onclick = async () => {
-    if(!confirm('Cancelar o pedido #' + p.numero + '?' + (ret && pagoRetirada(p) ? '\n\nATENÇÃO: esta retirada já foi PAGA. Depois de cancelar, desfaça o pagamento no PDV (Caixa).' : ''))) return;
+    if(!confirm('Cancelar o pedido #' + p.numero + '?' + (ret && pagoRetirada(p) ? '\n\nATENÇÃO: este pedido já foi PAGO. Depois de cancelar, desfaça o pagamento no PDV (Caixa).' : ''))) return;
     const motivo = (prompt('Motivo do cancelamento (opcional):') || '').trim();
     if(ret){ try{ await rpc('mesa_cancelar_pedido', {p_loja: LOJA, p_pedido: p.id, p_motivo: motivo || 'Cancelado no painel'}); await carregar(); }catch(e){ avisoErro('Não consegui cancelar a retirada: ' + ((e && e.message) || 'tente de novo')); } return; }
     await mudar(p, 'cancelado');
