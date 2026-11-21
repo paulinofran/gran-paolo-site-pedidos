@@ -38,6 +38,9 @@ main{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;padding:14px 16px
 .vazio{padding:18px;border:1.5px dashed var(--line);border-radius:12px;color:var(--soft);font-size:14px;text-align:center}
 .cartao{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px}
 .cartao.retirada{border:2px solid #5a2d86;background:#FBF7FE}
+.cartao.drivetel{border-color:#0b6e8a;background:#F2FAFC}
+.cartao.drivetel .faixa-ret{background:#0b6e8a}
+.cartao.drivetel .acao.principal,.cartao.drivetel .acao.final{background:#0b6e8a;color:#fff}
 .faixa-ret{background:#5a2d86;color:#fff;font-weight:800;font-size:13px;letter-spacing:.3px;padding:5px 10px;border-radius:8px;margin:0 0 8px;display:inline-block}
 .pg{padding:3px 9px;border-radius:8px;font-weight:800;font-size:12px}
 .pg.pago{background:var(--okbg);color:var(--ok)}
@@ -627,7 +630,8 @@ async function mandarParaMesa(p){
 // So o pedido do site fica ali pra apertar Pronto. Se NAO imprimiu, continua na tela (alerta de falha de impressao).
 function somePdv(p){ return !!p.conta_id && !!p.impresso_cozinha_em && !ehRetiradaPdv(p); }
 // Retirada lancada no PDV (Parte CL1): fica no painel como as entregas, com PAGO / A RECEBER, ate o cliente buscar
-function ehRetiradaPdv(p){ return p.modalidade === 'Retirada' && !!p.conta_id && !!contasRet[p.conta_id]; }
+function ehRetiradaPdv(p){ return !!p.conta_id && !!contasRet[p.conta_id]; }   // Retirada, ou Drive por telefone (Parte CM2): mesma conta 'Retirada' marcada drive
+function ehDriveTel(p){ return ehRetiradaPdv(p) && !!contasRet[p.conta_id].drive; }
 function pagoRetirada(p){ const c = contasRet[p.conta_id]; return !!((c && c.pago) || p.pagamento); }
 function abrirPdvRetirada(p, receber){
   const c = contasRet[p.conta_id];
@@ -707,8 +711,9 @@ function chamarCliente(p){
 function cartao(p){
   const t = infoTempo(p), ret = ehRetiradaPdv(p), cr = ret ? contasRet[p.conta_id] : null;
   const tel = ret ? (cr.cliente_telefone || '') : (p.telefone || '');
-  const c = el('div', 'cartao' + (ret ? ' retirada' : ''));
-  if(ret) c.appendChild(el('div', 'faixa-ret', '🥡 RETIRADA · o cliente vem buscar'));
+  const dtel = ret && ehDriveTel(p);
+  const c = el('div', 'cartao' + (ret ? ' retirada' : '') + (dtel ? ' drivetel' : ''));
+  if(ret) c.appendChild(el('div', 'faixa-ret', dtel ? '🚗 DRIVE · pediu por telefone, vem buscar' : '🥡 RETIRADA · o cliente vem buscar'));
   const topo = el('div', 'topo');
   topo.appendChild(el('div', 'nome', '#' + p.numero + ' ' + (p.nome || '')));
   topo.appendChild(el('span', 'tempo ' + t.cor, t.texto));
@@ -767,7 +772,7 @@ function cartao(p){
   else if(p.impresso_cozinha_em && p.impresso_caixa_em) c.appendChild(el('div', 'imp ok', 'Impresso'));
   else if(semImpressao(p)) c.appendChild(el('div', 'imp falha', 'NÃO IMPRIMIU' + (p.impressao_erro ? ' — ' + p.impressao_erro : '')));
   else c.appendChild(el('div', 'imp espera', 'Imprimindo...'));
-  if(ret && tel && p.status === 'cozinha') c.appendChild(el('div', 'extra', '📲 Ao apertar “Pronto”, o cliente recebe o aviso para retirar no WhatsApp.'));
+  if(ret && tel && p.status === 'cozinha') c.appendChild(el('div', 'extra', '📲 Ao apertar “Pronto”, o cliente recebe o aviso no WhatsApp' + (dtel ? ' para vir ao drive.' : ' para retirar.')));
   if(ret && !pagoRetirada(p)){ const br = el('button', 'acao', '💰 Receber agora'); br.style.marginBottom = '8px'; br.onclick = () => abrirPdvRetirada(p, true); c.appendChild(br); }
   const b = el('button', 'acao ' + (p.status === 'pronto' ? 'final' : 'principal'),
     pixPend ? 'Pix caiu: imprimir' : p.status === 'novo' ? 'Recebi' : p.status === 'cozinha' ? 'Pronto' : rotuloFinal(p));

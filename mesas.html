@@ -389,7 +389,7 @@ function desenharInicio(c){
   const soma = (cs)=>cs.reduce((a,x)=>a+Number(x.total),0);
   const dr = contasDaMesa('Drive'), rt = contasDaMesa('Retirada'), ms = contas.filter(x=>MESAS.includes(x.mesa));
   const mk = (cls, ic, nome, sub, ocupado, fn)=>{ const b = el('button','gt ' + cls + (ocupado ? ' ocupa' : '')); b.appendChild(el('div','ic',ic)); b.appendChild(el('div','n',nome)); b.appendChild(el('div','s',sub)); b.onclick = fn; g.appendChild(b); };
-  mk('drive','🚗','Drive-thru', dr.length ? dr.length + ' atendendo · ' + money(soma(dr)) : 'Novo cliente', dr.length > 0, ()=>entrarRapido('Drive'));
+  mk('drive','🚗','Drive-thru', dr.length ? dr.length + ' atendendo · ' + money(soma(dr)) : 'Novo cliente', dr.length > 0, ()=>escolherDrive());
   mk('entrega','🛵','Entrega','Novo pedido', false, ()=>{ entrega = null; abrirEntrega(); });
   mk('mesas','🍽','Mesas', ms.length ? ms.length + (ms.length === 1 ? ' conta aberta' : ' contas abertas') : 'Todas livres', ms.length > 0, ()=>{ tela = 'grade'; desenhar(); });
   mk('retirada','🥡','Retirada', rt.length ? rt.length + ' atendendo · ' + money(soma(rt)) : 'Novo cliente', rt.length > 0, ()=>entrarRapido('Retirada'));
@@ -967,6 +967,29 @@ async function novoAtendimento(tipo){
     let k = 1; usados.forEach(n=>{ const m = n.match(re); if(m && Number(m[1]) >= k) k = Number(m[1]) + 1; });
     const r = await rpc('pdv_abrir_atendimento',{p_loja:LOJA,p_tipo:tipo,p_nome:pref + k,p_telefone:null});
     fechar(); await atualizarContas(); await abrirMesa(tipo, r.comanda);
+  }catch(e){ aviso(e.message); }
+  finally{ abrindoAt = false; }
+}
+// DRIVE (21/11): duas situacoes. "Cliente no carro agora" = como sempre. "Pedido por telefone/WhatsApp" = o cliente ainda vai chegar:
+// funciona como a Retirada (nome + telefone, vai para a cozinha, aparece no Painel com PAGO / A RECEBER), mas imprime e avisa como Drive-thru.
+function escolherDrive(){
+  const j = janela(); j.appendChild(el('h3','','🚗 Drive-thru'));
+  j.appendChild(el('p','dica','Como é este pedido?'));
+  const b1 = el('button','btn verm','🚗 Cliente no drive agora'); b1.style.cssText = 'width:100%;margin-top:8px;padding:15px;font-size:16px';
+  b1.onclick = ()=>{ fechar(); entrarRapido('Drive'); };
+  const b2 = el('button','btn','📞 Pedido por telefone / WhatsApp (vem buscar no drive)'); b2.style.cssText = 'width:100%;margin-top:8px;padding:15px;font-size:16px';
+  b2.onclick = ()=>{ fechar(); novoDriveTel(); };
+  j.appendChild(b1); j.appendChild(b2);
+  const bv = el('button','btn','Voltar'); bv.style.cssText = 'width:100%;margin-top:8px'; bv.onclick = fechar; j.appendChild(bv);
+}
+async function novoDriveTel(){
+  if(abrindoAt) return; abrindoAt = true;
+  try{
+    const usados = contasDaMesa('Retirada').map(x=>String(x.comanda||'')); let k = 1;
+    usados.forEach(n=>{ const m = n.match(/^Cliente (\d+)/); if(m && Number(m[1]) >= k) k = Number(m[1]) + 1; });
+    const r = await rpc('pdv_abrir_atendimento',{p_loja:LOJA,p_tipo:'Retirada',p_nome:'Cliente ' + k,p_telefone:null});
+    await rpc('retirada_marcar_drive',{p_loja:LOJA,p_conta:r.conta_id});
+    fechar(); await atualizarContas(); await abrirMesa('Retirada', r.comanda);
   }catch(e){ aviso(e.message); }
   finally{ abrindoAt = false; }
 }
