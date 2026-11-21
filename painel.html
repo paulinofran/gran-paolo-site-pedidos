@@ -604,7 +604,7 @@ function editarPedido(p){
   document.body.appendChild(fundo); atualizar();
 }
 async function avancar(p){
-  const proximo = p.status === 'novo' ? 'cozinha' : p.status === 'cozinha' ? 'pronto' : 'concluido';
+  const proximo = p.status === 'novo' ? 'cozinha' : p.status === 'cozinha' ? (ehDriveAgora(p) ? 'concluido' : 'pronto') : 'concluido';   // Drive com o cliente no carro: da cozinha direto para o Entreguei (sem apertar Pronto)
   if(ehRetiradaPdv(p) && proximo === 'concluido' && !pagoRetirada(p) && !confirm('O pedido de ' + (p.nome || 'cliente') + ' ainda NÃO foi pago (' + money(p.total) + '). Entregar mesmo assim?')) return;
   if(!p.conta_id && fiscal.ativo && proximo === fiscal.etapa && !p.pagamento_final){ if(!(await pedirPagamento(p))) return; }
   mudar(p, proximo);
@@ -775,8 +775,8 @@ function cartao(p){
   else c.appendChild(el('div', 'imp espera', 'Imprimindo...'));
   if(ret && tel && !ehDriveAgora(p) && p.status === 'cozinha') c.appendChild(el('div', 'extra', '📲 Ao apertar “Pronto”, o cliente recebe o aviso no WhatsApp' + (dtel ? ' para vir ao drive.' : ' para retirar.')));
   if(ret && !pagoRetirada(p)){ const br = el('button', 'acao', '💰 Receber agora'); br.style.marginBottom = '8px'; br.onclick = () => abrirPdvRetirada(p, true); c.appendChild(br); }
-  const b = el('button', 'acao ' + (p.status === 'pronto' ? 'final' : 'principal'),
-    pixPend ? 'Pix caiu: imprimir' : p.status === 'novo' ? 'Recebi' : p.status === 'cozinha' ? 'Pronto' : rotuloFinal(p));
+  const b = el('button', 'acao ' + (p.status === 'pronto' || (p.status === 'cozinha' && ehDriveAgora(p)) ? 'final' : 'principal'),
+    pixPend ? 'Pix caiu: imprimir' : p.status === 'novo' ? 'Recebi' : p.status === 'cozinha' ? (ehDriveAgora(p) ? 'Entreguei' : 'Pronto') : rotuloFinal(p));
   b.onclick = () => pixPend ? conferirPix(p) : avancar(p);
   if(!soBebida) c.appendChild(b);
   const mini = el('div', 'mini');
