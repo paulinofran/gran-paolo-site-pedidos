@@ -646,9 +646,29 @@ function rotuloFinal(p){
 }
 async function alternarLoja(){
   const abrir = !(loja && loja.aberta);
+  try{ if(abrir) localStorage.removeItem('gp_fechou_manual'); else localStorage.setItem('gp_fechou_manual', hojeChave()); }catch(e){}
   if(!abrir && ativos.filter(p => !somePdv(p)).length && !confirm('Ainda há ' + ativos.filter(p => !somePdv(p)).length + ' pedido(s) na tela. Fechar a loja mesmo assim? Pedidos novos deixam de entrar.')) return;
   try{ statusLoja = await rpc('painel_definir_loja', {p_loja: LOJA, p_aberta: abrir}); await carregar(); }
   catch(e){ avisoErro('Não consegui ' + (abrir ? 'abrir' : 'fechar') + ' a loja. Tente de novo.'); }
+}
+/* ---------- abrir a loja sozinho no horário (a Fran ainda pode fechar na mão; se fechar, não reabre no mesmo dia) ---------- */
+function hojeChave(){ const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+let proxTentativaAbrir = 0;
+async function abrirSozinho(){
+  try{
+    if(!loja || loja.aberta || Date.now() < proxTentativaAbrir) return;
+    const agora = new Date(), hoje = hojeChave();
+    let fechouHoje = false; try{ fechouHoje = localStorage.getItem('gp_fechou_manual') === hoje; }catch(e){}
+    if(fechouHoje) return;
+    const ex = loja.horarios_excecoes || {};
+    const h = Object.prototype.hasOwnProperty.call(ex, hoje) ? ex[hoje] : (loja.horarios || {})[String(agora.getDay())];   // exceção do dia (feriado) vale mais que a semana
+    if(!h || h.length < 2) return;                                                                                       // sem horário hoje = fechado
+    const hm = t => { const q = String(t).split(':'); return (+q[0]) * 60 + (+q[1] || 0); };
+    const min = agora.getHours() * 60 + agora.getMinutes();
+    if(min < hm(h[0]) || min >= hm(h[1])) return;
+    proxTentativaAbrir = Date.now() + 60000;   // no máximo 1 tentativa por minuto
+    statusLoja = await rpc('painel_definir_loja', {p_loja: LOJA, p_aberta: true}); await carregar();
+  }catch(e){ proxTentativaAbrir = Date.now() + 60000; }
 }
 let timerAviso = null;
 function avisoErro(txt){
@@ -828,6 +848,7 @@ function desenhar(){
   if(atendimentos.length){
     const fa = el('div', 'faixa aviso', '💬 ' + atendimentos.length + (atendimentos.length === 1 ? ' cliente pede' : ' clientes pedem') + ' atendimento no WhatsApp: ' + atendimentos.slice(0, 3).map(c => (c.nome || c.telefone)).join(', ') + '. ');
     const la = el('a', '', 'Ver e marcar como atendido'); la.href = 'gestao.html#robo'; la.target = 'gestao'; la.rel = 'noopener'; la.style.color = 'inherit'; la.style.fontWeight = '800'; fa.appendChild(la);
+    atendimentos.slice(0, 3).forEach(c => { const d = String(c.telefone || '').replace(/\D/g, ''); if(!d) return; const bc = el('button', 'chamar', '💬 Chamar ' + (c.nome ? String(c.nome).split(' ')[0] : 'cliente')); bc.onclick = () => window.open('https://wa.me/' + (d.length <= 11 ? '55' + d : d), '_blank'); fa.appendChild(bc); });
     if(atendimentos.some(c => !atendSilenciados.has(c.id))){
       const bv = el('button', 'btn claro', 'Já vi (parar o som)'); bv.id = 'btnJaVi';
       bv.onclick = () => { atendimentos.forEach(c => atendSilenciados.add(c.id)); desenhar(); }; fa.appendChild(bv);
@@ -913,6 +934,7 @@ $('formLogin').addEventListener('submit', async (ev) => {
 });
 $('btnLoja').addEventListener('click', alternarLoja);
 $('btnSom').addEventListener('click', () => { prepararSom(); tocarPedido(); });
+setInterval(abrirSozinho, 30000); setTimeout(abrirSozinho, 4000);
 $('btnFeitos').addEventListener('click', () => { mostrarFeitos = !mostrarFeitos; desenhar(); });
 $('btnSair').addEventListener('click', () => { timers.forEach(clearInterval); sair(); });
 /* qualquer clique na página já liga o som (o Chrome só libera áudio depois de um clique de verdade) */
