@@ -48,6 +48,7 @@ select,input[type=text],input[type=number],textarea{font-family:inherit;font-siz
 .prods{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}
 .prod{background:#fff;border:1.5px solid var(--line);border-radius:14px;padding:12px;text-align:left;min-height:84px}
 .prod b{display:block;font-size:15px}
+.prod small{display:block;color:#8a7a6a;font-size:11px;margin-top:2px}
 .prod span{font-size:13px;color:var(--soft)}
 .prod.esgotado{opacity:.45}
 .bloco{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px;margin-top:16px}
@@ -440,6 +441,11 @@ async function irInicio(){
   fechar(); tela = 'inicio'; carrinho = []; mesaAtual = null; entrega = null; detalhe = null; desenhar();
   await lib; await atualizarContas(); desenhar();
 }
+/* ---------- Busca no cardápio do PDV ----------
+   Drive: pizzas (salgadas e doces) e bebidas · Mesas, Balcão, Retirada e Entrega: todas as categorias, menos sobremesas */
+let buscaPdv = '';
+const nomeCat = (c)=> semAcento((c.nome||'') + ' ' + (c.slug||''));
+const catBuscavel = (c)=> /sobremesa/.test(nomeCat(c)) ? false : (mesaAtual === 'Drive' ? (ehPizza(c) || /bebida/.test(nomeCat(c))) : true);
 function desenharMesa(c){
   const rap = ehRapido(mesaAtual), ent = mesaAtual === 'Entrega';
   const topo = el('div','topo');
@@ -464,25 +470,41 @@ function desenharMesa(c){
 
   const cats = categorias(); const chips = el('div','chips');
   const promos = promosDisponiveis();
-  if(promos.length){ const b = el('button','chip' + (catAtiva==='__promo'?' ativa':''), '🔥 Promoções'); b.onclick = ()=>{ catAtiva = '__promo'; desenhar(); }; chips.appendChild(b); }
-  cats.forEach(ct=>{ const b = el('button','chip' + (ct.slug===catAtiva?' ativa':''), ct.nome); b.onclick = ()=>{ catAtiva = ct.slug; desenhar(); }; chips.appendChild(b); });
+  if(promos.length){ const b = el('button','chip' + (catAtiva==='__promo'?' ativa':''), '🔥 Promoções'); b.onclick = ()=>{ catAtiva = '__promo'; buscaPdv = ''; desenhar(); }; chips.appendChild(b); }
+  cats.forEach(ct=>{ const b = el('button','chip' + (ct.slug===catAtiva?' ativa':''), ct.nome); b.onclick = ()=>{ catAtiva = ct.slug; buscaPdv = ''; desenhar(); }; chips.appendChild(b); });
   if(pizzasDoPdv().length > 1){ const b = el('button','chip','🍕 Meio a meio'); b.onclick = ()=>abrirMeio(); chips.appendChild(b); }
   c.appendChild(chips);
   const cat = (catAtiva==='__promo' && promos.length) ? null : (cats.find(x=>x.slug===catAtiva) || cats[0]);
   const gp = el('div','prods');
+  const buscavel = !!(cat && catBuscavel(cat));
+  if(!buscavel) buscaPdv = '';
+  const mostraProd = (ct, p, rotulo)=>{
+    const precos = p.tamanhos.map(t=>Number(t.preco)), b = el('button','prod' + (p.esgotado?' esgotado':''));
+    b.appendChild(el('b','',p.nome));
+    if(rotulo) b.appendChild(el('small','',rotulo));
+    b.appendChild(el('span','', p.esgotado ? 'Esgotado' : (Math.min(...precos) === Math.max(...precos) ? money(precos[0]) : 'a partir de ' + money(Math.min(...precos)))));
+    if(!p.esgotado) b.onclick = ()=>abrirProduto(ct, p);
+    gp.appendChild(b);
+  };
+  const preencheProds = ()=>{
+    gp.innerHTML = ''; const q = semAcento(buscaPdv).trim();
+    if(buscavel && q){   // com texto digitado, procura em todas as categorias liberadas neste canal
+      let n = 0;
+      cats.filter(catBuscavel).forEach(ct=>ct.produtos.forEach(p=>{ if(semAcento(nomeProd(ct,p)).includes(q)){ mostraProd(ct, p, ct.nome); n++; } }));
+      if(!n) gp.appendChild(el('p','dica','Nada encontrado para "' + buscaPdv.trim() + '".'));
+    } else cat.produtos.forEach(p=>mostraProd(cat, p));
+  };
+  if(buscavel){
+    const bu = el('input'); bu.type = 'text'; bu.id = 'buscaPdv'; bu.placeholder = '🔍 Buscar sabor ou produto...'; bu.setAttribute('autocomplete','off'); bu.value = buscaPdv;
+    bu.style.cssText = 'width:100%;margin:2px 0 10px'; bu.oninput = ()=>{ buscaPdv = bu.value; preencheProds(); }; c.appendChild(bu);
+  }
   if(catAtiva==='__promo' && promos.length){
     promos.forEach(pm=>{ const ap = promoAPartirDe(pm), b = el('button','prod' + (ap===null?' esgotado':'')); b.appendChild(el('b','','🔥 ' + pm.nome));
       b.appendChild(el('span','', ap===null ? 'Indisponível' : 'a partir de ' + money(ap)));
       if(ap!==null) b.onclick = ()=>abrirPromo(pm); gp.appendChild(b); });
   }
   else if(!cat) gp.appendChild(el('p','dica','Cardápio não carregou. Toque em Atualizar.'));
-  else cat.produtos.forEach(p=>{
-    const precos = p.tamanhos.map(t=>Number(t.preco)), b = el('button','prod' + (p.esgotado?' esgotado':''));
-    b.appendChild(el('b','',p.nome));
-    b.appendChild(el('span','', p.esgotado ? 'Esgotado' : (Math.min(...precos) === Math.max(...precos) ? money(precos[0]) : 'a partir de ' + money(Math.min(...precos)))));
-    if(!p.esgotado) b.onclick = ()=>abrirProduto(cat, p);
-    gp.appendChild(b);
-  });
+  else preencheProds();
   c.appendChild(gp);
 
   if(ent){ c.appendChild(el('div','', '')).style.height = '90px'; return; }
@@ -544,7 +566,7 @@ function desenharCarrinho(){
 
 /* ---------- janelas ---------- */
 function janela(){ const f = el('div','fundo'); const j = el('div','janela'); f.appendChild(j); f.addEventListener('click', e=>{ if(e.target === f) fechar(); }); $('modais').innerHTML = ''; $('modais').appendChild(f); return j; }
-function fechar(){ $('modais').innerHTML = ''; }
+function fechar(){ $('modais').innerHTML = ''; const bp = document.getElementById('buscaPdv'); if(bp && bp.value){ bp.value = ''; bp.dispatchEvent(new Event('input')); } }
 
 /* ---------- CAIXA: gasto em dinheiro + fechamento do dia ---------- */
 const brDia = (d)=>{ const p = String(d||'').split('-'); return p.length === 3 ? p[2] + '/' + p[1] : ''; };
