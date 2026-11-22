@@ -614,9 +614,31 @@ async function conferirPix(p){
   try{ await rpc('painel_conferir_pix', {p_pedido: p.id}); await carregar(); }
   catch(e){ avisoErro('Não consegui conferir o Pix do #' + p.numero + '. Tente de novo.'); }
 }
-async function reimprimir(p){
-  try{ await rpc('painel_reimprimir', {p_pedido: p.id}); await carregar(); }
-  catch(e){ avisoErro('Não consegui pedir a reimpressão do #' + p.numero + '.'); }
+async function reimprimirOnde(p, onde){
+  try{
+    try{ await rpc('painel_reimprimir_onde', {p_pedido: p.id, p_onde: onde}); }
+    catch(e1){ await rpc('painel_reimprimir', {p_pedido: p.id}); }   // sem a Parte CN1: volta ao jeito antigo (tudo)
+    await carregar();
+  }catch(e){ avisoErro('Não consegui pedir a reimpressão do #' + p.numero + '.'); }
+}
+function reimprimir(p){
+  const fundo = document.createElement('div');
+  fundo.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+  const cx = document.createElement('div');
+  cx.style.cssText = 'background:#fff;border-radius:14px;padding:18px;max-width:340px;width:100%;display:flex;flex-direction:column;gap:10px;color:#222;font-family:inherit';
+  const t = document.createElement('div'); t.style.cssText = 'font-weight:800;font-size:18px'; t.textContent = 'Reimprimir #' + p.numero + ' em qual impressora?'; cx.appendChild(t);
+  const drive = p.modalidade === 'Drive-thru';
+  const op = (rot, onde) => {
+    const b = document.createElement('button'); b.textContent = rot;
+    b.style.cssText = 'padding:14px;border-radius:10px;border:1px solid #ccc;background:#f6f6f6;font-size:16px;font-weight:700;cursor:pointer';
+    b.onclick = () => { fundo.remove(); reimprimirOnde(p, onde); }; cx.appendChild(b);
+  };
+  op('🍳 Cozinha', 'cozinha');
+  op(drive ? '🧾 Caixa + Drive' : '🧾 Caixa', 'caixa');
+  op('🖨️ Todas', 'todas');
+  const x = document.createElement('button'); x.textContent = 'Cancelar'; x.style.cssText = 'padding:10px;border:none;background:none;color:#666;font-size:15px;cursor:pointer'; x.onclick = () => fundo.remove(); cx.appendChild(x);
+  fundo.onclick = e => { if(e.target === fundo) fundo.remove(); };
+  fundo.appendChild(cx); document.body.appendChild(fundo);
 }
 async function mandarParaMesa(p){
   const r = (prompt('Mandar o pedido #' + p.numero + ' (' + (p.nome || '') + ') para qual mesa?\nDigite o número da mesa (1 a 10) ou Balcao:') || '').trim();
