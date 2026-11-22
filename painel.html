@@ -630,6 +630,13 @@ async function mandarParaMesa(p){
 // So o pedido do site fica ali pra apertar Pronto. Se NAO imprimiu, continua na tela (alerta de falha de impressao).
 function somePdv(p){ return !!p.conta_id && !!p.impresso_cozinha_em && !ehRetiradaPdv(p); }
 // Retirada lancada no PDV (Parte CL1): fica no painel como as entregas, com PAGO / A RECEBER, ate o cliente buscar
+// Drive/Retirada do PDV: o pedido leva o nome da comanda ("Carro 1"); quando a equipe liga o cliente (👤 Cliente), mostra tambem o nome dele
+function nomeCartao(p){
+  const c = p.conta_id ? contasRet[p.conta_id] : null, cn = c && c.cliente_nome ? String(c.cliente_nome).trim() : '';
+  const base = String(p.nome || '').trim();
+  if(!cn || base.toLowerCase().indexOf(cn.toLowerCase()) >= 0) return base;
+  return base ? base + ' · ' + cn : cn;
+}
 function ehRetiradaPdv(p){ return !!p.conta_id && !!contasRet[p.conta_id]; }   // Retirada, ou Drive por telefone (Parte CM2): mesma conta 'Retirada' marcada drive
 function ehDriveTel(p){ return ehRetiradaPdv(p) && !!contasRet[p.conta_id].drive; }   // Drive por telefone OU cliente no carro (CM3)
 function ehDriveAgora(p){ return ehRetiradaPdv(p) && !!contasRet[p.conta_id].agora; }   // cliente no carro agora (nao manda aviso de pronto)
@@ -736,7 +743,7 @@ function cartao(p){
   const c = el('div', 'cartao' + (ret ? ' retirada' : '') + (dtel ? ' drivetel' : ''));
   if(ret) c.appendChild(el('div', 'faixa-ret', dtel ? (ehDriveAgora(p) ? '🚗 DRIVE · cliente no carro' : '🚗 DRIVE · pediu por telefone, vem buscar') : '🥡 RETIRADA · o cliente vem buscar'));
   const topo = el('div', 'topo');
-  topo.appendChild(el('div', 'nome', '#' + p.numero + ' ' + (p.nome || '')));
+  topo.appendChild(el('div', 'nome', '#' + p.numero + ' ' + nomeCartao(p)));
   topo.appendChild(el('span', 'tempo ' + t.cor, t.texto));
   c.appendChild(topo);
   const meta = el('div', 'meta');
