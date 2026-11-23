@@ -3037,6 +3037,11 @@ function csvRelatorio(qual, d){
     d.resumo.por_dia.forEach(x=>L.push(['Dia ' + x.dia, num2(x.faturamento) + ' (' + x.pedidos + ' pedidos)']));
     return lin(['Item', 'Valor'], L);
   }
+  if(qual === 'somado'){
+    const m = {}; (d.resumo.por_dia || []).forEach(x=>{ m[x.dia] = m[x.dia] || {n:0, v:0, sn:0, sv:0}; m[x.dia].n = x.pedidos; m[x.dia].v = x.faturamento; });
+    ((d.suitable && d.suitable.por_dia) || []).forEach(x=>{ m[x.dia] = m[x.dia] || {n:0, v:0, sn:0, sv:0}; m[x.dia].sn = x.pedidos; m[x.dia].sv = x.faturamento; });
+    return lin(['Dia', 'Pedidos site/PDV', 'Valor site/PDV', 'Pedidos Suitable', 'Valor Suitable', 'Pedidos total', 'Valor total'], Object.keys(m).sort().map(k=>{ const x = m[k]; return [k, x.n, num2(x.v), x.sn, num2(x.sv), Number(x.n) + Number(x.sn), num2(Number(x.v) + Number(x.sv))]; }));
+  }
   if(qual === 'produtos') return lin(['Produto', 'Tamanho', 'Quantidade', 'Valor'], d.produtos.produtos.map(x=>[x.nome, x.tamanho, x.quantidade, num2(x.valor)]));
   if(qual === 'cancelados') return lin(['Pedido', 'Quando', 'Cliente', 'Modalidade', 'Total', 'Motivo'], d.cancelados.map(x=>[x.numero, brDataHora(x.quando), x.cliente, x.modalidade, num2(x.total), x.motivo || '']));
   if(qual === 'bairros') return lin(['Bairro', 'Pedidos', 'Faturamento', 'Ticket medio', 'Taxas'], d.bairros.map(x=>[x.bairro, x.pedidos, num2(x.faturamento), num2(x.ticket_medio), num2(x.taxas)]));
@@ -3046,7 +3051,8 @@ async function carregarRelatorios(){
   const a = {p_loja:LOJA, p_ini:relPeriodo.ini, p_fim:relPeriodo.fim};
   try{
     const [resumo, produtos, cancelados, bairros, origem] = await Promise.all(['rel_resumo', 'rel_produtos', 'rel_cancelados', 'rel_entregas_bairro', 'rel_origem'].map(f=>rpc(f, a)));
-    relDados = {instalado:true, resumo, produtos, cancelados, bairros, origem};
+    let suitable = null; try{ suitable = await rpc('rel_suitable_resumo', a); }catch(e){ suitable = null; }   // Suitable: se a Parte CO1 ainda nao rodou, so nao mostra
+    relDados = {instalado:true, resumo, produtos, cancelados, bairros, origem, suitable};
   }catch(e){
     relDados = {instalado: !/PGRST202|Could not find|404|does not exist/i.test(String(e.message || e)), erro:String(e.message || e)};
   }
@@ -3529,6 +3535,14 @@ async function telaRelatorios(c, modo){
   [[money(R.faturamento), 'faturamento'], [String(R.pedidos), 'pedidos'], [money(R.ticket_medio), 'ticket médio'], [String(R.cancelados), 'cancelados']].forEach(([n, r])=>{ const d = el('div'); d.appendChild(document.createTextNode(n)); d.appendChild(el('small', '', r)); sd.appendChild(d); });
   corpo.appendChild(sd);
   if(!R.pedidos){ corpo.appendChild(el('div', 'vazio', 'Nenhuma venda neste período.')); }
+  const SU = relDados.suitable;
+  if(SU){
+    const soma = Number(R.faturamento || 0) + Number(SU.faturamento || 0), somaPed = Number(R.pedidos || 0) + Number(SU.pedidos || 0);
+    corpo.appendChild(el('p', 'dica', 'Somando o Suitable (vendas carregadas no Caixa): o resumo acima é só do site novo e do PDV.'));
+    const sd2 = el('div', 'saldo');
+    [[money(SU.faturamento), 'Suitable (' + SU.pedidos + ' pedidos)'], [money(soma), 'TOTAL dos dois (' + somaPed + ' pedidos)'], [somaPed ? money(soma / somaPed) : money(0), 'ticket médio dos dois']].forEach(([n, r])=>{ const d = el('div'); d.appendChild(document.createTextNode(n)); d.appendChild(el('small', '', r)); sd2.appendChild(d); });
+    corpo.appendChild(sd2);
+  }
 
   /* ---- abas: Vendas | Pizzas e produtos | Marketing | Operação (o período de cima vale para todas) ---- */
   const tVendas = el('div'), tPizzas = el('div'), tPizzasDia = el('div'), tMkt = el('div'), tOper = el('div');
@@ -3546,6 +3560,13 @@ async function telaRelatorios(c, modo){
   resumo.appendChild(el('div', 'dica', 'Por dia (taxas de entrega no período: ' + money(R.taxas_entrega) + ')'));
   resumo.appendChild(tabelaSimples(['Dia', 'Pedidos', 'Faturamento'], R.por_dia.map(x=>[brData(x.dia), x.pedidos, money(x.faturamento)])));
   secaoRel(tVendas, 'resumo', 'Resumo', 'resumo', resumo);
+  if(SU){
+    const mapa = {}; (R.por_dia || []).forEach(x=>{ mapa[x.dia] = mapa[x.dia] || {n:0, v:0, sn:0, sv:0}; mapa[x.dia].n = Number(x.pedidos) || 0; mapa[x.dia].v = Number(x.faturamento) || 0; });
+    (SU.por_dia || []).forEach(x=>{ mapa[x.dia] = mapa[x.dia] || {n:0, v:0, sn:0, sv:0}; mapa[x.dia].sn = Number(x.pedidos) || 0; mapa[x.dia].sv = Number(x.faturamento) || 0; });
+    const dias = Object.keys(mapa).sort();
+    const lin = dias.map(d=>{ const m = mapa[d]; return [brData(d), m.n + ' · ' + money(m.v), m.sn + ' · ' + money(m.sv), (m.n + m.sn) + ' · ' + money(m.v + m.sv)]; });
+    secaoRel(tVendas, 'somado', 'Por dia: site novo + Suitable', 'somado', tabelaSimples(['Dia', 'Site novo/PDV', 'Suitable', 'Total'], lin, 'Nada neste período.'));
+  }
 
   const horaBox = el('div'); tVendas.appendChild(horaBox); desenharDiaHora(horaBox);
   secaoRel(tVendas, 'cancelados', 'Cancelados', 'cancelados', tabelaSimples(['#', 'Quando', 'Cliente', 'Modalidade', 'Total', 'Motivo'], relDados.cancelados.map(x=>[x.numero, brDataHora(x.quando), x.cliente || '', x.modalidade, money(x.total), x.motivo || '—']), 'Nenhum cancelamento neste período.'));
