@@ -3032,7 +3032,7 @@ function csvRelatorio(qual, d){
   const num2 = (v) => Number(v || 0).toFixed(2).replace('.', ',');
   if(qual === 'resumo'){
     const L = [['Faturamento', num2(d.resumo.faturamento)], ['Pedidos', d.resumo.pedidos], ['Ticket medio', num2(d.resumo.ticket_medio)], ['Cancelados', d.resumo.cancelados], ['Taxas de entrega', num2(d.resumo.taxas_entrega)]];
-    d.resumo.por_modalidade.forEach(x=>L.push(['Modalidade: ' + x.nome, num2(x.faturamento) + ' (' + x.pedidos + ' pedidos)']));
+    d.resumo.por_modalidade.forEach(x=>L.push(['Modalidade: ' + (x.nome === 'Vem comer' ? 'Salão' : x.nome), num2(x.faturamento) + ' (' + x.pedidos + ' pedidos)']));
     agruparPagamentos(d.resumo.por_pagamento).forEach(x=>L.push(['Pagamento: ' + x.nome, num2(x.faturamento) + ' (' + x.pedidos + ' pedidos)']));
     d.resumo.por_dia.forEach(x=>L.push(['Dia ' + x.dia, num2(x.faturamento) + ' (' + x.pedidos + ' pedidos)']));
     return lin(['Item', 'Valor'], L);
@@ -3556,7 +3556,7 @@ async function telaRelatorios(c, modo){
 
   const resumo = el('div');
   resumo.appendChild(el('div', 'dica', 'Por modalidade'));
-  resumo.appendChild(tabelaSimples(['Modalidade', 'Pedidos', 'Faturamento', 'Ticket médio'], R.por_modalidade.map(x=>[x.nome, x.pedidos, money(x.faturamento), money(x.ticket_medio)])));
+  resumo.appendChild(tabelaSimples(['Modalidade', 'Pedidos', 'Faturamento', 'Ticket médio'], R.por_modalidade.map(x=>[(x.nome === 'Vem comer' ? 'Salão' : x.nome), x.pedidos, money(x.faturamento), money(x.ticket_medio)])));
   resumo.appendChild(el('div', 'dica', 'Por forma de pagamento'));
   resumo.appendChild(tabelaSimples(['Pagamento', 'Pedidos', 'Faturamento'], agruparPagamentos(R.por_pagamento).map(x=>[x.nome, x.pedidos, money(x.faturamento)])));
   resumo.appendChild(el('div', 'dica', 'Por dia (taxas de entrega no período: ' + money(R.taxas_entrega) + ')'));
