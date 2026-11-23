@@ -3042,6 +3042,7 @@ function csvRelatorio(qual, d){
     ((d.suitable && d.suitable.por_dia) || []).forEach(x=>{ m[x.dia] = m[x.dia] || {n:0, v:0, sn:0, sv:0}; m[x.dia].sn = x.pedidos; m[x.dia].sv = x.faturamento; });
     return lin(['Dia', 'Pedidos site/PDV', 'Valor site/PDV', 'Pedidos Suitable', 'Valor Suitable', 'Pedidos total', 'Valor total'], Object.keys(m).sort().map(k=>{ const x = m[k]; return [k, x.n, num2(x.v), x.sn, num2(x.sv), Number(x.n) + Number(x.sn), num2(Number(x.v) + Number(x.sv))]; }));
   }
+  if(qual === 'apps') return lin(['App', 'Contas', 'Preco cheio', 'Desconto dado', 'Cliente pagou'], ((d.apps && d.apps.apps) || []).map(x=>[x.app, x.contas, num2(x.preco_cheio), num2(x.desconto), num2(x.pago)]));
   if(qual === 'produtos') return lin(['Produto', 'Tamanho', 'Quantidade', 'Valor'], d.produtos.produtos.map(x=>[x.nome, x.tamanho, x.quantidade, num2(x.valor)]));
   if(qual === 'cancelados') return lin(['Pedido', 'Quando', 'Cliente', 'Modalidade', 'Total', 'Motivo'], d.cancelados.map(x=>[x.numero, brDataHora(x.quando), x.cliente, x.modalidade, num2(x.total), x.motivo || '']));
   if(qual === 'bairros') return lin(['Bairro', 'Pedidos', 'Faturamento', 'Ticket medio', 'Taxas'], d.bairros.map(x=>[x.bairro, x.pedidos, num2(x.faturamento), num2(x.ticket_medio), num2(x.taxas)]));
@@ -3052,7 +3053,8 @@ async function carregarRelatorios(){
   try{
     const [resumo, produtos, cancelados, bairros, origem] = await Promise.all(['rel_resumo', 'rel_produtos', 'rel_cancelados', 'rel_entregas_bairro', 'rel_origem'].map(f=>rpc(f, a)));
     let suitable = null; try{ suitable = await rpc('rel_suitable_resumo', a); }catch(e){ suitable = null; }   // Suitable: se a Parte CO1 ainda nao rodou, so nao mostra
-    relDados = {instalado:true, resumo, produtos, cancelados, bairros, origem, suitable};
+    let apps = null; try{ apps = await rpc('rel_apps_parceiros', a); }catch(e){ apps = null; }   // Parte CO2
+    relDados = {instalado:true, resumo, produtos, cancelados, bairros, origem, suitable, apps};
   }catch(e){
     relDados = {instalado: !/PGRST202|Could not find|404|does not exist/i.test(String(e.message || e)), erro:String(e.message || e)};
   }
@@ -3566,6 +3568,12 @@ async function telaRelatorios(c, modo){
     const dias = Object.keys(mapa).sort();
     const lin = dias.map(d=>{ const m = mapa[d]; return [brData(d), m.n + ' · ' + money(m.v), m.sn + ' · ' + money(m.sv), (m.n + m.sn) + ' · ' + money(m.v + m.sv)]; });
     secaoRel(tVendas, 'somado', 'Por dia: site novo + Suitable', 'somado', tabelaSimples(['Dia', 'Site novo/PDV', 'Suitable', 'Total'], lin, 'Nada neste período.'));
+  }
+  if(relDados.apps){
+    const AP = relDados.apps, lin2 = (AP.apps || []).map(x=>[x.app, x.contas, money(x.preco_cheio), money(x.desconto), money(x.pago), (Number(x.preco_cheio) > 0 ? (100 * Number(x.desconto) / Number(x.preco_cheio)).toFixed(0) + '%' : '—')]);
+    const nApp = (AP.apps || []).reduce((t, x)=>t + Number(x.contas || 0), 0), desc = (AP.apps || []).reduce((t, x)=>t + Number(x.desconto || 0), 0);
+    secaoRel(tVendas, 'apps', 'Apps parceiros (Natal em Dobro, Prime)', 'apps', tabelaSimples(['App', 'Contas', 'Preço cheio', 'Desconto dado', 'Cliente pagou', 'Desconto %'], lin2, 'Nenhuma conta de app neste período.'));
+    if(nApp) tVendas.appendChild(el('p', 'dica', 'No período: ' + nApp + ' contas de app' + (AP.contas_total ? ' (' + (100 * nApp / AP.contas_total).toFixed(0) + '% das contas do PDV/salão)' : '') + ', e ' + money(desc) + ' de desconto dado. É o valor das pizzas que você deixou de cobrar. O custo dessas pizzas fica na aba CMV, em Apps parceiros.'));
   }
 
   const horaBox = el('div'); tVendas.appendChild(horaBox); desenharDiaHora(horaBox);
