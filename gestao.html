@@ -1892,6 +1892,13 @@ async function telaContas(c){
   for(let n = 1; n <= 12; n++){ const o = el('option', '', n === 1 ? 'À vista (1x)' : n + 'x'); o.value = n; rparc.appendChild(o); }
   const rcampoCartao = campo('Qual cartão', rcartao), rcampoParc = el('div'); rcampoParc.appendChild(campo('Parcelas', rparc));
   rcampoParc.appendChild(el('div', 'dica', 'Vai lançar cada parcela como conta a pagar, no vencimento da fatura certa. O valor acima é o TOTAL da compra.'));
+  // fatura que ja venceu/ja foi paga (ex.: lista da fatura Cora de 15/11): escolhe o vencimento e marca como paga
+  const rvencF = el('input'); rvencF.type = 'date';
+  const rpagaF = el('input'); rpagaF.type = 'checkbox'; rpagaF.style.cssText = 'width:auto;margin-right:8px';
+  const rpagaL = el('label'); rpagaL.style.cssText = 'display:flex;align-items:center;margin:8px 0;font-weight:700'; rpagaL.appendChild(rpagaF); rpagaL.appendChild(document.createTextNode('Essa fatura JÁ FOI PAGA'));
+  rcampoParc.appendChild(campo('Vencimento da fatura (só se quiser forçar; vazio = calcula pela data)', rvencF));
+  rcampoParc.appendChild(rpagaL);
+  rcampoParc.appendChild(el('div', 'dica', 'Para lançar uma lista de compras de uma fatura que já venceu: escolha o vencimento (ex.: 15/11), marque "já foi paga" e lance uma a uma. Elas entram como pagas nesse dia.'));
   const mostraCartao = ()=>{ const cc = rforma.value === 'cartao_credito'; rcampoCartao.style.display = rcampoParc.style.display = cc ? '' : 'none'; };
   rforma.onchange = ()=>{ rcampoCat.style.display = rforma.value === 'gaveta' ? 'none' : ''; mostraCartao(); };
   const rhist = el('div', 'dica'); rhist.style.cssText = 'font-weight:700;margin:6px 0';
@@ -1902,8 +1909,8 @@ async function telaContas(c){
     const dia = rdata.value || agoraLocal().data;
     if(rforma.value === 'cartao_credito'){
       const k = (CARTOES || []).find(z=>String(z.id) === rcartao.value); if(!k) throw new Error('Cadastre o cartão primeiro (Meus cartões, aqui em Contas).');
-      const r = await lancarNoCartao(k, nome, v, Number(rparc.value), rcat.value, dia);
-      rhist.appendChild(el('div', '', '✔ ' + nome + ' · ' + money(v) + ' no ' + k.nome + (r.n > 1 ? ' em ' + r.n + 'x' : '') + ' · 1ª fatura vence ' + dataBR(r.primeira)));
+      const r = await lancarNoCartao(k, nome, v, Number(rparc.value), rcat.value, dia, {venc:rvencF.value || null, paga:rpagaF.checked});
+      rhist.appendChild(el('div', '', '✔ ' + nome + ' · ' + money(v) + ' no ' + k.nome + (r.n > 1 ? ' em ' + r.n + 'x' : '') + ' · fatura vence ' + dataBR(r.primeira) + (rpagaF.checked ? ' (já paga)' : '')));
       rd.value = ''; rv.value = ''; rd.focus(); return;
     }
     if(rforma.value === 'gaveta') await rpc('caixa_saida_add', {p_loja:LOJA, p_valor:v, p_descricao:nome, p_dia:dia});
@@ -2126,16 +2133,19 @@ function vencimentoFatura(k, compraISO){   // em que dia vence a fatura que rece
   if(k.dia_vencimento <= k.dia_fechamento) t += 1;   // vence no mes depois do fechamento
   return isoDia(Math.floor(t / 12), t % 12 + 1, k.dia_vencimento);
 }
-async function lancarNoCartao(k, desc, total, n, cat, compraISO){
+async function lancarNoCartao(k, desc, total, n, cat, compraISO, opt){
+  opt = opt || {};
   const centavos = Math.round(total * 100), base = Math.floor(centavos / n), resto = centavos - base * n;
-  const [y0, m0] = vencimentoFatura(k, compraISO).split('-').map(Number);
+  const [y0, m0] = (opt.venc || vencimentoFatura(k, compraISO)).split('-').map(Number);
+  const diaVenc = opt.venc ? Number(opt.venc.split('-')[2]) : k.dia_vencimento;
   const linhas = [];
   for(let i = 0; i < n; i++){
     const t = y0 * 12 + (m0 - 1) + i;
     const valor = (i === n - 1 ? base + resto : base) / 100;   // sobra de centavos vai na ultima parcela
     linhas.push({loja_id:LOJA, fornecedor:'💳 ' + k.nome + ' · ' + desc + (n > 1 ? ' (' + (i + 1) + '/' + n + ')' : ''), categoria:cat || 'outros', valor,
-      vencimento:isoDia(Math.floor(t / 12), t % 12 + 1, k.dia_vencimento), status:'pendente', forma_pagamento:'cartao_credito',
+      vencimento:isoDia(Math.floor(t / 12), t % 12 + 1, diaVenc), status:opt.paga ? 'paga' : 'pendente', forma_pagamento:'cartao_credito',
       observacao:'Compra de ' + dataBR(compraISO) + ' no ' + k.nome + (n > 1 ? ' · total ' + money(total) + ' em ' + n + 'x' : '')});
+    if(opt.paga) linhas[linhas.length - 1].data_pagamento = linhas[linhas.length - 1].vencimento;
   }
   await inserir('contas_pagar', linhas);
   return {n, primeira:linhas[0].vencimento};
