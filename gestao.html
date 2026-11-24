@@ -1359,6 +1359,36 @@ async function telaMotor(c){
   lin.textContent = 'Em pizzas: cerca de ' + pnInt(pizMes) + ' por mês, ou ' + (Math.round(pizDia * 10) / 10).toLocaleString('pt-BR') + ' por dia aberto (valor médio de ' + money(ticketPiz) + ' por pizza)' + (dv > 0 && ext === 0 ? '. Hoje você vende ' + (Math.round(pizReal * 10) / 10).toLocaleString('pt-BR') + ' pizzas por dia.' : '.');
   cPE.appendChild(lin); corpo.appendChild(cPE);
 
+  /* meta de faturamento do mes (o valor fica guardado neste navegador; padrao R$ 50.000) */
+  if(mtPreset !== 'ant'){
+    let metaFat = 50000;
+    try { const g = parseFloat(localStorage.getItem('gp_meta_faturamento')); if(g > 0) metaFat = g; } catch(e){}
+    const cM = pnCartao('Meta de faturamento do mês', 'Quanto você quer vender no mês. O quadro mostra onde você está, quanto falta e o que precisa vender por dia aberto até o fim do mês.');
+    const fm = el('div'); fm.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px';
+    const im = document.createElement('input'); im.type = 'text'; im.inputMode = 'decimal'; im.value = String(metaFat).replace('.', ','); im.style.cssText = 'width:150px;padding:8px;font-size:16px';
+    const bm = el('button', 'btn peq verde', 'Mudar meta'); bm.onclick = ()=>{ const v = mtNum(im.value); if(v > 0){ try { localStorage.setItem('gp_meta_faturamento', String(v)); } catch(e){} desenhar(); } };
+    fm.appendChild(el('span', '', 'Meta do mês: R$')); fm.appendChild(im); fm.appendChild(bm); cM.appendChild(fm);
+    const pctM = Math.min(100, fat / metaFat * 100);
+    const trM = el('div'); trM.style.cssText = 'height:16px;background:#EFE7DC;border-radius:8px;overflow:hidden;margin:6px 0 8px';
+    const flM = el('div'); flM.style.cssText = 'height:100%;width:' + Math.max(2, pctM) + '%;background:#02341b;border-radius:8px'; trM.appendChild(flM); cM.appendChild(trM);
+    cM.appendChild(el('div', '', 'Já vendido: ' + money(fat) + ' de ' + money(metaFat) + ' (' + Math.round(pctM) + '%)' + (fat >= metaFat ? ' ✅ meta batida!' : ' · faltam ' + money(metaFat - fat)))).style.cssText = 'font-weight:700';
+    const diasRest = Math.max(0, diasMes - diasPassados), falta = Math.max(0, metaFat - fat);
+    const tm = el('div', 'pn-tiles'); tm.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:12px';
+    const lucroMeta = metaFat * margem - custos, livreMeta = metaFat > 0 ? lucroMeta / metaFat : 0;
+    const livreProj = projFat > 0 ? lucroProj / projFat : 0;
+    const itensM = [
+      ['Dias abertos que ainda restam', pnInt(diasRest)],
+      ['Precisa vender por dia aberto', diasRest > 0 ? money(falta / diasRest) : '—'],
+      ['Em pizzas por dia aberto', diasRest > 0 && ticketPiz > 0 ? (Math.round(falta / diasRest / ticketPiz * 10) / 10).toLocaleString('pt-BR') : '—'],
+      ['Se bater a meta, o livre será de', mtPct(livreMeta, 1) + ' (' + money(lucroMeta) + ')'],
+      ['No ritmo de hoje, o livre será de', mtPct(livreProj, 1) + ' (' + money(lucroProj) + ')']
+    ];
+    itensM.forEach(([rot, val])=>{ const t = el('div', 'pn-tile'); t.appendChild(el('div', 'rot', rot)); t.appendChild(el('div', 'val', val)); tm.appendChild(t); });
+    cM.appendChild(tm);
+    cM.appendChild(el('div', 'pn-sub', '"Livre" = o que sobra depois do custo da comida e de todas as contas, antes da sua retirada. A meta de ' + money(metaFat) + ' equivale a cerca de ' + pnInt(metaFat / ticketPiz) + ' pizzas no mês (a ' + money(ticketPiz) + ' por pizza). A projeção do mês é de ' + money(projFat) + (projFat >= metaFat ? ' — já acima da meta.' : ', faltam ' + money(metaFat - projFat) + ' para chegar lá no ritmo atual.'))).style.marginTop = '8px';
+    corpo.appendChild(cM);
+  }
+
   /* para onde vai cada R$ 100 */
   const base = projFat > 0 ? projFat : 1;
   const cDest = pnCartao('Para onde vai cada R$ 100 vendidos', 'Com o faturamento projetado do mês.');
@@ -3245,11 +3275,10 @@ function sextaFinalVolta(){   // prazo maior: a oferta vale até a sexta da SEMA
   const d = new Date(); while(d.getDay() !== 5) d.setDate(d.getDate() + 1);
   d.setDate(d.getDate() + 7); return d;
 }
-// Promoção da terça, quarta e quinta (a mensagem acompanha o dia em que você envia). Nos outros dias vale a Pizza do Dia.
+// Promoção da terça e da quinta (a mensagem acompanha o dia em que você envia). Quarta, sexta, sábado e domingo valem a Pizza do Dia (a Quarta da Borda foi retirada em 23/11/2026).
 // Para mudar um texto, edite aqui. Máximo ~140 caracteres, sem quebra de linha. ofertaVolta() e nomeOfertaVolta() sempre juntos.
 const OFERTAS_DIA = {
   2: {nome:'Terça Super', texto:'Terça Super: na compra de qualquer pizza grande, uma pequena é por nossa conta (sabores selecionados), hoje, das 18h às 22h'},
-  3: {nome:'Quarta da Borda', texto:'Quarta da Borda: na compra de uma pizza grande, a borda é por nossa conta, hoje, das 18h às 22h'},
   4: {nome:'Quinta Especial', texto:'Quinta Especial: compre uma pizza grande e a segunda grande sai pela metade do preço (sabores selecionados), hoje, das 18h às 22h'}
 };
 function ofertaVolta(){
