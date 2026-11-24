@@ -1909,6 +1909,7 @@ async function telaContas(c){
     const dia = rdata.value || agoraLocal().data;
     if(rforma.value === 'cartao_credito'){
       const k = (CARTOES || []).find(z=>String(z.id) === rcartao.value); if(!k) throw new Error('Cadastre o cartão primeiro (Meus cartões, aqui em Contas).');
+      if(rpagaF.checked && !rvencF.value) throw new Error('Preencha o "Vencimento da fatura" (ex.: 15/11/2026) para lançar como já paga.');
       const r = await lancarNoCartao(k, nome, v, Number(rparc.value), rcat.value, dia, {venc:rvencF.value || null, paga:rpagaF.checked});
       rhist.appendChild(el('div', '', '✔ ' + nome + ' · ' + money(v) + ' no ' + k.nome + (r.n > 1 ? ' em ' + r.n + 'x' : '') + ' · fatura vence ' + dataBR(r.primeira) + (rpagaF.checked ? ' (já paga)' : '')));
       rd.value = ''; rv.value = ''; rd.focus(); return;
@@ -2276,11 +2277,13 @@ function cartaoConta(x, forn){
   card.appendChild(lin);
   const mais = el('details'); mais.appendChild(el('summary', '', 'Editar, copiar código ou excluir'));
   const fn = el('input'); fn.value = x.fornecedor; const val = inputNum(x.valor); const ven = el('input'); ven.type = 'date'; ven.value = x.vencimento || ''; const obs = el('input'); obs.value = x.observacao || '';
-  const catE = selCategoria(x.categoria); const l2 = el('div', 'linha'); l2.appendChild(campo('Fornecedor', fn)); l2.appendChild(campo('Valor (R$)', val)); l2.appendChild(campo('Vencimento', ven)); mais.appendChild(l2); mais.appendChild(campo('Categoria', catE)); mais.appendChild(campo('Observação', obs));
+  const catE = selCategoria(x.categoria); const l2 = el('div', 'linha'); l2.appendChild(campo('Fornecedor', fn)); l2.appendChild(campo('Valor (R$)', val)); l2.appendChild(campo('Vencimento', ven)); mais.appendChild(l2);
+  const pagoEm = el('input'); pagoEm.type = 'date'; pagoEm.value = x.data_pagamento || '';
+  if(x.status === 'paga') mais.appendChild(campo('Pago em (dia que saiu o dinheiro)', pagoEm)); mais.appendChild(campo('Categoria', catE)); mais.appendChild(campo('Observação', obs));
   const l3 = el('div', 'linha'); l3.style.marginTop = '8px';
   const sv = el('button', 'btn verde', 'Salvar alterações');
   sv.onclick = ()=>tentar(async()=>{ const n = fn.value.trim(); if(!n) throw new Error('Falta o fornecedor.'); const v = num(val.value); if(v === null || v < 0) throw new Error('Valor inválido.');
-    await atualizar('contas_pagar', 'id=eq.' + x.id, {fornecedor:n, categoria:catE.value, valor:v, vencimento:ven.value || null, observacao:obs.value.trim() || null}); desenhar(); }, 'Conta atualizada');
+    await atualizar('contas_pagar', 'id=eq.' + x.id, {fornecedor:n, categoria:catE.value, valor:v, vencimento:ven.value || null, observacao:obs.value.trim() || null, ...(x.status === 'paga' && pagoEm.value ? {data_pagamento:pagoEm.value} : {})}); desenhar(); }, 'Conta atualizada');
   l3.appendChild(sv);
   if(x.linha_digitavel){ const cp = el('button', 'btn cinza', 'Copiar código'); cp.onclick = ()=>copiarCodigo(x); l3.appendChild(cp); }
   const ex = el('button', 'btn cinza', 'Excluir');
