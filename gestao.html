@@ -3042,13 +3042,20 @@ function telaClientes(c){
 function desenharCliente(res){
   res.innerHTML = ''; const {tel, s, ext, dados} = clienteBusca;
   const dc = el('div', 'cartao'); dc.appendChild(el('div', 'nome', 'Dados do cliente'));
+  const iCel = el('input'); iCel.type = 'tel'; iCel.value = tel; iCel.placeholder = 'Celular com DDD';
   const iNome = el('input'); iNome.value = (dados && dados.nome) || ''; iNome.placeholder = 'Nome';
   const iEnd = el('input'); iEnd.value = (dados && dados.endereco) || ''; iEnd.placeholder = 'Rua e número';
   const iBai = el('input'); iBai.value = (dados && dados.bairro) || ''; iBai.placeholder = 'Bairro';
   const iCom = el('input'); iCom.value = (dados && dados.complemento) || ''; iCom.placeholder = 'Apto, bloco, referência';
-  const ld = el('div', 'linha'); ld.appendChild(campo('Nome', iNome)); ld.appendChild(campo('Endereço', iEnd)); ld.appendChild(campo('Bairro', iBai)); ld.appendChild(campo('Complemento', iCom)); dc.appendChild(ld);
+  const ld = el('div', 'linha'); ld.appendChild(campo('Celular', iCel)); ld.appendChild(campo('Nome', iNome)); ld.appendChild(campo('Endereço', iEnd)); ld.appendChild(campo('Bairro', iBai)); ld.appendChild(campo('Complemento', iCom)); dc.appendChild(ld);
   const bs = el('button', 'btn verde', 'Salvar dados do cliente'); bs.style.marginTop = '8px';
-  bs.onclick = ()=>tentar(async()=>{ await rpc('gestao_cliente_salvar', {p_loja:LOJA, p_telefone:tel, p_nome:iNome.value.trim(), p_endereco:iEnd.value.trim() || null, p_bairro:iBai.value.trim() || null, p_complemento:iCom.value.trim() || null});
+  bs.onclick = ()=>tentar(async()=>{
+    let alvo = tel; const novoCel = iCel.value.replace(/\D/g, '');
+    if(novoCel && novoCel !== tel.replace(/\D/g, '')){
+      if(!confirm('Trocar o celular deste cliente? O saldo e o histórico vão junto para o número novo.')) return;
+      await rpc('gestao_cliente_trocar_celular', {p_loja:LOJA, p_antigo:tel, p_novo:novoCel}); alvo = novoCel; clienteBusca.tel = novoCel;
+    }
+    await rpc('gestao_cliente_salvar', {p_loja:LOJA, p_telefone:alvo, p_nome:iNome.value.trim(), p_endereco:iEnd.value.trim() || null, p_bairro:iBai.value.trim() || null, p_complemento:iCom.value.trim() || null});
     clienteBusca.dados = {nome:iNome.value.trim(), endereco:iEnd.value.trim(), bairro:iBai.value.trim(), complemento:iCom.value.trim()}; }, 'Dados do cliente salvos');
   dc.appendChild(bs); res.appendChild(dc);
   const sd = el('div', 'saldo');

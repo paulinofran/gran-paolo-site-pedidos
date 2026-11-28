@@ -461,7 +461,9 @@ function desenharMesa(c){
     const bn = el('button','btn peq', rap ? '+ Novo cliente' : '+ Comanda');
     bn.onclick = ()=>{ if(carrinho.length) return aviso('Lance ou limpe o carrinho antes.'); if(rap){ liberarVazio().then(async ()=>{ await atualizarContas(); entrarRapido(mesaAtual); }); return; } let k = 2; const ex = new Set(nomes); while(ex.has('Comanda ' + k)) k++; comandaAtual = 'Comanda ' + k; detalhe = null; desenhar(); };
     topo.appendChild(bn);
-    const bcli = el('button','btn peq','👤 Cliente'); bcli.onclick = abrirCliente; topo.appendChild(bcli);
+    const cdTopo = (detalhe && detalhe.conta) || {}; const cpTopo = (clientePend && clientePend.mesa === mesaAtual && clientePend.comanda === comandaAtual) ? clientePend : null;
+    const nomeCli = cdTopo.cliente_nome || (cpTopo && cpTopo.nome) || ((cdTopo.cliente_telefone || (cpTopo && cpTopo.telefone)) ? 'Cliente' : '');
+    const bcli = el('button','btn peq', nomeCli ? '👤 ' + nomeCli : '👤 Cliente'); if(nomeCli){ bcli.style.cssText = 'background:var(--verde);color:#fff;font-weight:700'; } bcli.onclick = abrirCliente; topo.appendChild(bcli);
     const bc = el('button','btn verm','Conta'); bc.onclick = abrirConta; topo.appendChild(bc);
     if(!rap){ const bt = el('button','btn','Trocar mesa'); bt.onclick = abrirTroca; topo.appendChild(bt); }
   }
@@ -523,6 +525,7 @@ function desenharMesa(c){
       if(!cancelado && !rap){ const bt = el('button','btn peq','Transferir'); bt.style.marginTop = '4px'; bt.onclick = ()=>abrirTransferirItem(p, ix, i); d.appendChild(bt); }
       l.appendChild(d); box.appendChild(l); });
     if(p.obs) box.appendChild(el('small','dica',p.obs));
+    if(!cancelado){ const be = el('button','btn peq','✏️ Editar este pedido'); be.style.cssText = 'margin-top:6px;margin-right:6px'; be.onclick = ()=>editarPedidoLancado(p); box.appendChild(be); }
     if(!cancelado){ const bx = el('button','btn peq','Cancelar este pedido'); bx.style.marginTop = '6px'; bx.onclick = ()=>cancelarPedido(p); box.appendChild(bx); }
     bl.appendChild(box);
   });
@@ -547,6 +550,7 @@ function desenharLateral(){
   const t = el('div','total'); t.appendChild(el('span','','Total')); t.appendChild(el('span','',money(tot + (mesaAtual === 'Entrega' && entrega && carrinho.length ? entrega.taxa : 0)))); rp.appendChild(t);
   const ob = el('input'); ob.type = 'text'; ob.placeholder = 'Observação para a cozinha (opcional)'; ob.style.cssText = 'width:100%;margin-top:8px'; ob.value = carrinho.obs || ''; ob.oninput = ()=>{ carrinho.obs = ob.value; }; rp.appendChild(ob);
   const bl = el('button','btn verm', rotLancar()); bl.style.cssText = 'width:100%;margin-top:8px;padding:15px;font-size:17px'; bl.disabled = !carrinho.length; bl.onclick = ()=>lancar(); rp.appendChild(bl);
+  if(carrinho.editando){ const bd = el('button','btn','Descartar edição'); bd.style.cssText = 'width:100%;margin-top:6px'; bd.onclick = ()=>{ carrinho = []; desenhar(); }; rp.appendChild(bd); }
   if(mesaAtual === 'Retirada'){ const br = el('button','btn','💰 Receber agora'); br.style.cssText = 'width:100%;margin-top:8px;padding:13px;font-size:16px'; br.disabled = !carrinho.length; br.onclick = ()=>lancar(true); rp.appendChild(br); }
 }
 window.addEventListener('resize', ()=>{ if(sessao) desenharCarrinho(); });
@@ -560,7 +564,8 @@ function desenharCarrinho(){
   b.appendChild(el('div','', n + (n===1?' item':' itens') + ' · ' + money(tot) + (mesaAtual === 'Entrega' && entrega ? ' + taxa ' + money(entrega.taxa) : '')));
   const d = el('div'); d.style.display = 'flex'; d.style.gap = '8px'; d.appendChild(bt);
   const bl = el('button','btn', rotLancar()); bl.onclick = ()=>lancar(); d.appendChild(bl);
-  if(mesaAtual === 'Retirada'){ const br = el('button','btn','💰 Receber agora'); br.onclick = ()=>lancar(true); d.appendChild(br); }
+  if(carrinho.editando){ const bd = el('button','btn','Descartar'); bd.onclick = ()=>{ carrinho = []; fechar(); desenhar(); }; d.appendChild(bd); }
+  else if(mesaAtual === 'Retirada'){ const br = el('button','btn','💰 Receber agora'); br.onclick = ()=>lancar(true); d.appendChild(br); }
   b.appendChild(d);
 }
 
@@ -831,33 +836,49 @@ function editarItem(ix, depois){
   const i = carrinho[ix]; if(!i) return;
   const o = obsDoItem(i), st = {qtd:i.qtd, obs:o.obs, troca:null};
   const ehMeio = String(i.nome).indexOf('Meio a Meio: ') === 0;
-  const pz = ehMeio ? pizzasDoPdv() : [];
-  const tamBase = String(o.base).split(' • ')[0];
-  const mb = /• Borda: (.+?)(?: •|$)/.exec(o.base); const bordaNome = mb ? mb[1] : null;
-  const bordaPreco = bordaNome ? Number((((MENU && MENU.bordas)||[]).find(b=>b.nome===bordaNome)||{}).preco)||0 : 0;
-  const nomes = ehMeio ? String(i.nome).slice(13).split(' / ') : [];
+  const pz = pizzasDoPdv();
+  const ehPromoItem = !!i.promo || / — /.test(o.base);
+  const tamBase0 = String(o.base).split(' • ')[0];
+  const mb = /• Borda: (.+?)(?: •|$)/.exec(o.base); const bordaNome = mb ? mb[1].replace(/\s*\(gr[aá]tis\)/i,'').trim() : '';
+  const bordasMenu = (MENU && MENU.bordas) || [];
+  const precoBordaDe = n => n ? (Number((bordasMenu.find(b=>b.nome===n)||{}).preco)||0) : 0;
+  const nomes = ehMeio ? String(i.nome).slice(13).split(' / ') : [String(i.nome)];
   const achar = n=>pz.find(x=>('Pizza ' + x.nome)===n || x.nome===n) || null;
   const prods = nomes.map(achar);
-  const podeTrocar = ehMeio && nomes.length === 2 && prods[0] && prods[1];
+  const ehPizzaEd = !ehPromoItem && prods.length > 0 && prods.every(Boolean) && precoTam(prods[0], tamBase0) !== null;   // pizza normal: sei recalcular o preco
+  const podeBorda = bordasMenu.length > 0 && /^(grande|pequena|m[eé]dia)/i.test(tamBase0) && !/gr[aá]tis\)/i.test(o.base);
+  st.tam = tamBase0; st.borda = bordaNome;
   fechar(); const j = janela();
-  function desenhar4(){
+  function desenha4(){
     j.innerHTML = '';
     j.appendChild(el('h3','','Editar item'));
     j.appendChild(el('div','sub', (ehMeio ? 'Meio a Meio' : i.nome) + ' · ' + o.base));
-    if(ehMeio){
+    if(ehPizzaEd){
       const bx = el('div'); bx.style.cssText = 'margin:6px 0 10px';
       nomes.forEach((n,k)=>{
         const r = el('div'); r.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0';
-        r.appendChild(el('span','', '½ ' + n.replace(/^Pizza /,'')));
-        if(podeTrocar){ const bt = el('button','btn peq','Trocar'); bt.onclick = ()=>{ st.troca = (st.troca===k ? null : k); desenhar4(); }; r.appendChild(bt); }
+        r.appendChild(el('span','', (ehMeio ? '½ ' : '') + n.replace(/^Pizza /,'')));
+        const bt = el('button','btn peq','Trocar sabor'); bt.onclick = ()=>{ st.troca = (st.troca===k ? null : k); desenha4(); }; r.appendChild(bt);
         bx.appendChild(r);
-        if(podeTrocar && st.troca === k){
-          const outro = prods[1-k];
-          seletorBusca(bx, pz.filter(x=>precoTam(x, tamBase)!==null && x.slug!==outro.slug), prods[k], x=>{ prods[k] = x; nomes[k] = 'Pizza ' + x.nome; st.troca = null; desenhar4(); }, x=>money(precoTam(x, tamBase)));
+        if(st.troca === k){
+          const outro = ehMeio ? prods[1-k] : null;
+          seletorBusca(bx, pz.filter(x=>precoTam(x, st.tam)!==null && (!outro || x.slug!==outro.slug)), prods[k], x=>{ prods[k] = x; nomes[k] = 'Pizza ' + x.nome; st.troca = null; desenha4(); }, x=>money(precoTam(x, st.tam)));
         }
       });
       j.appendChild(bx);
+      const tams = (prods[0].tamanhos||[]).map(t=>t.nome).filter(t=>prods.every(p=>precoTam(p,t)!==null));
+      if(tams.length > 1){
+        j.appendChild(el('div','rot','Tamanho')); const ot = el('div','opcoes');
+        tams.forEach(t=>{ const b = el('button','opc' + (t===st.tam?' sel':''), t); b.onclick = ()=>{ st.tam = t; desenha4(); }; ot.appendChild(b); }); j.appendChild(ot);
+      }
     }
+    if(podeBorda){
+      j.appendChild(el('div','rot','Borda')); const ob2 = el('div','opcoes');
+      [{nome:'',rot:'Sem borda'}].concat(bordasMenu.map(b=>({nome:b.nome, rot:b.nome + ' +' + money(Number(b.preco)||0)}))).forEach(b=>{
+        const bt = el('button','opc' + (b.nome===st.borda?' sel':''), b.rot); bt.onclick = ()=>{ st.borda = b.nome; desenha4(); }; ob2.appendChild(bt); });
+      j.appendChild(ob2);
+    }
+    if(!ehPizzaEd && !podeBorda && ehMeio === false && ehPromoItem) j.appendChild(el('p','dica','Item de promoção: para trocar o sabor, remova e lance de novo pela promoção.'));
     const q = el('div','qtd'); const m = el('button','','−'), mais = el('button','','+'), v = el('span','',String(st.qtd));
     m.onclick = ()=>{ if(st.qtd>1){ st.qtd--; v.textContent = st.qtd; } }; mais.onclick = ()=>{ st.qtd++; v.textContent = st.qtd; };
     q.appendChild(m); q.appendChild(v); q.appendChild(mais); j.appendChild(q);
@@ -868,16 +889,20 @@ function editarItem(ix, depois){
     const br = el('button','btn','Remover item'); br.style.color = 'var(--rd)'; br.onclick = ()=>{ carrinho.splice(ix,1); fim(); };
     const bc = el('button','btn','Voltar'); bc.onclick = fim;
     const bs = el('button','btn verm','Salvar'); bs.onclick = ()=>{
-      i.qtd = st.qtd; i.tamanho = o.base + (st.obs.trim() ? ' • Obs: ' + st.obs.trim() : '');
-      if(podeTrocar){
-        const novo = 'Meio a Meio: ' + nomes.join(' / ');
-        if(novo !== i.nome){ i.nome = novo; i.precoUnit = arred(((precoTam(prods[0], tamBase)||0) + (precoTam(prods[1], tamBase)||0))/2 + bordaPreco); }
-      }
+      let preco = Number(i.precoUnit);
+      if(ehPizzaEd){
+        i.nome = ehMeio ? 'Meio a Meio: ' + nomes.join(' / ') : nomes[0];
+        preco = arred(prods.reduce((a,p)=>a + precoTam(p, st.tam), 0) / prods.length + precoBordaDe(st.borda));
+      } else if(podeBorda){ preco = arred(preco - precoBordaDe(bordaNome) + precoBordaDe(st.borda)); }
+      let base = String(o.base).replace(/ • Borda: .+?(?= — | •|$)/, '');
+      if(ehPizzaEd) base = base.replace(tamBase0, st.tam);
+      if(podeBorda && st.borda) base += ' • Borda: ' + st.borda;
+      i.qtd = st.qtd; i.precoUnit = preco; i.tamanho = base + (st.obs.trim() ? ' • Obs: ' + st.obs.trim() : '');
       fim();
     };
     ac.appendChild(br); ac.appendChild(bc); ac.appendChild(bs); j.appendChild(ac);
   }
-  desenhar4();
+  desenha4();
 }
 function abrirCarrinho(){
   const j = janela(); j.appendChild(el('h3','','Carrinho · ' + (mesaAtual === 'Entrega' ? 'Entrega' : rotMesa(mesaAtual) + ' · ' + comandaAtual)));
@@ -892,14 +917,35 @@ function abrirCarrinho(){
   ver();
   const ob = el('input'); ob.type = 'text'; ob.placeholder = 'Observação para a cozinha (opcional)'; ob.style.cssText = 'width:100%;margin-top:10px'; ob.value = carrinho.obs || ''; ob.oninput = ()=>{ carrinho.obs = ob.value; }; j.appendChild(ob);
   const ac = el('div','acoes'); const b1 = el('button','btn','Voltar'); b1.onclick = fechar; const b2 = el('button','btn verm', rotLancar()); b2.onclick = ()=>lancar(); ac.appendChild(b1); ac.appendChild(b2);
-  if(mesaAtual === 'Retirada'){ const b3 = el('button','btn','💰 Receber agora'); b3.onclick = ()=>lancar(true); ac.appendChild(b3); }
+  if(carrinho.editando){ const bd = el('button','btn','Descartar edição'); bd.onclick = ()=>{ carrinho = []; fechar(); desenhar(); }; ac.appendChild(bd); }
+  else if(mesaAtual === 'Retirada'){ const b3 = el('button','btn','💰 Receber agora'); b3.onclick = ()=>lancar(true); ac.appendChild(b3); }
   j.appendChild(ac);
 }
 let lancando = false;
-const rotLancar = ()=> mesaAtual === 'Entrega' ? 'Enviar entrega' : mesaAtual === 'Retirada' ? 'Salvar pedido' : 'Lançar pedido';
+const rotLancar = ()=> carrinho.editando ? '💾 Salvar alterações do #' + carrinho.editNum : mesaAtual === 'Entrega' ? 'Enviar entrega' : mesaAtual === 'Retirada' ? 'Salvar pedido' : 'Lançar pedido';
+// EDITAR UM PEDIDO JA LANCADO: os itens dele voltam para o carrinho (trocar sabor/tamanho/borda, tirar, acrescentar) e "Salvar alterações" grava no mesmo pedido
+function editarPedidoLancado(p){
+  if(carrinho.length) return aviso('Lance ou limpe o carrinho antes de editar um pedido já lançado.');
+  carrinho = (p.itens||[]).map(i=>({nome:i.nome, tamanho:i.tamanho||'', qtd:Number(i.qtd)||1, precoUnit:Number(i.precoUnit)||0, promo:!!i.promo}));
+  carrinho.editando = p.id; carrinho.editNum = p.numero || p.id;
+  desenhar(); aviso('Editando o pedido #' + carrinho.editNum + ': mexa nos itens e toque em Salvar alterações.');
+}
+async function salvarEdicaoPedido(){
+  if(lancando) return; lancando = true;
+  const id = carrinho.editando, num = carrinho.editNum;
+  const coz = confirm('Mandar o pedido #' + num + ' de novo para a cozinha?\n\nOK = sim (sai o pedido todo)\nCancelar = só atualizar o caixa');
+  const itens = carrinho.map(i=>({nome:i.nome, tamanho:i.tamanho, qtd:i.qtd, precoUnit:i.precoUnit, promo:!!i.promo}));
+  try{
+    await rpc('mesa_substituir_itens',{p_loja:LOJA,p_pedido:id,p_itens:itens,p_cozinha:coz});
+    carrinho = []; fechar(); aviso('Pedido #' + num + ' atualizado.');
+    await atualizarContas(); await carregarDetalhe(); desenhar();
+  }catch(e){ aviso('Não consegui salvar: ' + e.message + '. A edição foi mantida.'); }
+  finally{ lancando = false; }
+}
 async function lancar(arg){
   if(lancando) return;                 // toque repetido enquanto o 1o pedido ainda esta indo: ignora
   if(!carrinho.length) return;
+  if(carrinho.editando) return salvarEdicaoPedido();
   if(mesaAtual === 'Entrega'){ fechar(); return abrirEnviarEntrega(); }
   if(mesaAtual === 'Retirada') return lancarRetirada(arg === true);
   lancando = true;
