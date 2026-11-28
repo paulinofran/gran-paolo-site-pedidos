@@ -1045,6 +1045,24 @@ function abrirRapido(tipo){
 }
 // Botao "Cliente" (fica no topo, funciona com item no carrinho): liga telefone/nome ao atendimento pra ganhar e usar cashback e pontos
 let clientePend = null;   // cliente escolhido ANTES do 1o pedido: {mesa, comanda, telefone, nome}; liga na conta assim que ela existir
+/* Busca de cliente pelo NOME: se a atendente digitar letras no campo do telefone, aparece a lista; tocar no nome preenche o telefone e segue o fluxo normal */
+function ligaBuscaNome(iTel, lista, depois){
+  const orig = iTel.oninput; let k = 0, tm = null;
+  iTel.type = 'text'; iTel.inputMode = 'text'; iTel.placeholder = 'Telefone ou nome do cliente';
+  iTel.oninput = ()=>{
+    if(!/[a-zA-ZÀ-ú]/.test(iTel.value)){ k++; if(tm) clearTimeout(tm); if(orig) return orig(); return; }
+    lista.innerHTML = ''; const q = iTel.value.trim(); const meu = ++k; if(tm) clearTimeout(tm);
+    if(q.length < 3){ lista.appendChild(el('p','dica','Digite pelo menos 3 letras do nome.')); return; }
+    tm = setTimeout(async ()=>{
+      try{
+        const r = await rpc('pdv_cliente_buscar_nome',{p_loja:LOJA,p_texto:q}); if(meu !== k) return; lista.innerHTML = '';
+        if(!r.length){ lista.appendChild(el('p','dica','Nenhum cliente com esse nome. Digite o telefone para cadastrar.')); return; }
+        r.forEach(c=>{ const b = el('button','btn', (c.nome || 'Sem nome') + ' · ' + c.telefone + (c.bairro ? ' · ' + c.bairro : '')); b.style.cssText = 'display:block;width:100%;margin:4px 0;text-align:left';
+          b.onclick = ()=>{ iTel.value = c.telefone; lista.innerHTML = ''; if(depois) depois(); else if(orig) orig(); }; lista.appendChild(b); });
+      }catch(e){ lista.innerHTML = ''; }
+    }, 300);
+  };
+}
 function abrirClientePre(depois, exigir){
   const j = janela(); j.appendChild(el('h3','', exigir ? '👤 Quem vai retirar?' : '👤 Cliente · cashback e pontos'));
   if(clientePend && Date.now() - clientePend.t > 20*60000) clientePend = null;   // esquecido: expira em 20 min (evita ligar o cliente errado num "Carro 1" reaproveitado)
@@ -1072,6 +1090,7 @@ function abrirClientePre(depois, exigir){
       bok.disabled = false;
     }catch(e){}
   };
+  ligaBuscaNome(iTel, res);
   bok.onclick = ()=>{
     if(!dadosBusca) return; const sd = dadosBusca.saldo || {};
     if(exigir && !dadosBusca.existe && !(iNome && iNome.value.trim())){ aviso('Digite o nome do cliente novo.'); return; }
@@ -1115,6 +1134,7 @@ function abrirCliente(){
       bvinc.disabled = false;
     }catch(e){}
   };
+  ligaBuscaNome(iTel, res);
   bvinc.onclick = ()=>tentar(async ()=>{ if(!dadosBusca) return; bvinc.disabled = true; await rpc('mesa_vincular_cliente',{p_loja:LOJA,p_conta:c.conta_id,p_telefone:dadosBusca.telefone,p_nome:iNome ? iNome.value : null}); await atualizaTudo(); aviso('Cliente vinculado.'); });
   j.appendChild(bvinc);
   const bv = el('button','btn','Voltar'); bv.style.cssText = 'width:100%;margin-top:8px'; bv.onclick = fechar; j.appendChild(bv);
@@ -1170,10 +1190,11 @@ function abrirEntrega(){
       info.textContent = r.existe ? '👤 ' + (r.nome || 'Cliente') + ' · Cashback ' + money(Number(sd.cashback)||0) + ' · ' + (Number(sd.pontos)||0) + ' pts' : 'Cliente novo: será cadastrado.';
       if(r.nome && !iNome.value.trim()) iNome.value = r.nome;
       if(r.endereco && !iEnd.value.trim()) iEnd.value = r.endereco;
+      if(r.complemento && !iComp.value.trim()) iComp.value = r.complemento;
       if(r.bairro && !iBairro.value && bairros.some(x=>x.nome === r.bairro)){ iBairro.value = r.bairro; iBairro.onchange(); }
     }catch(e){ info.textContent = ''; }
   };
-  bb.onclick = ()=>{ ult = ''; buscar(); }; iTel.oninput = buscar;
+  bb.onclick = ()=>{ ult = ''; buscar(); }; iTel.oninput = buscar; ligaBuscaNome(iTel, info, ()=>{ ult = ''; buscar(); });
   const ac = el('div','acoes'); const bv = el('button','btn','Cancelar'); bv.onclick = fechar;
   const ok = el('button','btn verm', entrega ? 'Salvar dados' : 'Escolher os itens →');
   ok.onclick = ()=>{
@@ -1355,6 +1376,7 @@ function abrirConta(){
     const iTel = el('input'); iTel.type = 'tel'; iTel.inputMode = 'tel'; iTel.placeholder = '(84) 9 9999-9999'; iTel.style.width = '100%'; bcl.appendChild(iTel);
     const res = el('div'); res.style.marginTop = '8px'; bcl.appendChild(res);
     const bb = el('button','btn','Buscar cliente'); bb.style.cssText = 'width:100%;margin-top:6px'; bcl.appendChild(bb);
+    ligaBuscaNome(iTel, res, ()=>bb.onclick());
     bb.onclick = ()=>tentar(async ()=>{
       const r = await rpc('mesa_cliente_buscar',{p_loja:LOJA,p_telefone:iTel.value}); res.innerHTML = ''; const sd = r.saldo || {};
       let iNome = null;

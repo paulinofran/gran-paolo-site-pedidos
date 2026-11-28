@@ -3017,21 +3017,40 @@ function telaClientes(c){
   const fidBox = el('div'); c.appendChild(fidBox); desenharFidelidade(fidBox, periodoDoPreset('mes'));
   c.appendChild(el('h2', '', 'Saldo de um cliente'));
   c.appendChild(el('p', 'dica', 'Veja o saldo de um cliente, o extrato e faça ajustes (cortesia, correção, saldo importado).'));
-  const tel = el('input', 'busca'); tel.type = 'tel'; tel.placeholder = 'WhatsApp do cliente (84 99999-0000)'; c.appendChild(tel);
+  const tel = el('input', 'busca'); tel.type = 'tel'; tel.placeholder = 'WhatsApp (84 99999-0000) ou o nome do cliente'; c.appendChild(tel);
   const btn = el('button', 'btn verde', 'Buscar'); c.appendChild(btn);
   const res = el('div'); res.style.marginTop = '12px'; c.appendChild(res);
   const buscar = ()=>tentar(async()=>{
+    if(/[a-zA-ZÀ-ú]/.test(tel.value)){
+      const achados = await rpc('pdv_cliente_buscar_nome', {p_loja:LOJA, p_texto:tel.value.trim()});
+      res.innerHTML = '';
+      if(!achados.length){ res.appendChild(el('div', 'vazio', 'Nenhum cliente com esse nome (digite pelo menos 3 letras).')); return; }
+      achados.forEach(a=>{ const b = el('button', 'btn', (a.nome || 'Sem nome') + ' · ' + a.telefone + (a.bairro ? ' · ' + a.bairro : '')); b.style.cssText = 'display:block;margin:6px 0;text-align:left;';
+        b.onclick = ()=>{ tel.value = a.telefone; buscar(); }; res.appendChild(b); });
+      return;
+    }
     const t = tel.value.replace(/\D/g, ''); if(t.length < 10) throw new Error('Digite o telefone com DDD.');
     const s = await rpc('saldo_cliente', {p_loja:LOJA, p_telefone:t});
     const norm = t.length >= 12 && t.indexOf('55') === 0 ? t.slice(2) : t;
     const ext = await api(`/rest/v1/carteira_mov?loja_id=eq.${LOJA}&telefone=eq.${norm}&order=criado_em.desc&limit=25`);
-    clienteBusca = {tel:t, s, ext}; desenharCliente(res);
+    let dados = null; try{ dados = await rpc('gestao_cliente_dados', {p_loja:LOJA, p_telefone:t}); }catch(e){}
+    clienteBusca = {tel:t, s, ext, dados}; desenharCliente(res);
   });
   btn.onclick = buscar; tel.onkeydown = (e)=>{ if(e.key === 'Enter') buscar(); };
   if(clienteBusca){ tel.value = clienteBusca.tel; desenharCliente(res); }
 }
 function desenharCliente(res){
-  res.innerHTML = ''; const {tel, s, ext} = clienteBusca;
+  res.innerHTML = ''; const {tel, s, ext, dados} = clienteBusca;
+  const dc = el('div', 'cartao'); dc.appendChild(el('div', 'nome', 'Dados do cliente'));
+  const iNome = el('input'); iNome.value = (dados && dados.nome) || ''; iNome.placeholder = 'Nome';
+  const iEnd = el('input'); iEnd.value = (dados && dados.endereco) || ''; iEnd.placeholder = 'Rua e número';
+  const iBai = el('input'); iBai.value = (dados && dados.bairro) || ''; iBai.placeholder = 'Bairro';
+  const iCom = el('input'); iCom.value = (dados && dados.complemento) || ''; iCom.placeholder = 'Apto, bloco, referência';
+  const ld = el('div', 'linha'); ld.appendChild(campo('Nome', iNome)); ld.appendChild(campo('Endereço', iEnd)); ld.appendChild(campo('Bairro', iBai)); ld.appendChild(campo('Complemento', iCom)); dc.appendChild(ld);
+  const bs = el('button', 'btn verde', 'Salvar dados do cliente'); bs.style.marginTop = '8px';
+  bs.onclick = ()=>tentar(async()=>{ await rpc('gestao_cliente_salvar', {p_loja:LOJA, p_telefone:tel, p_nome:iNome.value.trim(), p_endereco:iEnd.value.trim() || null, p_bairro:iBai.value.trim() || null, p_complemento:iCom.value.trim() || null});
+    clienteBusca.dados = {nome:iNome.value.trim(), endereco:iEnd.value.trim(), bairro:iBai.value.trim(), complemento:iCom.value.trim()}; }, 'Dados do cliente salvos');
+  dc.appendChild(bs); res.appendChild(dc);
   const sd = el('div', 'saldo');
   const a = el('div'); a.appendChild(document.createTextNode(money(s.cashback))); a.appendChild(el('small', '', 'cashback')); sd.appendChild(a);
   const b = el('div'); b.appendChild(document.createTextNode(String(s.pontos))); b.appendChild(el('small', '', 'pontos')); sd.appendChild(b); res.appendChild(sd);
@@ -3043,7 +3062,7 @@ function desenharCliente(res){
   bt.onclick = ()=>tentar(async()=>{ const n = num(v.value); if(n === null || n === 0) throw new Error('Informe um valor diferente de zero.');
     await rpc('painel_ajustar_carteira', {p_loja:LOJA, p_telefone:tel, p_carteira:car.value, p_valor:n, p_motivo:mo.value.trim() || null});
     const s2 = await rpc('saldo_cliente', {p_loja:LOJA, p_telefone:tel}); const norm = tel.length >= 12 && tel.indexOf('55') === 0 ? tel.slice(2) : tel;
-    const e2 = await api(`/rest/v1/carteira_mov?loja_id=eq.${LOJA}&telefone=eq.${norm}&order=criado_em.desc&limit=25`); clienteBusca = {tel, s:s2, ext:e2}; desenharCliente(res); }, 'Ajuste aplicado');
+    const e2 = await api(`/rest/v1/carteira_mov?loja_id=eq.${LOJA}&telefone=eq.${norm}&order=criado_em.desc&limit=25`); clienteBusca = {tel, s:s2, ext:e2, dados:clienteBusca.dados}; desenharCliente(res); }, 'Ajuste aplicado');
   aj.appendChild(bt); res.appendChild(aj);
   res.appendChild(el('h2', '', 'Extrato (últimos 25)'));
   if(!ext.length){ res.appendChild(el('div', 'vazio', 'Nenhuma movimentação.')); return; }

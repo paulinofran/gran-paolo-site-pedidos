@@ -400,13 +400,47 @@ async function categoriasDoCardapio(){
     .filter(c => c.produtos.length);
 }
 function reais(v){ return 'R$ ' + Number(v).toFixed(2).replace('.', ','); }
+function editarCliente(p, nota){
+  const fundo = el('div', 'modal-fundo'); const m = el('div', 'modal-pag'); fundo.appendChild(m);
+  m.style.maxHeight = '92vh'; m.style.overflowY = 'auto';
+  m.appendChild(el('h3', '', 'Cliente do pedido #' + p.numero));
+  if(nota){ const n = el('p', '', nota); n.style.cssText = 'font-size:13px;color:#7a6a5a;'; m.appendChild(n); }
+  const css = 'width:100%;padding:11px;border:1.5px solid #E5DCCD;border-radius:10px;font-size:16px;margin-bottom:8px;background:#fff;color:#2A1D15;';
+  const ehEnt = p.modalidade === 'Entrega';
+  m.appendChild(el('div', 'rotulo', 'Nome do cliente'));
+  const inNome = document.createElement('input'); inNome.type = 'text'; inNome.value = p.nome || ''; inNome.style.cssText = css; m.appendChild(inNome);
+  m.appendChild(el('div', 'rotulo', ehEnt ? 'Endereço de entrega (o bairro e a taxa não mudam aqui)' : 'Endereço (anotação)'));
+  const inEnd = document.createElement('input'); inEnd.type = 'text'; inEnd.value = p.endereco || ''; inEnd.style.cssText = css; m.appendChild(inEnd);
+  const mkChk = (txt, marcado) => { const lb = el('label', 'nota-pediu'); const c = document.createElement('input'); c.type = 'checkbox'; c.checked = marcado; lb.appendChild(c); lb.appendChild(document.createTextNode(txt)); m.appendChild(lb); return c; };
+  const chkCad = mkChk('Atualizar também no cadastro do cliente (CRM)', true);
+  const chkImp = mkChk('Reimprimir a cópia do caixa', false);
+  const erro = el('div', 'rotulo', ''); erro.style.cssText = 'color:#b3261e;font-weight:700;font-size:14px;margin:6px 0;display:none;'; m.appendChild(erro);
+  const rod = el('div', 'rodape'); const volta = el('button', 'cancelar', 'Voltar'); volta.onclick = () => fundo.remove();
+  const conf = el('button', 'confirmar', 'Salvar');
+  conf.onclick = async () => {
+    conf.disabled = true; erro.style.display = 'none';
+    try{
+      const end = inEnd.value.trim();
+      if(ehEnt && end !== String(p.endereco || '').trim() && end.length >= 5){
+        await rpc('painel_editar_entrega', {p_pedido: p.id, p_endereco: end, p_bairro: p.bairro || ''});
+      }
+      await rpc('painel_editar_cliente_pedido', {p_pedido: p.id, p_nome: inNome.value.trim(), p_endereco: end || null, p_cadastro: chkCad.checked, p_reimprimir: chkImp.checked});
+      fundo.remove(); document.getElementById('modalEditar') && document.getElementById('modalEditar').remove(); await carregar();
+    }catch(e){
+      let t = String((e && e.message) || e || '');
+      try{ const j = JSON.parse(t); t = j.message || j.hint || j.details || t; }catch(x){}
+      erro.textContent = (t && t.length < 220) ? t : 'Não consegui salvar. Tente de novo.'; erro.style.display = ''; conf.disabled = false;
+    }
+  };
+  rod.appendChild(volta); rod.appendChild(conf); m.appendChild(rod); document.body.appendChild(fundo);
+}
 function editarPedido(p){
   if(p.conta_id){
-    avisoErro('O pedido #' + p.numero + ' foi lançado no PDV. Para trocar o pagamento ou acrescentar item, use a Conta no PDV.');
+    editarCliente(p, 'Este pedido foi lançado no PDV: item, borda e pagamento mudam pela Conta no PDV. Aqui dá para corrigir o nome e o endereço.');
     return;
   }
   if(p.pagamento === 'Pix online (QR Code)' || p.mp_status){
-    avisoErro('O pedido #' + p.numero + ' foi pago pelo Pix do site. Para acrescentar algo, lance como novo pedido no PDV; para trocar a forma, devolva o Pix primeiro.');
+    editarCliente(p, 'Este pedido foi pago pelo Pix do site: para acrescentar algo, lance como novo pedido no PDV. Aqui dá para corrigir o nome e o endereço.');
     return;
   }
   const atual = formaDeclarada(p);
@@ -441,6 +475,36 @@ function editarPedido(p){
       atualizar();
     };
   }
+
+  /* ---- cliente ---- */
+  const btnCli = el('button', 'opcao', '✏️ Corrigir nome / endereço do cliente'); btnCli.style.cssText = 'width:100%;margin-bottom:12px;padding:11px;font-size:15px;';
+  btnCli.onclick = () => editarCliente(p, ''); m.appendChild(btnCli);
+
+  /* ---- borda de cada pizza ---- */
+  const bordaNova = {};     // posicao do item -> nome da borda escolhida ('' = sem borda)
+  const BORDA_RE = / • Borda: (.+?)(?= — | • Obs: |$)/;
+  const bordasCard = ((cardapioEdicao && cardapioEdicao.bordas) || []).filter(b => Number(b.preco) > 0).map(b => ({nome: b.nome, preco: Number(b.preco)}));
+  const ehPizzaItem = i => /^(grande|pequena|m[eé]dia)/i.test(String(i.tamanho || '').trim()) && !/gr[aá]tis\)/i.test(String(i.tamanho || '')) ;
+  const bordaAtualDe = i => { const mt = BORDA_RE.exec(String(i.tamanho || '')); return mt ? mt[1].trim() : ''; };
+  const precoBorda = nm => { const b = bordasCard.find(x => x.nome.toLowerCase() === String(nm).toLowerCase()); return b ? b.preco : 0; };
+  const bordaDelta = () => Object.keys(bordaNova).reduce((s, k) => { const i = (p.itens || [])[k] || {}; return s + (Number(i.qtd) || 1) * (precoBorda(bordaNova[k]) - precoBorda(bordaAtualDe(i))); }, 0);
+  const caixaBorda = el('div', ''); caixaBorda.style.cssText = 'background:#F7F1E8;border-radius:12px;padding:10px;margin-bottom:12px;font-size:15px;display:none;';
+  m.appendChild(el('div', 'rotulo', 'Borda das pizzas')); m.appendChild(caixaBorda);
+  const desenharBordas = () => {
+    caixaBorda.textContent = '';
+    (p.itens || []).forEach((i, k) => {
+      if(!ehPizzaItem(i) || !bordasCard.length) return;
+      const l = el('div', ''); l.style.cssText = 'display:flex;gap:8px;align-items:center;padding:4px 0;flex-wrap:wrap;';
+      const t = el('span', '', rotItem(i).replace(/ • Borda: .*$/, '')); t.style.flex = '1 1 160px';
+      const sel = document.createElement('select'); sel.style.cssText = 'padding:8px;border:1.5px solid #E5DCCD;border-radius:10px;font-size:15px;background:#fff;color:#2A1D15;';
+      const o0 = document.createElement('option'); o0.value = ''; o0.textContent = 'Sem borda'; sel.appendChild(o0);
+      bordasCard.forEach(b => { const o = document.createElement('option'); o.value = b.nome; o.textContent = b.nome + ' +' + reais(b.preco); sel.appendChild(o); });
+      sel.value = (k in bordaNova) ? bordaNova[k] : bordaAtualDe(i);
+      sel.onchange = () => { if(sel.value === bordaAtualDe(i)) delete bordaNova[k]; else bordaNova[k] = sel.value; atualizar(); };
+      l.appendChild(t); l.appendChild(sel); caixaBorda.appendChild(l);
+    });
+    caixaBorda.style.display = caixaBorda.children.length ? '' : 'none';
+  };
 
   /* ---- tirar item ---- */
   const itensPed = Array.isArray(p.itens) ? p.itens : [];
@@ -495,7 +559,7 @@ function editarPedido(p){
     return ROTULO_PAG[forma];
   };
   const conf = el('button', 'confirmar', 'Salvar'); conf.id = 'btnSalvarEdicao';
-  const totalNovo = () => Math.max(0, Number(p.total) - tirarSoma() + (taxaNova - taxaAtual) + novos.reduce((s, i) => s + i.precoUnit * i.qtd, 0));
+  const totalNovo = () => Math.max(0, Number(p.total) - tirarSoma() + bordaDelta() + (taxaNova - taxaAtual) + novos.reduce((s, i) => s + i.precoUnit * i.qtd, 0));
   const pagMudou = () => !!forma && (forma !== atual || rotuloPag() !== p.pagamento || ((forma === 'Débito' || forma === 'Crédito') && (bandeira || null) !== (p.bandeira || null)));
   const atualizar = () => {
     sub.textContent = (p.nome || '') + ' · ' + reais(totalNovo()) + (Math.abs(totalNovo() - Number(p.total)) > 0.004 ? ' (era ' + reais(p.total) + ')' : '') + ' · cobrar: ' + (p.pagamento || '—');
@@ -525,7 +589,7 @@ function editarPedido(p){
       x.onclick = () => { novos.splice(k, 1); atualizar(); };
       l.appendChild(x); lista.appendChild(l);
     });
-    lbCoz.style.display = (novos.length || tirar.size) ? '' : 'none';
+    lbCoz.style.display = (novos.length || tirar.size || Object.keys(bordaNova).length) ? '' : 'none';
     [...op.children].forEach(b => b.classList.toggle('sel', b.dataset.forma === forma));
     const cartao = forma === 'Débito' || forma === 'Crédito';
     rotBand.style.display = band.style.display = cartao ? '' : 'none';
@@ -537,7 +601,7 @@ function editarPedido(p){
     if(trocoRuim){ erroEd.textContent = isNaN(t) ? 'Troco inválido. Digite só o valor da nota, por exemplo 50.' : 'O troco precisa ser maior ou igual ao total (' + reais(totalNovo()) + ').'; erroEd.style.display = ''; }
     else if(erroEd.dataset.troco === '1'){ erroEd.style.display = 'none'; }
     erroEd.dataset.troco = trocoRuim ? '1' : '';
-    conf.disabled = !(novos.length || tirar.size || pagMudou() || endMudou()) || (pagMudou() && cartao && !bandeira) || trocoRuim;   // bandeira so e exigida se a forma de pagamento foi mudada
+    conf.disabled = !(novos.length || tirar.size || Object.keys(bordaNova).length || pagMudou() || endMudou()) || (pagMudou() && cartao && !bandeira) || trocoRuim;   // bandeira so e exigida se a forma de pagamento foi mudada
   };
   FORMAS_PAG.forEach(f => { const b = el('button', 'opcao', f); b.dataset.forma = f; b.onclick = () => { forma = f; if(f !== 'Débito' && f !== 'Crédito') bandeira = null; atualizar(); }; op.appendChild(b); });
   m.appendChild(rotBand); m.appendChild(band); m.appendChild(caixaTroco); m.appendChild(lbNota);
@@ -557,7 +621,7 @@ function editarPedido(p){
     lista.forEach(b => { const o = document.createElement('option'); o.value = b.nome; o.textContent = b.nome + ' · ' + reais(b.taxa); selBairro.appendChild(o); });
     selBairro.value = p.bairro || ''; bairroNovo = selBairro.value; atualizar();
   }).catch(() => {});
-  categoriasDoCardapio().then(c => { cats = c; povoar(selCat, cats, x => x.nome); trocouCat(); })
+  categoriasDoCardapio().then(c => { cats = c; povoar(selCat, cats, x => x.nome); trocouCat(); desenharBordas(); atualizar(); })
     .catch(() => { caixaItem.textContent = 'Não consegui carregar o cardápio. Feche e tente de novo.'; });
   btnAdd.onclick = () => {
     const c = cats[selCat.value], x = c && c.produtos[selProd.value], t = x && x.tamanhos[selTam.value];
@@ -575,6 +639,17 @@ function editarPedido(p){
       if(endMudou()){
         await rpc('painel_editar_entrega', {p_pedido: p.id, p_endereco: inEnd.value.trim(), p_bairro: bairroNovo});
         p.total = Number(p.total) - taxaAtual + taxaNova; p.taxa_entrega = taxaNova; p.endereco = inEnd.value.trim(); p.bairro = bairroNovo; taxaAtual = taxaNova;
+      }
+      for(const k of Object.keys(bordaNova)){
+        await rpc('painel_definir_borda', {p_pedido: p.id, p_indice: Number(k), p_borda: bordaNova[k], p_cozinha: chkCoz.checked});
+        const i = (p.itens || [])[k]; if(i){
+          const velha = bordaAtualDe(i), delta = precoBorda(bordaNova[k]) - precoBorda(velha);
+          let tz = String(i.tamanho || '').replace(/ • Borda: .+?(?= — | • Obs: |$)/, '');
+          const ix = tz.indexOf(' • Obs: '); const ob = ix >= 0 ? tz.slice(ix) : ''; if(ix >= 0) tz = tz.slice(0, ix);
+          i.tamanho = tz + (bordaNova[k] ? ' • Borda: ' + bordaNova[k] : '') + ob; i.precoUnit = Number(i.precoUnit) + delta;
+          p.total = Number(p.total) + (Number(i.qtd) || 1) * delta;
+        }
+        delete bordaNova[k];
       }
       if(tirar.size){
         await rpc('painel_remover_itens', {p_pedido: p.id, p_indices: [...tirar].sort((a, b) => a - b), p_cozinha: chkCoz.checked});
